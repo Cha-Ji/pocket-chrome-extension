@@ -421,3 +421,79 @@ export const Stochastic = {
     return calculateStochastic(highs, lows, closes, kPeriod, dPeriod)
   },
 }
+
+// ============================================================
+// SMMA (Smoothed Moving Average)
+// Used in 비트신옵션 SMMA+Stochastic strategy
+// ============================================================
+
+/**
+ * Calculate SMMA (Smoothed Moving Average)
+ * SMMA = (SMMA_prev * (period - 1) + close) / period
+ * First value is SMA
+ */
+export function calculateSMMA(data: number[], period: number): number | null {
+  if (data.length < period || period <= 0) return null
+  
+  // First SMMA value is SMA
+  let smma = data.slice(0, period).reduce((a, b) => a + b, 0) / period
+  
+  // Calculate subsequent SMMA values
+  for (let i = period; i < data.length; i++) {
+    smma = (smma * (period - 1) + data[i]) / period
+  }
+  
+  return smma
+}
+
+export const SMMA = {
+  /**
+   * Calculate SMMA for entire series
+   */
+  calculate(data: number[], period: number): number[] {
+    if (data.length < period) return []
+    
+    const results: number[] = []
+    
+    // First value is SMA
+    let smma = data.slice(0, period).reduce((a, b) => a + b, 0) / period
+    results.push(smma)
+    
+    // Subsequent values
+    for (let i = period; i < data.length; i++) {
+      smma = (smma * (period - 1) + data[i]) / period
+      results.push(smma)
+    }
+    
+    return results
+  },
+
+  /**
+   * Calculate multiple SMMA lines at once
+   */
+  calculateMultiple(data: number[], periods: number[]): Map<number, number[]> {
+    const result = new Map<number, number[]>()
+    for (const period of periods) {
+      result.set(period, this.calculate(data, period))
+    }
+    return result
+  },
+
+  /**
+   * Get latest SMMA value
+   */
+  latest(data: number[], period: number): number | null {
+    return calculateSMMA(data, period)
+  },
+
+  /**
+   * Get latest values for multiple periods
+   */
+  latestMultiple(data: number[], periods: number[]): Map<number, number | null> {
+    const result = new Map<number, number | null>()
+    for (const period of periods) {
+      result.set(period, this.latest(data, period))
+    }
+    return result
+  },
+}
