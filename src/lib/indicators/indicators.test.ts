@@ -7,6 +7,9 @@ import {
   calculateMACD,
   calculateStochastic,
   calculateStochasticFromCloses,
+  calculateTripleStochastic,
+  calculateTripleStochasticFromCloses,
+  getTripleStochasticZone,
   crossAbove,
   crossBelow,
 } from './index'
@@ -205,6 +208,166 @@ describe('Technical Indicators', () => {
 
     it('should return null for insufficient data', () => {
       expect(calculateStochasticFromCloses([1, 2, 3], 14, 3)).toBeNull()
+    })
+  })
+
+  // ============================================================
+  // Triple Stochastic Tests (고승덕 3스토캐스틱)
+  // ============================================================
+  describe('calculateTripleStochastic', () => {
+    it('should calculate all three stochastics', () => {
+      // Generate enough data for long-term (20+12 = 32 points needed)
+      const data = Array(50).fill(0).map((_, i) => 100 + Math.sin(i * 0.5) * 10)
+      
+      const triple = calculateTripleStochastic(data, data, data)
+      
+      expect(triple.short).not.toBeNull()
+      expect(triple.mid).not.toBeNull()
+      expect(triple.long).not.toBeNull()
+    })
+
+    it('should use default params (5,3), (10,6), (20,12)', () => {
+      const data = Array(50).fill(0).map((_, i) => 100 + i)
+      
+      const triple = calculateTripleStochastic(data, data, data)
+      
+      // All should be valid with enough data
+      expect(triple.short).not.toBeNull()
+      expect(triple.mid).not.toBeNull()
+      expect(triple.long).not.toBeNull()
+    })
+
+    it('should return null for short-term with insufficient data', () => {
+      const data = [1, 2, 3] // Too short
+      const triple = calculateTripleStochastic(data, data, data)
+      
+      expect(triple.short).toBeNull()
+      expect(triple.mid).toBeNull()
+      expect(triple.long).toBeNull()
+    })
+
+    it('should allow custom params', () => {
+      const data = Array(30).fill(0).map((_, i) => 100 + i)
+      
+      const triple = calculateTripleStochastic(
+        data, data, data,
+        [3, 2],  // custom short
+        [7, 4],  // custom mid
+        [14, 7]  // custom long
+      )
+      
+      expect(triple.short).not.toBeNull()
+      expect(triple.mid).not.toBeNull()
+      expect(triple.long).not.toBeNull()
+    })
+  })
+
+  describe('calculateTripleStochasticFromCloses', () => {
+    it('should work with close prices only', () => {
+      const data = Array(50).fill(0).map((_, i) => 100 + Math.sin(i) * 5)
+      const triple = calculateTripleStochasticFromCloses(data)
+      
+      expect(triple.short).not.toBeNull()
+      expect(triple.mid).not.toBeNull()
+      expect(triple.long).not.toBeNull()
+    })
+  })
+
+  describe('getTripleStochasticZone', () => {
+    it('should detect all overbought', () => {
+      // All values above 80
+      const triple = {
+        short: { k: 85, d: 82 },
+        mid: { k: 90, d: 88 },
+        long: { k: 81, d: 80 },
+      }
+      
+      const zone = getTripleStochasticZone(triple)
+      
+      expect(zone.short).toBe('overbought')
+      expect(zone.mid).toBe('overbought')
+      expect(zone.long).toBe('overbought')
+      expect(zone.allOverbought).toBe(true)
+      expect(zone.allOversold).toBe(false)
+    })
+
+    it('should detect all oversold', () => {
+      // All values below 20
+      const triple = {
+        short: { k: 15, d: 18 },
+        mid: { k: 10, d: 12 },
+        long: { k: 19, d: 20 },
+      }
+      
+      const zone = getTripleStochasticZone(triple)
+      
+      expect(zone.short).toBe('oversold')
+      expect(zone.mid).toBe('oversold')
+      expect(zone.long).toBe('oversold')
+      expect(zone.allOversold).toBe(true)
+      expect(zone.allOverbought).toBe(false)
+    })
+
+    it('should detect neutral zone', () => {
+      const triple = {
+        short: { k: 50, d: 50 },
+        mid: { k: 50, d: 50 },
+        long: { k: 50, d: 50 },
+      }
+      
+      const zone = getTripleStochasticZone(triple)
+      
+      expect(zone.short).toBe('neutral')
+      expect(zone.mid).toBe('neutral')
+      expect(zone.long).toBe('neutral')
+      expect(zone.allOverbought).toBe(false)
+      expect(zone.allOversold).toBe(false)
+    })
+
+    it('should handle mixed zones', () => {
+      const triple = {
+        short: { k: 85, d: 82 }, // overbought
+        mid: { k: 50, d: 50 },   // neutral
+        long: { k: 15, d: 18 },  // oversold
+      }
+      
+      const zone = getTripleStochasticZone(triple)
+      
+      expect(zone.short).toBe('overbought')
+      expect(zone.mid).toBe('neutral')
+      expect(zone.long).toBe('oversold')
+      expect(zone.allOverbought).toBe(false)
+      expect(zone.allOversold).toBe(false)
+    })
+
+    it('should handle null values', () => {
+      const triple = {
+        short: null,
+        mid: { k: 50, d: 50 },
+        long: null,
+      }
+      
+      const zone = getTripleStochasticZone(triple)
+      
+      expect(zone.short).toBe('neutral')
+      expect(zone.mid).toBe('neutral')
+      expect(zone.long).toBe('neutral')
+    })
+
+    it('should allow custom thresholds', () => {
+      const triple = {
+        short: { k: 75, d: 72 },
+        mid: { k: 75, d: 72 },
+        long: { k: 75, d: 72 },
+      }
+      
+      // With default 80/20, this would be neutral
+      const defaultZone = getTripleStochasticZone(triple)
+      expect(defaultZone.allOverbought).toBe(false)
+      
+      // With custom 70/30, this is overbought
+      const customZone = getTripleStochasticZone(triple, 70, 30)
+      expect(customZone.allOverbought).toBe(true)
     })
   })
 

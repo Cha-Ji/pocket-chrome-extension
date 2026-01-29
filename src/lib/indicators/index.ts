@@ -216,6 +216,89 @@ export function calculateStochasticFromCloses(
 }
 
 /**
+ * Triple Stochastic (고승덕 3스토캐스틱)
+ * 단기/중기/장기 3개의 스토캐스틱을 동시에 계산
+ * @param highs - Array of high prices
+ * @param lows - Array of low prices
+ * @param closes - Array of close prices
+ * @param shortParams - 단기 [kPeriod, dPeriod] (default: [5, 3])
+ * @param midParams - 중기 [kPeriod, dPeriod] (default: [10, 6])
+ * @param longParams - 장기 [kPeriod, dPeriod] (default: [20, 12])
+ * @returns { short, mid, long } 각각 { k, d } 값
+ */
+export function calculateTripleStochastic(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  shortParams: [number, number] = [5, 3],
+  midParams: [number, number] = [10, 6],
+  longParams: [number, number] = [20, 12]
+): {
+  short: { k: number; d: number } | null
+  mid: { k: number; d: number } | null
+  long: { k: number; d: number } | null
+} {
+  return {
+    short: calculateStochastic(highs, lows, closes, shortParams[0], shortParams[1]),
+    mid: calculateStochastic(highs, lows, closes, midParams[0], midParams[1]),
+    long: calculateStochastic(highs, lows, closes, longParams[0], longParams[1]),
+  }
+}
+
+/**
+ * Triple Stochastic from closes only (간편 버전)
+ */
+export function calculateTripleStochasticFromCloses(
+  data: number[],
+  shortParams: [number, number] = [5, 3],
+  midParams: [number, number] = [10, 6],
+  longParams: [number, number] = [20, 12]
+): {
+  short: { k: number; d: number } | null
+  mid: { k: number; d: number } | null
+  long: { k: number; d: number } | null
+} {
+  return calculateTripleStochastic(data, data, data, shortParams, midParams, longParams)
+}
+
+/**
+ * Check Triple Stochastic zone (과매수/과매도 영역 체크)
+ * @param triple - Triple stochastic result
+ * @param overbought - 과매수 기준 (default: 80)
+ * @param oversold - 과매도 기준 (default: 20)
+ */
+export function getTripleStochasticZone(
+  triple: ReturnType<typeof calculateTripleStochastic>,
+  overbought: number = 80,
+  oversold: number = 20
+): {
+  short: 'overbought' | 'oversold' | 'neutral'
+  mid: 'overbought' | 'oversold' | 'neutral'
+  long: 'overbought' | 'oversold' | 'neutral'
+  allOverbought: boolean
+  allOversold: boolean
+} {
+  const getZone = (stoch: { k: number; d: number } | null) => {
+    if (!stoch) return 'neutral'
+    if (stoch.k >= overbought) return 'overbought'
+    if (stoch.k <= oversold) return 'oversold'
+    return 'neutral'
+  }
+
+  const shortZone = getZone(triple.short)
+  const midZone = getZone(triple.mid)
+  const longZone = getZone(triple.long)
+
+  return {
+    short: shortZone,
+    mid: midZone,
+    long: longZone,
+    allOverbought: shortZone === 'overbought' && midZone === 'overbought' && longZone === 'overbought',
+    allOversold: shortZone === 'oversold' && midZone === 'oversold' && longZone === 'oversold',
+  }
+}
+
+/**
  * Check if indicator crosses above a threshold
  */
 export function crossAbove(current: number, previous: number, threshold: number): boolean {
