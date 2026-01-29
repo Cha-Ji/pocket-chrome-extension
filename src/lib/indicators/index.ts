@@ -311,3 +311,113 @@ export function crossAbove(current: number, previous: number, threshold: number)
 export function crossBelow(current: number, previous: number, threshold: number): boolean {
   return previous > threshold && current <= threshold
 }
+
+// ============================================================
+// Class-style Wrappers for Backtest Module
+// ============================================================
+
+export const RSI = {
+  /**
+   * Calculate RSI for entire series
+   */
+  calculate(data: number[], period: number = 14): number[] {
+    const results: number[] = []
+    for (let i = period + 1; i <= data.length; i++) {
+      const slice = data.slice(0, i)
+      const rsi = calculateRSI(slice, period)
+      if (rsi !== null) results.push(rsi)
+    }
+    return results
+  },
+
+  /**
+   * Get latest RSI value
+   */
+  latest(data: number[], period: number = 14): number | null {
+    return calculateRSI(data, period)
+  },
+}
+
+export const SMA = {
+  calculate(data: number[], period: number): number[] {
+    const results: number[] = []
+    for (let i = period; i <= data.length; i++) {
+      const slice = data.slice(0, i)
+      const sma = calculateSMA(slice, period)
+      if (sma !== null) results.push(sma)
+    }
+    return results
+  },
+
+  latest(data: number[], period: number): number | null {
+    return calculateSMA(data, period)
+  },
+}
+
+export const EMA = {
+  calculate(data: number[], period: number): number[] {
+    const results: number[] = []
+    for (let i = period; i <= data.length; i++) {
+      const slice = data.slice(0, i)
+      const ema = calculateEMA(slice, period)
+      if (ema !== null) results.push(ema)
+    }
+    return results
+  },
+
+  latest(data: number[], period: number): number | null {
+    return calculateEMA(data, period)
+  },
+}
+
+export const BollingerBands = {
+  calculate(data: number[], period: number = 20, stdDev: number = 2): { upper: number; middle: number; lower: number }[] {
+    const results: { upper: number; middle: number; lower: number }[] = []
+    for (let i = period; i <= data.length; i++) {
+      const slice = data.slice(0, i)
+      const bb = calculateBollingerBands(slice, period, stdDev)
+      if (bb !== null) results.push(bb)
+    }
+    return results
+  },
+
+  latest(data: number[], period: number = 20, stdDev: number = 2): { upper: number; middle: number; lower: number } | null {
+    return calculateBollingerBands(data, period, stdDev)
+  },
+}
+
+export const MACD = {
+  calculate(data: number[], fastPeriod: number = 12, slowPeriod: number = 26, signalPeriod: number = 9): { macd: number; signal: number; histogram: number }[] {
+    const results: { macd: number; signal: number; histogram: number }[] = []
+    for (let i = slowPeriod + signalPeriod; i <= data.length; i++) {
+      const slice = data.slice(0, i)
+      const macd = calculateMACD(slice, fastPeriod, slowPeriod, signalPeriod)
+      if (macd !== null) results.push(macd)
+    }
+    return results
+  },
+
+  latest(data: number[], fastPeriod: number = 12, slowPeriod: number = 26, signalPeriod: number = 9): { macd: number; signal: number; histogram: number } | null {
+    return calculateMACD(data, fastPeriod, slowPeriod, signalPeriod)
+  },
+}
+
+export const Stochastic = {
+  calculate(highs: number[], lows: number[], closes: number[], kPeriod: number = 14, dPeriod: number = 3, _smooth: number = 1): { k: number; d: number }[] {
+    const results: { k: number; d: number }[] = []
+    const minLen = Math.min(highs.length, lows.length, closes.length)
+    
+    for (let i = kPeriod + dPeriod - 1; i <= minLen; i++) {
+      const h = highs.slice(0, i)
+      const l = lows.slice(0, i)
+      const c = closes.slice(0, i)
+      const stoch = calculateStochastic(h, l, c, kPeriod, dPeriod)
+      if (stoch !== null) results.push(stoch)
+    }
+    return results
+  },
+
+  latest(highs: number[], lows: number[], closes: number[], kPeriod: number = 14, dPeriod: number = 3): { k: number; d: number } | null {
+    return calculateStochastic(highs, lows, closes, kPeriod, dPeriod)
+  },
+}
