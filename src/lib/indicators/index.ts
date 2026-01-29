@@ -153,6 +153,69 @@ export function calculateMACD(
 }
 
 /**
+ * Stochastic Oscillator
+ * @param highs - Array of high prices
+ * @param lows - Array of low prices
+ * @param closes - Array of close prices
+ * @param kPeriod - %K period (typically 14)
+ * @param dPeriod - %D period (typically 3)
+ * @returns { k, d } or null if insufficient data
+ */
+export function calculateStochastic(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  kPeriod: number = 14,
+  dPeriod: number = 3
+): { k: number; d: number } | null {
+  const minLength = Math.min(highs.length, lows.length, closes.length)
+  if (minLength < kPeriod + dPeriod - 1 || kPeriod <= 0 || dPeriod <= 0) return null
+
+  const kValues: number[] = []
+
+  // Calculate %K for each point
+  for (let i = kPeriod - 1; i < minLength; i++) {
+    const highSlice = highs.slice(i - kPeriod + 1, i + 1)
+    const lowSlice = lows.slice(i - kPeriod + 1, i + 1)
+    const close = closes[i]
+
+    const highestHigh = Math.max(...highSlice)
+    const lowestLow = Math.min(...lowSlice)
+
+    const range = highestHigh - lowestLow
+    const k = range === 0 ? 50 : ((close - lowestLow) / range) * 100
+    kValues.push(k)
+  }
+
+  if (kValues.length < dPeriod) return null
+
+  // %K is the latest raw stochastic value
+  const k = kValues[kValues.length - 1]
+
+  // %D is SMA of %K
+  const dSlice = kValues.slice(-dPeriod)
+  const d = dSlice.reduce((sum, val) => sum + val, 0) / dPeriod
+
+  return { k, d }
+}
+
+/**
+ * Fast Stochastic (using close prices only, approximation)
+ * Useful when only close prices are available
+ * @param data - Array of close prices
+ * @param kPeriod - %K period (typically 14)
+ * @param dPeriod - %D period (typically 3)
+ */
+export function calculateStochasticFromCloses(
+  data: number[],
+  kPeriod: number = 14,
+  dPeriod: number = 3
+): { k: number; d: number } | null {
+  // Use close prices as proxy for high/low (simplified)
+  return calculateStochastic(data, data, data, kPeriod, dPeriod)
+}
+
+/**
  * Check if indicator crosses above a threshold
  */
 export function crossAbove(current: number, previous: number, threshold: number): boolean {

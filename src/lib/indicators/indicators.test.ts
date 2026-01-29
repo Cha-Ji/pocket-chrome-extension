@@ -5,6 +5,8 @@ import {
   calculateRSI,
   calculateBollingerBands,
   calculateMACD,
+  calculateStochastic,
+  calculateStochasticFromCloses,
   crossAbove,
   crossBelow,
 } from './index'
@@ -124,6 +126,85 @@ describe('Technical Indicators', () => {
 
     it('should return null for insufficient data', () => {
       expect(calculateMACD(Array(20).fill(100), 12, 26, 9)).toBeNull()
+    })
+  })
+
+  // ============================================================
+  // Stochastic Tests
+  // ============================================================
+  describe('calculateStochastic', () => {
+    it('should calculate stochastic correctly', () => {
+      // Generate sample OHLC data
+      const highs = [44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.10, 45.42, 45.84,
+                     46.08, 45.89, 46.03, 45.61, 46.28, 46.28, 46.00, 46.03, 46.41]
+      const lows = [43.94, 43.72, 43.89, 43.21, 43.98, 44.23, 44.52, 44.96, 45.23,
+                    45.45, 45.34, 45.48, 45.15, 45.81, 45.91, 45.53, 45.56, 45.94]
+      const closes = [44.09, 43.96, 44.02, 43.55, 44.22, 44.76, 44.95, 45.30, 45.65,
+                      45.95, 45.72, 45.89, 45.35, 46.12, 46.08, 45.89, 45.98, 46.35]
+      
+      const stoch = calculateStochastic(highs, lows, closes, 14, 3)
+      
+      expect(stoch).not.toBeNull()
+      expect(stoch!.k).toBeGreaterThanOrEqual(0)
+      expect(stoch!.k).toBeLessThanOrEqual(100)
+      expect(stoch!.d).toBeGreaterThanOrEqual(0)
+      expect(stoch!.d).toBeLessThanOrEqual(100)
+    })
+
+    it('should return 100 at highest point', () => {
+      // Price at highest high
+      const highs = Array(14).fill(100)
+      const lows = Array(14).fill(90)
+      const closes = Array(14).fill(100) // Close at high
+      
+      const stoch = calculateStochastic(highs, lows, closes, 14, 1)
+      expect(stoch?.k).toBe(100)
+    })
+
+    it('should return 0 at lowest point', () => {
+      // Price at lowest low
+      const highs = Array(14).fill(100)
+      const lows = Array(14).fill(90)
+      const closes = Array(14).fill(90) // Close at low
+      
+      const stoch = calculateStochastic(highs, lows, closes, 14, 1)
+      expect(stoch?.k).toBe(0)
+    })
+
+    it('should return 50 at midpoint', () => {
+      const highs = Array(14).fill(100)
+      const lows = Array(14).fill(90)
+      const closes = Array(14).fill(95) // Close at midpoint
+      
+      const stoch = calculateStochastic(highs, lows, closes, 14, 1)
+      expect(stoch?.k).toBe(50)
+    })
+
+    it('should return null for insufficient data', () => {
+      expect(calculateStochastic([1, 2], [1, 2], [1, 2], 14, 3)).toBeNull()
+    })
+
+    it('should handle flat prices (no range)', () => {
+      const flatPrices = Array(20).fill(100)
+      const stoch = calculateStochastic(flatPrices, flatPrices, flatPrices, 14, 3)
+      
+      expect(stoch).not.toBeNull()
+      expect(stoch?.k).toBe(50) // Default when range is 0
+    })
+  })
+
+  describe('calculateStochasticFromCloses', () => {
+    it('should calculate stochastic from close prices only', () => {
+      const data = Array(20).fill(0).map((_, i) => 100 + Math.sin(i) * 5)
+      const stoch = calculateStochasticFromCloses(data, 14, 3)
+      
+      expect(stoch).not.toBeNull()
+      expect(stoch!.k).toBeGreaterThanOrEqual(0)
+      expect(stoch!.k).toBeLessThanOrEqual(100)
+    })
+
+    it('should return null for insufficient data', () => {
+      expect(calculateStochasticFromCloses([1, 2, 3], 14, 3)).toBeNull()
     })
   })
 

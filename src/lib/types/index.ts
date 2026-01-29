@@ -42,7 +42,7 @@ export interface IndicatorConfig {
   params: Record<string, number>
 }
 
-export type IndicatorType = 'RSI' | 'BB' | 'SMA' | 'EMA' | 'MACD'
+export type IndicatorType = 'RSI' | 'BB' | 'SMA' | 'EMA' | 'MACD' | 'STOCH'
 
 export interface EntryCondition {
   indicator: IndicatorType
