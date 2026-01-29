@@ -1,52 +1,122 @@
-# Progress Log
+# Pocket Quant Trader - Progress
 
-## 2026-01-29
+**최종 업데이트:** 2026-01-29 21:00 KST
 
-### 프로젝트 기반 구축 ✅
-- package.json 생성 (React, TypeScript, Dexie.js, Tailwind CSS, Vitest, Playwright)
-- tsconfig.json 설정
-- Vite + CRXJS 빌드 환경 구성
-- Tailwind CSS 설정
+## 📊 전체 진행률
 
-### Chrome Extension 구조 생성 ✅
-- manifest.json (Manifest V3)
-- Background Service Worker (`src/background/index.ts`)
-- Content Script (`src/content-script/`)
-  - DataCollector 클래스 (스텁)
-  - TradeExecutor 클래스 (스텁)
-- Side Panel UI (`src/side-panel/`)
-  - React 컴포넌트 (StatusCard, ControlPanel, LogViewer)
-  - Custom Hooks (useTradingStatus, useLogs)
+```
+[████████████░░░░░░░░] 60%
+```
 
-### 데이터베이스 구현 ✅
-- Dexie.js 스키마 정의
-- Repository 패턴으로 CRUD 구현
-  - TickRepository
-  - StrategyRepository
-  - SessionRepository
-  - TradeRepository
-- 유닛 테스트 작성
+## ✅ 완료된 모듈
 
-### 기술 지표 구현 ✅
-- SMA (Simple Moving Average)
-- EMA (Exponential Moving Average)
-- RSI (Relative Strength Index)
-- Bollinger Bands
-- MACD
-- Cross detection (crossAbove, crossBelow)
-- 유닛 테스트 작성
+### 1. 프로젝트 기반 (100%)
+- [x] TypeScript + Vite 설정
+- [x] Chrome Extension manifest v3
+- [x] 테스트 환경 (Vitest)
+- [x] Tailwind CSS 스타일링
 
-### 테스트 인프라 ✅
-- Vitest 설정 (unit tests)
-- Chrome API mocks
-- Playwright 설정 (e2e tests - 스텁)
-- fake-indexeddb 설정
+### 2. 타입 시스템 (100%)
+- [x] 핵심 타입 정의
+- [x] DOM 셀렉터 타입
+- [x] 데모 모드 감지 함수
 
-### 문서화 ✅
-- DOM Selectors 3-file 문서화 (로그인 후 작업 필요)
+### 3. 인디케이터 라이브러리 (100%)
+- [x] RSI
+- [x] SMA / EMA
+- [x] Bollinger Bands
+- [x] MACD
+- [x] Stochastic
+- [x] Triple Stochastic
 
-### 대기 중 (로그인 필요)
-- DOM 셀렉터 발견 및 구현
-- 실제 데이터 수집 테스트
-- 자동매매 로직 구현
-- E2E 테스트 완성
+### 4. 백테스트 엔진 (90%)
+- [x] 코어 엔진
+- [x] 전략 등록 시스템
+- [x] 결과 분석 (승률, 드로다운, 수익률)
+- [x] 파라미터 최적화
+- [x] 테스트 데이터 생성기
+- [ ] 실제 히스토리컬 데이터 연동
+
+### 5. RSI 전략 (100%)
+- [x] RSI 과매수/과매도
+- [x] RSI 다이버전스
+- [x] RSI + 볼린저밴드
+- [x] RSI + 스토캐스틱
+- [x] RSI 추세 추종
+
+### 6. 콘텐츠 스크립트 (70%)
+- [x] DOM 셀렉터 발견
+- [x] 데모 모드 감지
+- [x] 데이터 수집기 (기본)
+- [x] 거래 실행기
+- [x] 페이아웃 모니터
+- [ ] 실시간 가격 수집
+- [ ] 인디케이터 값 읽기
+
+### 7. 사이드 패널 UI (80%)
+- [x] 상태 카드
+- [x] 컨트롤 패널
+- [x] 로그 뷰어
+- [ ] 백테스트 결과 표시
+- [ ] 전략 설정 UI
+
+### 8. 백그라운드 서비스 (50%)
+- [x] 메시지 라우팅
+- [ ] 상태 관리
+- [ ] 알림 시스템
+
+### 9. RAG 시스템 (40%)
+- [x] 문서 저장 구조
+- [x] 검색 기능
+- [x] 조건 추출 유틸
+- [ ] YouTube 자막 추출
+- [ ] AI 전략 분석
+
+## 🔄 진행 중인 작업
+
+### 실시간 데이터 수집
+- WebSocket 분석 필요
+- 페이지 내 인디케이터 값 추출 시도 중
+
+### 데모 트레이딩 테스트
+- 2회 거래 실행 완료
+- RSI 계산 정확도 개선 필요
+
+## ⏳ 대기 중인 작업
+
+1. 실제 가격 데이터 연동
+2. 비트신 옵션 전략 학습
+3. 53%+ 승률 전략 탐색
+4. 자동매매 고도화
+
+## 🐛 알려진 이슈
+
+| ID | 심각도 | 설명 | 상태 |
+|----|--------|------|------|
+| #1 | 🔴 High | RSI 계산용 실시간 가격 없음 | 조사 중 |
+| #2 | 🟡 Med | 거래 결과 자동 추적 미구현 | 대기 |
+| #3 | 🟢 Low | 차트 에러 메시지 표시 | 무시 가능 |
+
+## 📈 테스트 현황
+
+```
+Test Suites: 11 passed
+Tests: 116 passed
+```
+
+## 🎯 다음 마일스톤
+
+**M1: 실시간 데이터 (예정: 1-2일)**
+- [ ] 가격 데이터 수집 방법 확정
+- [ ] RSI 값 실시간 읽기
+- [ ] 신호 정확도 검증
+
+**M2: 안정적인 데모 트레이딩 (예정: 3-5일)**
+- [ ] 10회 이상 자동 거래
+- [ ] 승률 50%+ 달성
+- [ ] 결과 로깅
+
+**M3: 전략 최적화 (예정: 1주일)**
+- [ ] 비트신 옵션 전략 학습
+- [ ] 53%+ 승률 전략 발견
+- [ ] 백테스트 검증
