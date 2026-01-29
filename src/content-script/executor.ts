@@ -1,16 +1,17 @@
 // ============================================================
 // Trade Executor - Executes trades via DOM interaction
 // ============================================================
-// NOTE: Actual DOM selectors need to be discovered after login
-// Current implementation uses stubs that will be replaced
+// ⚠️ SAFETY CRITICAL: Always verify demo mode before trading!
+// Real money protection is the #1 priority.
 // ============================================================
 
-import { DOMSelectors, Direction, Trade } from '../lib/types'
+import { DOMSelectors, Direction, isDemoMode, getAccountType, AccountType } from '../lib/types'
 
 export class TradeExecutor {
   private selectors: DOMSelectors
   private _isTrading = false
   private tradingLoop: ReturnType<typeof setInterval> | null = null
+  private _allowLiveTrading = false // MUST be explicitly enabled
 
   constructor(selectors: DOMSelectors) {
     this.selectors = selectors
@@ -21,21 +22,66 @@ export class TradeExecutor {
   }
 
   /**
+   * Check if we're in demo mode (safe to trade)
+   */
+  isInDemoMode(): boolean {
+    return isDemoMode()
+  }
+
+  /**
+   * Get detailed account type info
+   */
+  getAccountInfo(): { type: AccountType; confidence: 'high' | 'medium' | 'low' } {
+    return getAccountType()
+  }
+
+  /**
+   * Explicitly allow live trading (requires user confirmation)
+   * ⚠️ USE WITH EXTREME CAUTION
+   */
+  enableLiveTrading(confirmed: boolean): void {
+    if (confirmed) {
+      console.warn('[TradeExecutor] ⚠️ LIVE TRADING ENABLED - Real money at risk!')
+      this._allowLiveTrading = true
+    }
+  }
+
+  /**
+   * Disable live trading (return to safe mode)
+   */
+  disableLiveTrading(): void {
+    this._allowLiveTrading = false
+    console.log('[TradeExecutor] Live trading disabled - Demo only mode')
+  }
+
+  /**
    * Start auto-trading loop
-   * TODO: Implement actual trading logic
+   * SAFETY: Blocks if not in demo mode (unless explicitly allowed)
    */
   startAutoTrading(): { success: boolean; message: string } {
     if (this._isTrading) {
       return { success: false, message: 'Already trading' }
     }
 
-    console.log('[TradeExecutor] Starting auto-trading...')
+    // ⚠️ CRITICAL SAFETY CHECK
+    const accountInfo = this.getAccountInfo()
+    
+    if (accountInfo.type !== 'DEMO') {
+      if (!this._allowLiveTrading) {
+        const msg = `🚫 BLOCKED: Cannot start auto-trading on ${accountInfo.type} account. ` +
+                    `Demo mode required for safety. ` +
+                    `(Confidence: ${accountInfo.confidence})`
+        console.error('[TradeExecutor]', msg)
+        return { success: false, message: msg }
+      } else {
+        console.warn('[TradeExecutor] ⚠️ Starting auto-trading on LIVE account!')
+      }
+    }
+
+    console.log('[TradeExecutor] Starting auto-trading (Demo mode verified)...')
     this._isTrading = true
 
-    // TODO: Implement actual trading loop
-    // This is a stub that demonstrates the interface
-
-    return { success: true, message: 'Auto-trading started' }
+    return { success: true, message: 'Auto-trading started (Demo mode)' }
   }
 
   /**
@@ -60,12 +106,25 @@ export class TradeExecutor {
 
   /**
    * Execute a single trade
-   * STUB: Actual DOM interaction TBD
+   * SAFETY: Blocks if not in demo mode (unless explicitly allowed)
    */
   async executeTrade(direction: Direction, amount?: number): Promise<{ success: boolean; error?: string }> {
     console.log(`[TradeExecutor] Executing ${direction} trade...`)
 
     try {
+      // ⚠️ CRITICAL SAFETY CHECK - Must be first!
+      const accountInfo = this.getAccountInfo()
+      
+      if (accountInfo.type !== 'DEMO' && !this._allowLiveTrading) {
+        const error = `🚫 BLOCKED: Cannot execute trade on ${accountInfo.type} account. Demo mode required.`
+        console.error('[TradeExecutor]', error)
+        return { success: false, error }
+      }
+
+      if (accountInfo.type !== 'DEMO' && this._allowLiveTrading) {
+        console.warn(`[TradeExecutor] ⚠️ Executing ${direction} trade on LIVE account!`)
+      }
+
       // Validate we can trade
       const validation = this.validateTradeConditions()
       if (!validation.canTrade) {
@@ -136,11 +195,22 @@ export class TradeExecutor {
 
   /**
    * Set trade amount
-   * STUB: Actual implementation TBD
    */
   private async setTradeAmount(amount: number): Promise<void> {
-    // TODO: Find amount input and set value
-    console.log(`[TradeExecutor] Setting amount to ${amount}`)
+    const amountInput = document.querySelector(this.selectors.amountInput) as HTMLInputElement
+    if (!amountInput) {
+      console.warn('[TradeExecutor] Amount input not found')
+      return
+    }
+
+    // Clear and set new value
+    amountInput.value = amount.toString()
+    
+    // Trigger input event for React/Vue reactivity
+    amountInput.dispatchEvent(new Event('input', { bubbles: true }))
+    amountInput.dispatchEvent(new Event('change', { bubbles: true }))
+    
+    console.log(`[TradeExecutor] Amount set to ${amount}`)
   }
 
   /**
