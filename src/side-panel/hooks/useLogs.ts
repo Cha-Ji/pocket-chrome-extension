@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 
 export type LogLevel = 'info' | 'success' | 'warning' | 'error'
 
@@ -13,23 +13,22 @@ const MAX_LOGS = 100
 
 export function useLogs() {
   const [logs, setLogs] = useState<LogEntry[]>([])
-  const [nextId, setNextId] = useState(1)
+  const nextIdRef = useRef(1)
 
   const addLog = useCallback((level: LogLevel, message: string) => {
+    const newLog: LogEntry = {
+      id: nextIdRef.current++,
+      timestamp: Date.now(),
+      level,
+      message,
+    }
+    
     setLogs((prev) => {
-      const newLog: LogEntry = {
-        id: nextId,
-        timestamp: Date.now(),
-        level,
-        message,
-      }
-      setNextId((id) => id + 1)
-      
       const updated = [...prev, newLog]
       // Keep only last MAX_LOGS entries
       return updated.slice(-MAX_LOGS)
     })
-  }, [nextId])
+  }, [])
 
   const clearLogs = useCallback(() => {
     setLogs([])
