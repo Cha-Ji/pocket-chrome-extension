@@ -92,12 +92,27 @@ export interface TradeSnapshot {
 // ============================================================
 
 export type MessageType =
+  // Legacy V1
   | 'START_TRADING'
   | 'STOP_TRADING'
   | 'TICK_DATA'
   | 'TRADE_EXECUTED'
   | 'STATUS_UPDATE'
   | 'GET_STATUS'
+  // V2 API
+  | 'GET_STATUS_V2'
+  | 'GET_LLM_REPORT'
+  | 'SET_CONFIG_V2'
+  | 'START_TRADING_V2'
+  | 'STOP_TRADING_V2'
+  | 'GET_SIGNALS'
+  | 'GET_HIGH_PAYOUT_ASSETS'
+  | 'SWITCH_ASSET'
+  | 'EXPORT_CANDLES'
+  | 'UPDATE_SIGNAL_RESULT'
+  | 'NEW_SIGNAL_V2'
+  | 'PAYOUT_UPDATE'
+  | 'BEST_ASSET'
 
 export interface ExtensionMessage<T = unknown> {
   type: MessageType
