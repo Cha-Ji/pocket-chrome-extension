@@ -1,0 +1,42 @@
+{
+  "testInfo": {
+    "startTime": "2026-01-30T02:40:45.167Z",
+    "endTime": "2026-01-30T02:43:45.487Z",
+    "durationMinutes": 3,
+    "symbol": "BTCUSDT",
+    "initialBalance": 1000,
+    "riskPerTrade": "1%"
+  },
+  "summary": {
+    "totalTrades": 2,
+    "wins": 1,
+    "losses": 1,
+    "winRate": "50.0%",
+    "netProfit": "$-0.89",
+    "finalBalance": "$999.11"
+  },
+  "trades": [
+    {
+      "timestamp": "2026-01-30T02:41:56.043Z",
+      "symbol": "BTCUSDT",
+      "direction": "PUT",
+      "strategy": "Stochastic (14/3)",
+      "regime": "weak_uptrend",
+      "entryPrice": 82077.49,
+      "exitPrice": 82106.31,
+      "result": "LOSS",
+      "profit": -10
+    },
+    {
+      "timestamp": "2026-01-30T02:43:06.537Z",
+      "symbol": "BTCUSDT",
+      "direction": "PUT",
+      "strategy": "Stochastic (14/3)",
+      "regime": "weak_uptrend",
+      "entryPrice": 82086.75,
+      "exitPrice": 82030.02,
+      "result": "WIN",
+      "profit": 9.108
+    }
+  ]
+}
