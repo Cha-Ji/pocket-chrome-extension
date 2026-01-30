@@ -175,5 +175,10 @@ async function runForwardTest(durationMs: number = 180000) {
   return report
 }
 
-// Run for 3 minutes
-runForwardTest(180000).catch(console.error)
+// Get duration from command line arg (default: 60 minutes)
+const durationArg = process.argv[2]
+const durationMinutes = durationArg ? parseInt(durationArg) : 60
+const durationMs = durationMinutes * 60 * 1000
+
+console.log(`\n⏱️  Forward Test configured for ${durationMinutes} minutes\n`)
+runForwardTest(durationMs).catch(console.error)
