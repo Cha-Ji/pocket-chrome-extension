@@ -34,11 +34,24 @@
 - [x] 결과 저장 (JSON)
 - [x] 통계 분석
 
+## Phase 6: 백테스팅 개선 🔄 (2026-01-31)
+- [x] Forward Test 결과 분석
+- [x] 전략 V2 구현 (RSI 중심)
+- [x] Stochastic 비활성화 (실전 25% 실패)
+- [x] EMA Cross 조건 강화 (ADX 30+)
+- [x] DOM 기반 캔들 수집기 구현
+- [x] IndexedDB 캔들 저장소 추가
+- [x] SignalGenerator V2 구현
+- [x] LLM 친화적 리포트 생성기
+- [ ] Pocket Option 실전 테스트
+- [ ] 더 많은 과거 데이터 수집
+
 ---
 
 ## 다음 할 일 (TODO)
-- [ ] 더 긴 Forward Test (1시간+)
+- [ ] Pocket Option DOM 실제 연동 테스트
+- [ ] 1시간+ Forward Test (V2 전략)
 - [ ] 다양한 시장 상황에서 테스트
-- [ ] Pocket Option 실제 연동
+- [ ] PayoutMonitor 92%+ 자산 자동 선택
 - [ ] 알림 시스템 (Telegram)
 - [ ] 성과 대시보드
