@@ -292,7 +292,7 @@ export const RSITrend: Strategy = {
     return {
       direction,
       confidence,
-      indicators: { rsi: currentRSI, rising, falling },
+      indicators: { rsi: currentRSI, rising: rising ? 1 : 0, falling: falling ? 1 : 0 },
       reason: direction ? `RSI trend ${direction === 'CALL' ? 'bullish' : 'bearish'}` : undefined,
     }
   },

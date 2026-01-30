@@ -150,7 +150,7 @@ async function handleTickData(tick: Tick): Promise<void> {
     tradingStatus.currentTicker = tick.ticker
     
     // Periodically clean old data (every 1000 ticks)
-    const count = await TickRepository.count()
+    const count = await TickRepository.count() || 0
     if (count > 10000) {
       const cutoff = Date.now() - 24 * 60 * 60 * 1000 // 24 hours
       await TickRepository.deleteOlderThan(cutoff)
