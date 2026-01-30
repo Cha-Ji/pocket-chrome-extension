@@ -4,6 +4,7 @@ import { StatusCard } from './components/StatusCard'
 import { ControlPanel } from './components/ControlPanel'
 import { LogViewer } from './components/LogViewer'
 import { SignalPanel } from './components/SignalPanel'
+import { AutoTradePanel } from './components/AutoTradePanel'
 import { useTradingStatus } from './hooks/useTradingStatus'
 import { useLogs } from './hooks/useLogs'
 import { Signal } from '../lib/signals/types'
@@ -11,7 +12,7 @@ import { Signal } from '../lib/signals/types'
 export default function App() {
   const { status, startTrading, stopTrading, isLoading } = useTradingStatus()
   const { logs, addLog, clearLogs } = useLogs()
-  const [activeTab, setActiveTab] = useState<'signals' | 'status' | 'logs'>('signals')
+  const [activeTab, setActiveTab] = useState<'signals' | 'auto' | 'status' | 'logs'>('signals')
 
   useEffect(() => {
     addLog('info', 'Side panel initialized')
@@ -61,7 +62,7 @@ export default function App() {
       <div className="flex gap-1 bg-pocket-dark rounded-lg p-1">
         <button
           onClick={() => setActiveTab('signals')}
-          className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition ${
+          className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
             activeTab === 'signals'
               ? 'bg-pocket-green text-white'
               : 'text-gray-400 hover:text-white'
@@ -70,8 +71,18 @@ export default function App() {
           🎯 Signals
         </button>
         <button
+          onClick={() => setActiveTab('auto')}
+          className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
+            activeTab === 'auto'
+              ? 'bg-pocket-green text-white'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          🤖 Auto
+        </button>
+        <button
           onClick={() => setActiveTab('status')}
-          className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition ${
+          className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
             activeTab === 'status'
               ? 'bg-pocket-green text-white'
               : 'text-gray-400 hover:text-white'
@@ -81,7 +92,7 @@ export default function App() {
         </button>
         <button
           onClick={() => setActiveTab('logs')}
-          className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition ${
+          className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
             activeTab === 'logs'
               ? 'bg-pocket-green text-white'
               : 'text-gray-400 hover:text-white'
@@ -94,6 +105,10 @@ export default function App() {
       {/* Tab Content */}
       {activeTab === 'signals' && (
         <SignalPanel onSignal={handleSignal} />
+      )}
+
+      {activeTab === 'auto' && (
+        <AutoTradePanel />
       )}
 
       {activeTab === 'status' && (
