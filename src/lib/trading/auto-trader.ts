@@ -22,20 +22,52 @@ export interface TradeExecution {
 export interface AutoTraderConfig {
   enabled: boolean
   symbol: string
-  amount: number
-  expiry: number // seconds
+  
+  // Position Sizing
+  initialBalance: number      // Starting balance
+  riskPerTrade: number        // % of current balance per trade (e.g., 1 = 1%)
+  fixedAmount?: number        // Optional: fixed amount instead of %
+  usePercentage: boolean      // true = use %, false = fixed amount
+  minAmount: number           // Minimum trade amount
+  maxAmount: number           // Maximum trade amount
+  
+  // Timing
+  expiry: number              // seconds
+  cooldownMs: number          // between trades
+  
+  // Risk Management
   maxDailyTrades: number
-  maxDailyLoss: number
-  cooldownMs: number // between trades
+  maxDailyLoss: number        // $ amount
+  maxDailyLossPercent: number // % of initial balance
+  maxDrawdown: number         // % - stop trading if drawdown exceeds
+  maxConsecutiveLosses: number // Stop after N consecutive losses
+  
   demoMode: boolean
 }
 
 export interface AutoTraderStats {
+  // Session stats
   todayTrades: number
   todayWins: number
   todayLosses: number
   todayProfit: number
   lastTradeTime: number
+  
+  // Balance tracking
+  currentBalance: number
+  peakBalance: number
+  currentDrawdown: number      // Current drawdown %
+  maxDrawdownHit: number       // Highest drawdown reached
+  
+  // Streak tracking
+  consecutiveLosses: number
+  consecutiveWins: number
+  longestLossStreak: number
+  longestWinStreak: number
+  
+  // Risk status
+  isHalted: boolean
+  haltReason: string | null
 }
 
 export class AutoTrader {
@@ -55,11 +87,26 @@ export class AutoTrader {
     this.config = {
       enabled: false,
       symbol: 'BTCUSDT',
-      amount: 1,
+      
+      // Position Sizing - Default 1% risk
+      initialBalance: 1000,
+      riskPerTrade: 1,           // 1% of balance
+      fixedAmount: 10,
+      usePercentage: true,       // Use % by default
+      minAmount: 1,
+      maxAmount: 100,
+      
+      // Timing
       expiry: 60,
+      cooldownMs: 30000,
+      
+      // Risk Management
       maxDailyTrades: 20,
       maxDailyLoss: 100,
-      cooldownMs: 30000,
+      maxDailyLossPercent: 10,   // 10% of initial
+      maxDrawdown: 20,           // Stop at 20% drawdown
+      maxConsecutiveLosses: 5,   // Stop after 5 losses in a row
+      
       demoMode: true,
       ...config
     }
@@ -79,7 +126,8 @@ export class AutoTrader {
 
     this.log(`🚀 Auto Trader Started (${this.config.demoMode ? 'DEMO' : 'LIVE'})`, 'info')
     this.log(`   Symbol: ${this.config.symbol}`, 'info')
-    this.log(`   Amount: $${this.config.amount}`, 'info')
+    this.log(`   Risk: ${this.config.riskPerTrade}% per trade`, 'info')
+    this.log(`   Balance: $${this.config.initialBalance}`, 'info')
     this.log(`   Expiry: ${this.config.expiry}s`, 'info')
 
     // Load initial history
@@ -119,6 +167,55 @@ export class AutoTrader {
     this.log(`⚙️ Config updated`, 'info')
   }
 
+  /**
+   * Resume trading after halt (resets halt status)
+   */
+  resume(): void {
+    if (this.stats.isHalted) {
+      this.stats.isHalted = false
+      this.stats.haltReason = null
+      this.log('▶️ Trading resumed', 'info')
+    }
+  }
+
+  /**
+   * Reset daily stats (call at start of new day)
+   */
+  resetDailyStats(): void {
+    this.stats.todayTrades = 0
+    this.stats.todayWins = 0
+    this.stats.todayLosses = 0
+    this.stats.todayProfit = 0
+    this.stats.isHalted = false
+    this.stats.haltReason = null
+    this.stats.consecutiveLosses = 0
+    this.stats.consecutiveWins = 0
+    this.log('🔄 Daily stats reset', 'info')
+  }
+
+  /**
+   * Get risk summary
+   */
+  getRiskSummary(): {
+    positionSize: number
+    riskPercent: number
+    currentDrawdown: number
+    maxDrawdown: number
+    consecutiveLosses: number
+    isHalted: boolean
+    haltReason: string | null
+  } {
+    return {
+      positionSize: this.calculatePositionSize(),
+      riskPercent: this.config.riskPerTrade,
+      currentDrawdown: this.stats.currentDrawdown,
+      maxDrawdown: this.config.maxDrawdown,
+      consecutiveLosses: this.stats.consecutiveLosses,
+      isHalted: this.stats.isHalted,
+      haltReason: this.stats.haltReason,
+    }
+  }
+
   // Set execution callback (for Pocket Option integration)
   setExecuteCallback(cb: (execution: TradeExecution) => Promise<boolean>): void {
     this.onExecute = cb
@@ -139,17 +236,45 @@ export class AutoTrader {
   private async tick(): Promise<void> {
     if (!this.config.enabled) return
 
-    // Check daily limits
+    // Check if halted
+    if (this.stats.isHalted) {
+      return
+    }
+
+    // === RISK CHECKS ===
+    
+    // 1. Daily trade limit
     if (this.stats.todayTrades >= this.config.maxDailyTrades) {
+      this.haltTrading('Daily trade limit reached')
       return
     }
 
-    if (Math.abs(this.stats.todayProfit) >= this.config.maxDailyLoss && this.stats.todayProfit < 0) {
-      this.log('⚠️ Daily loss limit reached', 'warning')
+    // 2. Daily loss limit (absolute)
+    if (this.stats.todayProfit <= -this.config.maxDailyLoss) {
+      this.haltTrading(`Daily loss limit reached ($${this.config.maxDailyLoss})`)
       return
     }
 
-    // Check cooldown
+    // 3. Daily loss limit (percentage)
+    const dailyLossPercent = (Math.abs(this.stats.todayProfit) / this.config.initialBalance) * 100
+    if (this.stats.todayProfit < 0 && dailyLossPercent >= this.config.maxDailyLossPercent) {
+      this.haltTrading(`Daily loss ${dailyLossPercent.toFixed(1)}% >= ${this.config.maxDailyLossPercent}%`)
+      return
+    }
+
+    // 4. Max drawdown check
+    if (this.stats.currentDrawdown >= this.config.maxDrawdown) {
+      this.haltTrading(`Max drawdown reached (${this.stats.currentDrawdown.toFixed(1)}%)`)
+      return
+    }
+
+    // 5. Consecutive losses
+    if (this.stats.consecutiveLosses >= this.config.maxConsecutiveLosses) {
+      this.haltTrading(`${this.config.maxConsecutiveLosses} consecutive losses`)
+      return
+    }
+
+    // 6. Cooldown check
     const timeSinceLastTrade = Date.now() - this.stats.lastTradeTime
     if (timeSinceLastTrade < this.config.cooldownMs) {
       return
@@ -171,14 +296,69 @@ export class AutoTrader {
     }
   }
 
+  private haltTrading(reason: string): void {
+    this.stats.isHalted = true
+    this.stats.haltReason = reason
+    this.log(`🛑 Trading halted: ${reason}`, 'warning')
+  }
+
+  /**
+   * Calculate position size based on risk management rules
+   */
+  private calculatePositionSize(): number {
+    let amount: number
+
+    if (this.config.usePercentage) {
+      // Calculate % of current balance
+      amount = (this.stats.currentBalance * this.config.riskPerTrade) / 100
+    } else {
+      // Use fixed amount
+      amount = this.config.fixedAmount || 10
+    }
+
+    // Apply min/max limits
+    amount = Math.max(this.config.minAmount, amount)
+    amount = Math.min(this.config.maxAmount, amount)
+    
+    // Round to 2 decimal places
+    amount = Math.round(amount * 100) / 100
+
+    return amount
+  }
+
+  /**
+   * Update drawdown calculation
+   */
+  private updateDrawdown(): void {
+    // Update peak balance
+    if (this.stats.currentBalance > this.stats.peakBalance) {
+      this.stats.peakBalance = this.stats.currentBalance
+    }
+
+    // Calculate current drawdown
+    if (this.stats.peakBalance > 0) {
+      this.stats.currentDrawdown = 
+        ((this.stats.peakBalance - this.stats.currentBalance) / this.stats.peakBalance) * 100
+    }
+
+    // Track max drawdown hit
+    if (this.stats.currentDrawdown > this.stats.maxDrawdownHit) {
+      this.stats.maxDrawdownHit = this.stats.currentDrawdown
+    }
+  }
+
   private async executeSignal(signal: Signal): Promise<void> {
-    this.log(`🎯 Signal detected: ${signal.direction} via ${signal.strategy}`, 'info')
+    // Calculate position size based on risk management
+    const amount = this.calculatePositionSize()
+    
+    this.log(`🎯 Signal: ${signal.direction} via ${signal.strategy}`, 'info')
+    this.log(`   Position size: $${amount} (${this.config.riskPerTrade}% of $${this.stats.currentBalance.toFixed(0)})`, 'info')
 
     const execution: TradeExecution = {
       signalId: signal.id,
       executedAt: Date.now(),
       direction: signal.direction,
-      amount: this.config.amount,
+      amount: amount,
       expiry: this.config.expiry,
       entryPrice: signal.entryPrice,
     }
@@ -186,7 +366,7 @@ export class AutoTrader {
     // Execute trade
     if (this.config.demoMode) {
       // Demo mode: simulate execution
-      this.log(`📝 [DEMO] ${signal.direction} $${this.config.amount} @ $${signal.entryPrice.toFixed(2)}`, 'success')
+      this.log(`📝 [DEMO] ${signal.direction} $${amount} @ $${signal.entryPrice.toFixed(2)}`, 'success')
       
       // Simulate result after expiry
       setTimeout(() => this.simulateResult(execution), this.config.expiry * 1000)
@@ -198,7 +378,7 @@ export class AutoTrader {
           this.log('❌ Trade execution failed', 'error')
           return
         }
-        this.log(`✅ [LIVE] ${signal.direction} $${this.config.amount} executed`, 'success')
+        this.log(`✅ [LIVE] ${signal.direction} $${amount} executed`, 'success')
       }
     }
 
@@ -233,9 +413,29 @@ export class AutoTrader {
           : 0
 
       // Update stats
-      if (execution.result === 'WIN') this.stats.todayWins++
-      if (execution.result === 'LOSS') this.stats.todayLosses++
+      if (execution.result === 'WIN') {
+        this.stats.todayWins++
+        this.stats.consecutiveWins++
+        this.stats.consecutiveLosses = 0
+        if (this.stats.consecutiveWins > this.stats.longestWinStreak) {
+          this.stats.longestWinStreak = this.stats.consecutiveWins
+        }
+      }
+      if (execution.result === 'LOSS') {
+        this.stats.todayLosses++
+        this.stats.consecutiveLosses++
+        this.stats.consecutiveWins = 0
+        if (this.stats.consecutiveLosses > this.stats.longestLossStreak) {
+          this.stats.longestLossStreak = this.stats.consecutiveLosses
+        }
+      }
+      
       this.stats.todayProfit += execution.profit
+      this.stats.currentBalance += execution.profit
+      
+      // Update drawdown
+      this.updateDrawdown()
+      
       this.saveStats()
 
       // Log result
@@ -273,6 +473,19 @@ export class AutoTrader {
       todayLosses: 0,
       todayProfit: 0,
       lastTradeTime: 0,
+      
+      currentBalance: this.config.initialBalance,
+      peakBalance: this.config.initialBalance,
+      currentDrawdown: 0,
+      maxDrawdownHit: 0,
+      
+      consecutiveLosses: 0,
+      consecutiveWins: 0,
+      longestLossStreak: 0,
+      longestWinStreak: 0,
+      
+      isHalted: false,
+      haltReason: null,
     }
   }
 
