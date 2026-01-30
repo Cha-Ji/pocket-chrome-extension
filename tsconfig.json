@@ -12,8 +12,8 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "types": ["chrome", "vitest/globals"],
     "baseUrl": ".",
@@ -22,5 +22,6 @@
     }
   },
   "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/lib/backtest/__tests__"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

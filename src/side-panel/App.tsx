@@ -3,16 +3,23 @@ import { TradingStatus } from '../lib/types'
 import { StatusCard } from './components/StatusCard'
 import { ControlPanel } from './components/ControlPanel'
 import { LogViewer } from './components/LogViewer'
+import { SignalPanel } from './components/SignalPanel'
 import { useTradingStatus } from './hooks/useTradingStatus'
 import { useLogs } from './hooks/useLogs'
+import { Signal } from '../lib/signals/types'
 
 export default function App() {
   const { status, startTrading, stopTrading, isLoading } = useTradingStatus()
   const { logs, addLog, clearLogs } = useLogs()
+  const [activeTab, setActiveTab] = useState<'signals' | 'status' | 'logs'>('signals')
 
   useEffect(() => {
     addLog('info', 'Side panel initialized')
   }, [])
+
+  const handleSignal = (signal: Signal) => {
+    addLog('success', `🎯 ${signal.direction} signal: ${signal.strategy} @ $${signal.entryPrice.toFixed(2)}`)
+  }
 
   const handleStart = async () => {
     addLog('info', 'Starting auto-trading...')
@@ -50,19 +57,60 @@ export default function App() {
         </span>
       </header>
 
-      {/* Status Card */}
-      <StatusCard status={status} />
+      {/* Tab Navigation */}
+      <div className="flex gap-1 bg-pocket-dark rounded-lg p-1">
+        <button
+          onClick={() => setActiveTab('signals')}
+          className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition ${
+            activeTab === 'signals'
+              ? 'bg-pocket-green text-white'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          🎯 Signals
+        </button>
+        <button
+          onClick={() => setActiveTab('status')}
+          className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition ${
+            activeTab === 'status'
+              ? 'bg-pocket-green text-white'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          📊 Status
+        </button>
+        <button
+          onClick={() => setActiveTab('logs')}
+          className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition ${
+            activeTab === 'logs'
+              ? 'bg-pocket-green text-white'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          📜 Logs
+        </button>
+      </div>
 
-      {/* Control Panel */}
-      <ControlPanel
-        isRunning={status.isRunning}
-        isLoading={isLoading}
-        onStart={handleStart}
-        onStop={handleStop}
-      />
+      {/* Tab Content */}
+      {activeTab === 'signals' && (
+        <SignalPanel onSignal={handleSignal} />
+      )}
 
-      {/* Log Viewer */}
-      <LogViewer logs={logs} onClear={clearLogs} />
+      {activeTab === 'status' && (
+        <>
+          <StatusCard status={status} />
+          <ControlPanel
+            isRunning={status.isRunning}
+            isLoading={isLoading}
+            onStart={handleStart}
+            onStop={handleStop}
+          />
+        </>
+      )}
+
+      {activeTab === 'logs' && (
+        <LogViewer logs={logs} onClear={clearLogs} />
+      )}
     </div>
   )
 }

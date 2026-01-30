@@ -30,7 +30,7 @@ export const db = new PocketDB()
 // ============================================================
 
 export const TickRepository = {
-  async add(tick: Omit<Tick, 'id'>): Promise<number> {
+  async add(tick: Omit<Tick, 'id'>): Promise<number | undefined> {
     return await db.ticks.add(tick)
   },
 
@@ -54,17 +54,17 @@ export const TickRepository = {
       .toArray()
   },
 
-  async deleteOlderThan(timestamp: number): Promise<number> {
+  async deleteOlderThan(timestamp: number): Promise<number | undefined> {
     return await db.ticks.where('timestamp').below(timestamp).delete()
   },
 
-  async count(): Promise<number> {
+  async count(): Promise<number | undefined> {
     return await db.ticks.count()
   },
 }
 
 export const StrategyRepository = {
-  async create(strategy: Omit<Strategy, 'id'>): Promise<number> {
+  async create(strategy: Omit<Strategy, 'id'>): Promise<number | undefined> {
     return await db.strategies.add(strategy)
   },
 
@@ -86,7 +86,7 @@ export const StrategyRepository = {
 }
 
 export const SessionRepository = {
-  async create(session: Omit<Session, 'id'>): Promise<number> {
+  async create(session: Omit<Session, 'id'>): Promise<number | undefined> {
     return await db.sessions.add(session)
   },
 
@@ -123,7 +123,7 @@ export const SessionRepository = {
 }
 
 export const TradeRepository = {
-  async create(trade: Omit<Trade, 'id'>): Promise<number> {
+  async create(trade: Omit<Trade, 'id'>): Promise<number | undefined> {
     return await db.trades.add(trade)
   },
 
