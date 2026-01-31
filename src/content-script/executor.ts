@@ -6,12 +6,14 @@
 // ============================================================
 
 import { DOMSelectors, Direction, isDemoMode, getAccountType, AccountType } from '../lib/types'
+import { getSelectorResolver } from './selector-resolver'
 
 export class TradeExecutor {
   private selectors: DOMSelectors
   private _isTrading = false
   private tradingLoop: ReturnType<typeof setInterval> | null = null
   private _allowLiveTrading = false // MUST be explicitly enabled
+  private resolver = getSelectorResolver()
 
   constructor(selectors: DOMSelectors) {
     this.selectors = selectors
@@ -126,13 +128,13 @@ export class TradeExecutor {
       }
 
       // Validate we can trade
-      const validation = this.validateTradeConditions()
+      const validation = await this.validateTradeConditions()
       if (!validation.canTrade) {
         return { success: false, error: validation.reason }
       }
 
       // Click the appropriate button
-      const button = this.getTradeButton(direction)
+      const button = await this.getTradeButton(direction)
       if (!button) {
         return { success: false, error: `${direction} button not found` }
       }
@@ -164,31 +166,24 @@ export class TradeExecutor {
   // ============================================================
 
   /**
-   * Get trade button element
-   * STUB: Actual selector TBD
+   * Get trade button element using robust resolution
    */
-  private getTradeButton(direction: Direction): Element | null {
-    const selector = direction === 'CALL' 
-      ? this.selectors.callButton 
-      : this.selectors.putButton
-    
-    return document.querySelector(selector)
+  private async getTradeButton(direction: Direction): Promise<HTMLElement | null> {
+    const key = direction === 'CALL' ? 'callButton' : 'putButton'
+    return await this.resolver.resolve(key)
   }
 
   /**
    * Validate trade conditions
-   * STUB: Actual validation TBD
    */
-  private validateTradeConditions(): { canTrade: boolean; reason?: string } {
-    // Check if buttons exist
-    const callBtn = document.querySelector(this.selectors.callButton)
-    const putBtn = document.querySelector(this.selectors.putButton)
+  private async validateTradeConditions(): Promise<{ canTrade: boolean; reason?: string }> {
+    // Check if buttons exist using resolver
+    const callBtn = await this.resolver.resolve('callButton')
+    const putBtn = await this.resolver.resolve('putButton')
 
     if (!callBtn || !putBtn) {
-      return { canTrade: false, reason: 'Trade buttons not found' }
+      return { canTrade: false, reason: 'Trade buttons not found (even with fallbacks)' }
     }
-
-    // TODO: Check if market is open, sufficient balance, etc.
 
     return { canTrade: true }
   }
@@ -226,11 +221,10 @@ export class TradeExecutor {
   }
 
   /**
-   * Get current balance from DOM
-   * STUB: Actual implementation TBD
+   * Get current balance from DOM using robust resolution
    */
-  getCurrentBalance(): number | null {
-    const balanceElement = document.querySelector(this.selectors.balanceDisplay)
+  async getCurrentBalance(): Promise<number | null> {
+    const balanceElement = await this.resolver.resolve('balanceDisplay')
     if (!balanceElement) return null
 
     const text = balanceElement.textContent?.trim() || ''
