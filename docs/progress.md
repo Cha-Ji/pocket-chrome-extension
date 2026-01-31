@@ -1,21 +1,16 @@
-# Progress - 오프라인 개발 전환
+# Progress - JIRA Migration (Debugging)
 
 ## 📅 2026-01-31
 
-### 상태 변경
-- **Issue**: Pocket Option 사이트 접속 불안정.
-- **Action**: 사이트 의존적인 작업(E2E, Live Test) 중단, 오프라인 작업(Unit Test, UI)으로 전환.
+### 에러 발생
+- **Script**: `migrate-to-jira.cjs`
+- **Error**: `SyntaxError: Unexpected end of JSON input`
+- **Context**: Task 생성 후 상태 업데이트(Transition) 과정에서 응답 본문이 비어있어(204 No Content 등) JSON 파싱에 실패한 것으로 추정됨.
 
-### 완료된 오프라인 작업
-1. **Unit Test 검증 (Vitest)**
-   - `src/lib/signals/strategies-v2.test.ts` 작성.
-   - RSI V2 및 EMA Cross V2 로직 검증 성공 (3 tests passed).
-   - 전략 로직의 무결성 확보.
+### 원인 분석
+- `transitionIssue` 함수에서 `jiraRequest` 호출 시 응답 처리가 미흡함.
+- JIRA API의 `POST /transition`은 성공 시 Body 없이 `204 No Content`를 반환할 수 있음.
+- `JSON.parse('')`가 실행되어 에러 발생.
 
-2. **문서화**
-   - 3-File Pattern에 따라 `task_plan.md`, `findings.md` 업데이트.
-   - Blocked 상태 명시.
-
-### 예정 작업
-- Side Panel 대시보드 UI 구현.
-- Mock 데이터를 활용한 UI 테스트.
+### 수정 계획
+- `jiraRequest` 함수에서 `res.statusCode === 204`인 경우 빈 객체(`{}`) 반환하도록 수정.
