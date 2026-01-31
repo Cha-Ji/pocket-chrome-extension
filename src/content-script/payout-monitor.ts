@@ -113,6 +113,43 @@ export class PayoutMonitor {
   }
 
   /**
+   * Switch to a specific asset
+   */
+  async switchAsset(assetName: string): Promise<boolean> {
+    console.log(`[PayoutMonitor] Attempting to switch to: ${assetName}`)
+
+    // 1. Open picker
+    await this.openAssetPicker()
+    await this.wait(500) // Wait for animation
+
+    // 2. Find asset element
+    const assetItems = document.querySelectorAll(SELECTORS.assetItem)
+    let targetElement: HTMLElement | null = null
+
+    for (const item of assetItems) {
+      const labelEl = item.querySelector(SELECTORS.assetLabel)
+      if (labelEl && labelEl.textContent?.trim() === assetName) {
+        targetElement = item as HTMLElement
+        break
+      }
+    }
+
+    // 3. Click if found
+    if (targetElement) {
+      targetElement.click()
+      console.log(`[PayoutMonitor] Clicked asset: ${assetName}`)
+      
+      // Wait for switch
+      await this.wait(500)
+      return true
+    } else {
+      console.warn(`[PayoutMonitor] Asset not found in list: ${assetName}`)
+      await this.closeAssetPicker()
+      return false
+    }
+  }
+
+  /**
    * Update filter settings
    */
   setFilter(filter: Partial<PayoutFilter>): void {

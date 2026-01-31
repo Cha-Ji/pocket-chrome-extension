@@ -5,6 +5,7 @@ import { ControlPanel } from './components/ControlPanel'
 import { LogViewer } from './components/LogViewer'
 import { SignalPanel } from './components/SignalPanel'
 import { AutoTradePanel } from './components/AutoTradePanel'
+import { SettingsPanel } from './components/SettingsPanel'
 import { useTradingStatus } from './hooks/useTradingStatus'
 import { useLogs } from './hooks/useLogs'
 import { Signal } from '../lib/signals/types'
@@ -12,7 +13,7 @@ import { Signal } from '../lib/signals/types'
 export default function App() {
   const { status, startTrading, stopTrading, isLoading } = useTradingStatus()
   const { logs, addLog, clearLogs } = useLogs()
-  const [activeTab, setActiveTab] = useState<'signals' | 'auto' | 'status' | 'logs'>('signals')
+  const [activeTab, setActiveTab] = useState<'signals' | 'auto' | 'status' | 'logs' | 'settings'>('signals')
 
   useEffect(() => {
     addLog('info', 'Side panel initialized')
@@ -100,6 +101,16 @@ export default function App() {
         >
           📜 Logs
         </button>
+        <button
+          onClick={() => setActiveTab('settings')}
+          className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
+            activeTab === 'settings'
+              ? 'bg-pocket-green text-white'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          ⚙️
+        </button>
       </div>
 
       {/* Tab Content */}
@@ -125,6 +136,10 @@ export default function App() {
 
       {activeTab === 'logs' && (
         <LogViewer logs={logs} onClear={clearLogs} />
+      )}
+
+      {activeTab === 'settings' && (
+        <SettingsPanel />
       )}
     </div>
   )
