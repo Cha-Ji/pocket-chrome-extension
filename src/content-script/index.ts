@@ -14,6 +14,7 @@ import { getCandleCollector, CandleCollector, Candle } from './candle-collector'
 import { getPayoutMonitor, PayoutMonitor, AssetPayout } from './payout-monitor'
 import { getSignalGeneratorV2, SignalGeneratorV2, generateLLMReport } from '../lib/signals/signal-generator-v2'
 import { Signal } from '../lib/signals/types'
+import { getTelegramService, TelegramService } from '../lib/notifications/telegram'
 
 // ============================================================
 // Module Instances
@@ -24,6 +25,7 @@ let tradeExecutor: TradeExecutor | null = null
 let candleCollector: CandleCollector | null = null
 let payoutMonitor: PayoutMonitor | null = null
 let signalGenerator: SignalGeneratorV2 | null = null
+let telegramService: TelegramService | null = null
 let isInitialized = false
 
 // ============================================================
@@ -79,6 +81,7 @@ async function initialize(): Promise<void> {
     minConfidence: 0.3,
     expirySeconds: 60,
   })
+  telegramService = await getTelegramService()
   
   // Setup event handlers
   setupCandleHandler()
@@ -135,6 +138,9 @@ function setupSignalHandler(): void {
   if (!signalGenerator) return
   
   signalGenerator.onSignal((signal: Signal) => {
+    // Notify Telegram
+    telegramService?.notifySignal(signal)
+
     // Background로 신호 전송
     chrome.runtime.sendMessage({
       type: 'NEW_SIGNAL_V2',
@@ -187,6 +193,17 @@ async function executeSignal(signal: Signal): Promise<void> {
       tradingConfig.tradeAmount
     )
     
+    // Telegram 알림 (거래 결과)
+    // Note: tradeExecutor.executeTrade returns boolean currently, need to update if we want detailed result
+    // Assuming we want to notify at least that it happened
+    // If result is just success/fail, we might not have profit info yet.
+    // For now, simple notification.
+    if (result) {
+       telegramService?.sendMessage(`🚀 <b>Trade Executed</b>\n${signal.direction} on ${signal.ticker}`)
+    } else {
+       telegramService?.notifyError(`Failed to execute trade for ${signal.ticker}`)
+    }
+
     // 결과 기록
     chrome.runtime.sendMessage({
       type: 'TRADE_EXECUTED',
@@ -214,9 +231,10 @@ function notifyBestAsset(asset: AssetPayout): void {
 }
 
 async function switchToAsset(assetName: string): Promise<boolean> {
-  // TODO: 자산 전환 DOM 조작 구현
+  if (!payoutMonitor) return false
+  
   console.log(`[Pocket Quant V2] Switching to asset: ${assetName}`)
-  return false
+  return await payoutMonitor.switchAsset(assetName)
 }
 
 // ============================================================
@@ -308,11 +326,25 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       const resultPayload = message.payload as { signalId?: string; result?: 'win' | 'loss' } | undefined
       if (resultPayload?.signalId && resultPayload?.result) {
         signalGenerator?.updateSignalResult(resultPayload.signalId, resultPayload.result)
+        
+        // Telegram Result Notification
+        const resultEmoji = resultPayload.result === 'win' ? '💰 <b>WIN</b>' : '💸 <b>LOSS</b>'
+        telegramService?.sendMessage(`${resultEmoji} Trade Result: ${resultPayload.result.toUpperCase()}`)
+        
         return { success: true }
       }
       return { success: false }
     }
     
+    case 'RELOAD_TELEGRAM_CONFIG': {
+        const config = message.payload
+        if (telegramService) {
+            telegramService.updateConfig(config)
+            console.log('[Pocket Quant V2] Telegram config updated')
+        }
+        return { success: true }
+    }
+
     // Legacy API (backward compatibility)
     case 'START_TRADING':
       return tradeExecutor?.startAutoTrading()

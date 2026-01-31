@@ -12,7 +12,12 @@
   ],
   "host_permissions": [
     "https://pocketoption.com/*",
-    "https://*.pocketoption.com/*"
+    "https://*.pocketoption.com/*",
+    "https://po.trade/*",
+    "https://*.po.trade/*",
+    "https://po2.trade/*",
+    "https://*.po2.trade/*",
+    "https://api.telegram.org/*"
   ],
   "background": {
     "service_worker": "src/background/index.ts",
@@ -20,7 +25,14 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://pocketoption.com/*", "https://*.pocketoption.com/*"],
+      "matches": [
+        "https://pocketoption.com/*", 
+        "https://*.pocketoption.com/*",
+        "https://po.trade/*",
+        "https://*.po.trade/*",
+        "https://po2.trade/*",
+        "https://*.po2.trade/*"
+      ],
       "js": ["src/content-script/index.ts"],
       "run_at": "document_idle"
     }

@@ -5,6 +5,8 @@
 // 외부 API 사용 불가 (Binance 가격과 Pocket Option 가격이 다름)
 // ============================================================
 
+import { CandleRepository } from '../lib/db'
+
 export interface Candle {
   timestamp: number
   open: number
@@ -395,6 +397,18 @@ export class CandleCollector {
     }
     
     this.candles.set(ticker, candles)
+    
+    // DB 저장 (비동기)
+    CandleRepository.add({
+      ticker,
+      interval: this.candleInterval / 1000,
+      timestamp: candle.timestamp,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+      volume: candle.volume
+    }).catch(e => console.error('[CandleCollector] DB Save Error:', e))
     
     // 리스너 알림
     this.listeners.forEach(l => l(ticker, candle))

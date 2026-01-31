@@ -73,7 +73,7 @@ export function SignalPanel({ onSignal }: SignalPanelProps) {
       const assets = await sendMessage('GET_HIGH_PAYOUT_ASSETS') as AssetPayout[]
       setHighPayoutAssets(assets || [])
     } catch (err) {
-      setError('Pocket Option 페이지에서 사용하세요')
+      setError('확장 프로그램 연결 실패. 페이지를 새로고침하거나 Pocket Option 탭을 활성화하세요.')
       console.error('Failed to fetch status:', err)
     }
     setIsLoading(false)
