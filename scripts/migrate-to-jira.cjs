@@ -178,6 +178,11 @@ async function main() {
   }
   
   console.log("\nMigration Complete! 🚀");
+
+  // Create the Dashboard UI task
+  console.log("\nCreating Dashboard UI Task...");
+  const uiTask = await createIssue("[Panel] 성과 대시보드 UI 고도화", "Side Panel의 거래 성과 대시보드를 더 직관적이고 예쁘게 고도화합니다.", TYPE_TASK);
+  console.log(`  -> Created ${uiTask.key}`);
 }
 
 main().catch(console.error);
