@@ -6,13 +6,16 @@ import { LogViewer } from './components/LogViewer'
 import { SignalPanel } from './components/SignalPanel'
 import { AutoTradePanel } from './components/AutoTradePanel'
 import { SettingsPanel } from './components/SettingsPanel'
+import { Dashboard } from './components/Dashboard'
 import { useTradingStatus } from './hooks/useTradingStatus'
 import { useLogs } from './hooks/useLogs'
+import { useTrades } from './hooks/useTrades'
 import { Signal } from '../lib/signals/types'
 
 export default function App() {
   const { status, startTrading, stopTrading, isLoading } = useTradingStatus()
   const { logs, addLog, clearLogs } = useLogs()
+  const { trades } = useTrades()
   const [activeTab, setActiveTab] = useState<'signals' | 'auto' | 'status' | 'logs' | 'settings'>('signals')
 
   useEffect(() => {
@@ -124,7 +127,7 @@ export default function App() {
 
       {activeTab === 'status' && (
         <>
-          <StatusCard status={status} />
+          <Dashboard status={status} trades={trades} />
           <ControlPanel
             isRunning={status.isRunning}
             isLoading={isLoading}
