@@ -1,0 +1,14 @@
+{
+  "body": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", text: "Dashboard UI 고도화가 완료되었습니다. 실시간 PnL 그래프 및 자산별 통계 기능이 추가되었습니다. main 브랜치로 머지되었습니다." }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "Pocket Quant Trader",
+  "version": "0.1.0",
+  "description": "Automated trading assistant for Pocket Option with backtesting and analysis",
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab",
+    "sidePanel",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://pocketoption.com/*",
+    "https://*.pocketoption.com/*",
+    "https://po.trade/*",
+    "https://*.po.trade/*",
+    "https://po2.trade/*",
+    "https://*.po2.trade/*",
+    "https://api.telegram.org/*"
+  ],
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://pocketoption.com/*", 
+        "https://*.pocketoption.com/*",
+        "https://po.trade/*",
+        "https://*.po.trade/*",
+        "https://po2.trade/*",
+        "https://*.po2.trade/*"
+      ],
+      "js": ["src/content-script/index.ts"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "src/side-panel/index.html"
+  },
+  "action": {
+    "default_title": "Open Pocket Quant Trader"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

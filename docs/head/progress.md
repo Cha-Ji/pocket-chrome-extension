@@ -1,19 +1,134 @@
-# 진행 로그
+# Pocket Quant Trader - Progress
 
-## 2026-02-01
+**최종 업데이트:** 2026-02-01 18:00 KST
 
-- 프로젝트 기초 설정 완료
-  - package.json, tsconfig.json 생성
-  - Chrome Extension manifest.json (Manifest V3) 생성
-  - Vite + React + Tailwind CSS 빌드 환경 구성
-- 소스 코드 구조 생성
-  - `src/background/`: Service Worker (상태 관리, 메시지 핸들링)
-  - `src/content/`: Content Script (가격 감시, UI 컨트롤)
-  - `src/sidepanel/`: Side Panel UI (React 컴포넌트)
-  - `src/database/`: IndexedDB 스키마 (Dexie.js)
-- 다음 행동: npm install 후 빌드 테스트, DOM 셀렉터 조사
+## 📊 전체 진행률
 
-## 2026-01-26
+```
+[██████████████░░░░░░] 70%
+```
 
-- @docs/head 3-file 템플릿으로 계획 문서 구조를 정리 중
-- 다음 행동: task_plan/findings/progress 작성 후 plan.md를 인덱스로 축소
+## ✅ 완료된 모듈
+
+### 1. 프로젝트 기반 (100%)
+- [x] TypeScript + Vite 설정
+- [x] Chrome Extension manifest v3
+- [x] 테스트 환경 (Vitest)
+- [x] Tailwind CSS 스타일링
+
+### 2. 타입 시스템 (100%)
+- [x] 핵심 타입 정의
+- [x] DOM 셀렉터 타입
+- [x] 데모 모드 감지 함수
+
+### 3. 인디케이터 라이브러리 (100%)
+- [x] RSI
+- [x] SMA / EMA
+- [x] Bollinger Bands
+- [x] MACD
+- [x] Stochastic
+- [x] Triple Stochastic
+
+### 4. 백테스트 엔진 (90%)
+- [x] 코어 엔진
+- [x] 전략 등록 시스템
+- [x] 결과 분석 (승률, 드로다운, 수익률)
+- [x] 파라미터 최적화
+- [x] 테스트 데이터 생성기
+- [ ] 실제 히스토리컬 데이터 연동
+
+### 5. RSI 전략 (100%)
+- [x] RSI 과매수/과매도
+- [x] RSI 다이버전스
+- [x] RSI + 볼린저밴드
+- [x] RSI + 스토캐스틱
+- [x] RSI 추세 추종
+
+### 6. 콘텐츠 스크립트 (85%)
+- [x] DOM 셀렉터 발견
+- [x] 데모 모드 감지
+- [x] 데이터 수집기 (기본)
+- [x] 거래 실행기
+- [x] 페이아웃 모니터
+- [x] 페이지 인디케이터 값 읽기 (indicator-reader.ts)
+- [ ] 실시간 가격 수집 개선
+
+### 6.1 고승률 전략 모듈 (신규)
+- [x] RSI + MACD 조합 전략
+- [x] RSI + Bollinger Bands 바운스 전략
+- [x] RSI 극단값 반전 전략
+- [x] Triple Confirmation (RSI + Stoch + MACD)
+- [x] EMA Trend + RSI Pullback
+- [x] Vote 시스템 (다중 전략 합의)
+- [ ] 실제 데이터로 52.1%+ 검증
+
+### 7. 사이드 패널 UI (80%)
+- [x] 상태 카드
+- [x] 컨트롤 패널
+- [x] 로그 뷰어
+- [ ] 백테스트 결과 표시
+- [ ] 전략 설정 UI
+
+### 8. 백그라운드 서비스 (50%)
+- [x] 메시지 라우팅
+- [ ] 상태 관리
+- [ ] 알림 시스템
+
+### 9. RAG 시스템 (40%)
+- [x] 문서 저장 구조
+- [x] 검색 기능
+- [x] 조건 추출 유틸
+- [ ] YouTube 자막 추출
+- [ ] AI 전략 분석
+
+## 🔄 진행 중인 작업
+
+### 52.1%+ 승률 전략 탐색 (최우선)
+- 고승률 전략 모듈 구현 완료 (high-winrate.ts)
+- 5가지 다중 확인 전략 구현
+- Vote 시스템으로 신뢰도 향상
+- 실제 데이터로 백테스트 검증 필요
+
+### 실시간 데이터 수집
+- CandleCollector로 DOM 가격 수집 중
+- IndicatorReader로 페이지 인디케이터 읽기 구현
+
+## ⏳ 대기 중인 작업
+
+1. 실제 히스토리컬 데이터로 백테스트
+2. 52.1%+ 전략 파라미터 최적화
+3. Forward Test로 실전 검증
+4. 자동매매 고도화
+
+## 🐛 알려진 이슈
+
+| ID | 심각도 | 설명 | 상태 |
+|----|--------|------|------|
+| #1 | 🔴 High | RSI 계산용 실시간 가격 없음 | 조사 중 |
+| #2 | 🟡 Med | 거래 결과 자동 추적 미구현 | 대기 |
+| #3 | 🟢 Low | 차트 에러 메시지 표시 | 무시 가능 |
+
+## 📈 테스트 현황
+
+```
+Test Suites: 11 passed
+Tests: 116 passed
+```
+
+## 🎯 다음 마일스톤
+
+**M0: 52.1% 승률 달성 (최우선 🔴)**
+- [x] 고승률 전략 모듈 구현
+- [ ] 실제 데이터로 백테스트
+- [ ] 52.1%+ 달성 전략 확정
+- [ ] Forward Test 검증
+
+**M1: 실시간 데이터 (진행중)**
+- [x] 가격 데이터 수집 (CandleCollector)
+- [x] 페이지 인디케이터 읽기 (IndicatorReader)
+- [ ] 신호 정확도 검증
+
+**M2: 안정적인 데모 트레이딩**
+- [ ] 10회 이상 자동 거래
+- [ ] 승률 52%+ 달성
+- [ ] 결과 로깅
