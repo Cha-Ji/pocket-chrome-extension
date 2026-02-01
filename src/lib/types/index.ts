@@ -113,6 +113,15 @@ export type MessageType =
   | 'NEW_SIGNAL_V2'
   | 'PAYOUT_UPDATE'
   | 'BEST_ASSET'
+  // Indicator API
+  | 'GET_PAGE_INDICATORS'
+  | 'GET_PAGE_RSI'
+  | 'GET_PAGE_STOCHASTIC'
+  | 'READ_INDICATORS_NOW'
+  | 'INDICATOR_UPDATE'
+  | 'INDICATOR_VALUES'
+  // Telegram
+  | 'RELOAD_TELEGRAM_CONFIG'
 
 export interface ExtensionMessage<T = unknown> {
   type: MessageType
