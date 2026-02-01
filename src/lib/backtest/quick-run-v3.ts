@@ -12,32 +12,17 @@ async function run() {
   const v3 = new StrategyV3()
   engine.registerStrategy(v3)
 
-  // Generate Dummy Data (1000 candles)
-  const candles: Candle[] = []
-  let price = 100
-  const now = Date.now()
-  
-  for (let i = 0; i < 1000; i++) {
-    const change = (Math.random() - 0.5) * 0.5
-    const open = price
-    const close = price + change
-    const high = Math.max(open, close) + Math.random() * 0.1
-    const low = Math.min(open, close) - Math.random() * 0.1
-    
-    candles.push({
-      timestamp: now - (1000 - i) * 60000,
-      open,
-      high,
-      low,
-      close,
-    })
-    price = close
-  }
+  // Load Real Data
+  const dataPath = '/Users/kong-bee/Documents/pocket-chrome-extension/data/BTCUSDT_1m.json'
+  const rawData = JSON.parse(fs.readFileSync(dataPath, 'utf8'))
+  const candles: Candle[] = rawData.candles
+
+  console.log(`Loaded ${candles.length} candles from ${rawData.symbol} (${rawData.interval})`)
 
   const config: BacktestConfig = {
-    symbol: 'BTC/USD',
+    symbol: rawData.symbol,
     startTime: candles[0].timestamp,
-    endTime: candles[999].timestamp,
+    endTime: candles[candles.length - 1].timestamp,
     initialBalance: 1000,
     betAmount: 10,
     betType: 'fixed',
@@ -52,7 +37,7 @@ async function run() {
       stochD: 3,
       rsiPeriod: 14,
     },
-    slippage: 0.0001,
+    slippage: 0,
     latencyMs: 50
   }
 
@@ -65,17 +50,21 @@ async function run() {
   console.log(`Max Drawdown: $${result.maxDrawdown.toFixed(2)}`)
   console.log(`Profit Factor: ${result.profitFactor.toFixed(2)}`)
   
-  // Optimization Test (Mini)
-  console.log('\n--- Running Optimization (Parameters Search) ---')
+  // Optimization Test (Wider Range for 52.1% Goal)
+  console.log('\n--- Searching for Secret 52.1%+ WinRate ---')
   const optResults = engine.optimize(config, candles, {
-    smmaFast: { min: 3, max: 10, step: 1 },
-    smmaMid: { min: 10, max: 20, step: 2 },
-    stochK: { min: 5, max: 14, step: 3 }
+    smmaFast: { min: 3, max: 7, step: 4 },
+    smmaMid: { min: 8, max: 20, step: 6 },
+    stochK: { min: 5, max: 21, step: 16 },
+    rsiPeriod: { min: 7, max: 21, step: 14 },
+    volatilityMultiplier: { min: 0.0001, max: 0.0003, step: 0.0001 }
   })
 
-  console.log(`Top 5 Param Combinations (out of ${optResults.length}):`)
-  optResults.slice(0, 5).forEach((res, i) => {
-    console.log(`${i+1}. Profit: $${res.netProfit.toFixed(2)} | WinRate: ${res.winRate.toFixed(1)}% | Trades: ${res.totalTrades} | Params: ${JSON.stringify(res.config.strategyParams)}`)
+  console.log(`Top 15 Param Combinations (out of ${optResults.length}):`)
+  const topResults = optResults.slice(0, 15)
+  topResults.forEach((res, i) => {
+    const status = res.winRate >= 52.1 ? '✅ TARGET' : '❌ FAIL'
+    console.log(`${i+1}. [${status}] WR: ${res.winRate.toFixed(2)}% | Profit: $${res.netProfit.toFixed(2)} | Trades: ${res.totalTrades} | Params: ${JSON.stringify(res.config.strategyParams)}`)
   })
 }
 
