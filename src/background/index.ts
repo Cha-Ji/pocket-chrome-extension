@@ -26,8 +26,14 @@ chrome.runtime.onInstalled.addListener(() => {
   initializeSidePanel()
 })
 
-chrome.runtime.onStartup.addListener(() => {
+chrome.runtime.onStartup.addListener(async () => {
   console.log('[Background] Extension started')
+  try {
+    const telegram = await getTelegramService()
+    await telegram.notifyStatus('Extension Service Worker Started')
+  } catch (e) {
+    console.error('[Background] Startup notification failed:', e)
+  }
 })
 
 /**
@@ -51,6 +57,14 @@ async function handleMessage(
   message: ExtensionMessage, 
   sender: chrome.runtime.MessageSender
 ): Promise<unknown> {
+  // Ensure Telegram service is initialized (singleton will handle it)
+  // This helps prevent missing notifications on fresh session starts
+  try {
+    await getTelegramService()
+  } catch (e) {
+    console.error('[Background] Telegram Init Error:', e)
+  }
+
   switch (message.type) {
     case 'TICK_DATA':
       return handleTickData(message.payload as Tick)
