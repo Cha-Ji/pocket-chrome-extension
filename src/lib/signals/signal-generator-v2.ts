@@ -201,32 +201,23 @@ export class SignalGeneratorV2 {
     candles: Candle[],
     regimeInfo: { regime: MarketRegime; adx: number; direction: number }
   ): StrategyResult | null {
-    const { regime, direction } = regimeInfo
+    const { regime, adx } = regimeInfo
 
-    // 레짐별 전략 선택
-    switch (regime) {
-      case 'strong_uptrend':
-      case 'strong_downtrend':
-        // 강한 추세: EMA Trend + RSI Pullback
-        return emaTrendRsiPullbackStrategy(candles, this.config.highWinRateConfig)
-
-      case 'weak_uptrend':
-      case 'weak_downtrend':
-        // 약한 추세: Triple Confirmation 우선, 없으면 EMA Pullback
-        const tripleResult = tripleConfirmationStrategy(candles, this.config.highWinRateConfig)
-        if (tripleResult.signal) return tripleResult
-        return emaTrendRsiPullbackStrategy(candles, this.config.highWinRateConfig)
-
-      case 'ranging':
-        // 횡보: RSI + BB Bounce 우선, 없으면 Vote
-        const bbResult = rsiBBBounceStrategy(candles, this.config.highWinRateConfig)
-        if (bbResult.signal) return bbResult
-        return voteStrategy(candles, this.config.minVotesForSignal, this.config.highWinRateConfig)
-
-      default:
-        // 알 수 없음: Vote 전략 사용
-        return voteStrategy(candles, this.config.minVotesForSignal, this.config.highWinRateConfig)
+    // 백테스트 결과 기반 전략 선택 (보수적 접근):
+    // - ranging: 54.0% ✅ (RSI+BB 전략) - 유일하게 목표 달성
+    // - 다른 레짐: 신호 생성 안함 (성과 저조)
+    
+    // 횡보장에서만 신호 생성 (ADX < 25)
+    // ADX 25-40: 약한 추세 → 신호 생성 안함
+    // ADX > 40: 강한 추세 → 신호 생성 안함
+    
+    if (regime !== 'ranging' && adx >= 25) {
+      // 추세가 있으면 신호 생성 안함
+      return null
     }
+
+    // 횡보장 또는 매우 약한 추세 (ADX < 25)에서만 RSI+BB 전략 사용
+    return rsiBBBounceStrategy(candles, this.config.highWinRateConfig)
   }
 
   private passesTrendFilter(
