@@ -1,6 +1,171 @@
+# Pocket Option Auto Trading Extension
+
+LLM이 바이브코딩으로 효과적으로 개발할 수 있도록 작성된 가이드라인입니다.
+
+---
+
+## 프로젝트 개요
+
+**목적**: Pocket Option 바이너리 옵션 플랫폼에서 자동 매매를 수행하는 Chrome Extension
+
+**기술 스택**:
+- Chrome Extension (Manifest V3)
+- React + Tailwind CSS (Side Panel UI)
+- Dexie.js (IndexedDB 래퍼)
+- TypeScript
+- Vitest (테스트 프레임워크)
+
+**핵심 기능**:
+- 실시간 가격 데이터 수집 (DOM 파싱)
+- 기술적 지표 계산 (RSI, SMA, EMA, MACD, Stochastic 등)
+- 자동 매매 실행 (CALL/PUT)
+- 전략 백테스팅
+- 거래 로그 및 통계
+
+---
+
+## 아키텍처 개요
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Chrome Extension                      │
+├─────────────────────────────────────────────────────────┤
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
+│  │  Side Panel │◄──►│  Background │◄──►│   Content   │  │
+│  │  (React UI) │    │   (Worker)  │    │   Script    │  │
+│  └─────────────┘    └──────┬──────┘    └─────────────┘  │
+│                            │                             │
+│                            ▼                             │
+│                     ┌─────────────┐                      │
+│                     │  IndexedDB  │                      │
+│                     │  (Dexie.js) │                      │
+│                     └─────────────┘                      │
+└─────────────────────────────────────────────────────────┘
+```
+
+**모듈별 역할**:
+- `src/background/`: 중앙 상태 관리, 메시지 라우팅, DB 저장
+- `src/content-script/`: DOM에서 가격 추출, 거래 실행
+- `src/side-panel/`: 사용자 인터페이스 (상태 표시, 제어)
+- `src/lib/`: 공유 라이브러리 (DB, 지표, 백테스트, 타입)
+
+**데이터 흐름**:
+1. Content Script가 DOM에서 가격 캡처 (MutationObserver)
+2. `chrome.runtime.sendMessage`로 Background에 Tick 전송
+3. Background가 IndexedDB에 저장
+4. Side Panel이 상태 조회 및 표시
+
+**메시지 통신 패턴**:
+- Content Script ↔ Background: `chrome.runtime.sendMessage`
+- Background → Content Script: `chrome.tabs.sendMessage`
+- Side Panel ↔ Background: `chrome.runtime.sendMessage`
+
+---
+
+## 모듈 상세
+
+| 모듈 | 진입점 | 핵심 책임 |
+|------|--------|-----------|
+| background | `src/background/index.ts` | 메시지 핸들러, 상태 관리, 알람 |
+| content-script | `src/content-script/index.ts` | 데이터 수집, 거래 실행 |
+| side-panel | `src/side-panel/App.tsx` | UI 렌더링, 사용자 입력 |
+| lib/db | `src/lib/db/index.ts` | IndexedDB CRUD (Tick, Trade, Session, Strategy) |
+| lib/indicators | `src/lib/indicators/index.ts` | 기술적 지표 계산 (SMA, EMA, RSI, MACD 등) |
+| lib/backtest | `src/lib/backtest/engine.ts` | 백테스트 실행 엔진 |
+| lib/types | `src/lib/types/index.ts` | TypeScript 타입 정의, DOM 셀렉터 |
+
+**주요 파일별 기능**:
+- `content-script/data-collector.ts`: MutationObserver로 가격 변화 감지, Tick 생성
+- `content-script/executor.ts`: CALL/PUT 버튼 클릭, 거래 실행
+- `content-script/payout-monitor.ts`: 페이아웃 비율 모니터링
+- `lib/backtest/strategies/`: 전략 구현체 (RSI, SMMA+Stochastic)
+- `lib/backtest/optimizer.ts`: 파라미터 최적화
+- `lib/backtest/statistics.ts`: 백테스트 통계 계산
+
+---
+
+## 안전 규칙 (필수)
+
+**데모 모드 3중 체크**: 실제 돈 거래 방지를 위해 반드시 준수
+
+```typescript
+// src/lib/types/index.ts의 isDemoMode() 함수 사용
+// 3가지 조건을 모두 확인:
+// 1. URL에 'demo' 파라미터 포함
+// 2. Chart 요소에 'demo' 클래스 존재
+// 3. 잔액 라벨에 'Demo' 텍스트 포함
+
+// 거래 실행 전 반드시 체크
+if (!isDemoMode(selectors)) {
+  throw new Error('Demo mode required - 실제 거래 방지');
+}
+```
+
+**안전 체크 포인트**:
+- `executor.ts`의 모든 거래 함수 시작부
+- Background에서 거래 명령 전달 전
+- 새로운 거래 기능 추가 시 필수 포함
+
+---
+
+## 개발 규칙
+
+**파일 네이밍**:
+- 소스 파일: `kebab-case.ts` (예: `data-collector.ts`)
+- 테스트 파일: `*.test.ts` 또는 `*.test.tsx` (소스와 같은 디렉토리)
+- React 컴포넌트: `PascalCase.tsx` (예: `StatusCard.tsx`)
+
+**테스트 규칙**:
+- 모든 신규 기능에 테스트 필수
+- 테스트 실행: `npm test`
+- 커버리지 확인: `npm run test:coverage`
+
+**코드 스타일**:
+- TypeScript strict 모드 사용
+- async/await 패턴 선호
+- 에러는 명시적으로 처리 (silent fail 금지)
+
+---
+
+## 빠른 시작 가이드
+
+**자주 하는 작업별 진입점**:
+
+| 작업 | 파일 경로 |
+|------|-----------|
+| 새 기술적 지표 추가 | `src/lib/indicators/index.ts` |
+| 새 전략 추가 | `src/lib/backtest/strategies/` (새 파일 생성) |
+| UI 컴포넌트 수정 | `src/side-panel/components/` |
+| DOM 셀렉터 수정 | `src/lib/types/index.ts` (DOMSelectors 인터페이스) |
+| DB 스키마 수정 | `src/lib/db/index.ts` |
+| 메시지 타입 추가 | `src/lib/types/index.ts` |
+| 백테스트 로직 수정 | `src/lib/backtest/engine.ts` |
+
+**개발 명령어**:
+```bash
+npm run dev        # 개발 서버 시작
+npm run build      # 프로덕션 빌드
+npm test           # 테스트 실행
+npm run lint       # 린트 체크
+```
+
+---
+
+## 트러블슈팅
+
+| 증상 | 원인 | 해결 |
+|------|------|------|
+| Content Script 동작 안함 | 탭에 스크립트 미주입 | 탭 새로고침 (F5) |
+| 메시지 전달 실패 | Service Worker 비활성화 | `chrome://extensions`에서 워커 재시작 |
+| DB 데이터 확인 필요 | - | DevTools → Application → IndexedDB |
+| 가격 캡처 안됨 | DOM 셀렉터 변경됨 | `DOMSelectors` 업데이트 필요 |
+| 거래 실행 안됨 | 데모 모드 체크 실패 | 데모 계정으로 로그인 확인 |
+
+---
+
 # 문서화 운영 규칙
 
-이 문서는 프로젝트 문서화의 기본 규칙을 요약합니다.
+이 섹션은 프로젝트 문서화의 기본 규칙을 요약합니다.
 
 ## 기본 구조
 
@@ -47,3 +212,47 @@
 
 - 중복 기록 금지, 나중에 재참조 가치가 높은 정보 위주
 - 변경 시 즉시 문서 반영(요약은 `head`, 상세는 해당 폴더)
+
+## 헬스체크 로깅 (필수)
+
+**모든 응답 마지막에 헬스체크 블록을 포함하라.**
+
+```text
+--- healthcheck ---
+context_used:
+  task_plan_tokens: ~줄 수 또는 토큰 수
+  findings_tokens: ~줄 수 또는 토큰 수
+  progress_tokens: ~줄 수 또는 토큰 수
+  extra_context: 외부 문서/툴 결과 요약
+actions:
+  - type: update_task_plan | update_findings | update_progress | no_update
+    details: 한 줄 설명
+ab_test_variant: default
+notes: 컨텍스트 품질/문제점
+--- end_healthcheck ---
+```
+
+## 토큰 최적화 피드백 루프
+
+헬스체크를 통해 토큰 사용량을 추적하고, 다음 원칙으로 컴팩트한 컨텍스트 사용을 추구하라:
+
+1. **측정**: 매 턴 `context_used`에 참조한 파일별 대략적인 토큰/줄 수를 기록
+2. **평가**: 사용한 컨텍스트 중 실제로 응답에 기여한 비율을 `notes`에 평가
+3. **개선**: 불필요하게 많이 읽은 경우, 다음 턴에서 더 선택적으로 읽기
+4. **기록**: 효과적이었던 컨텍스트 전략은 `findings.md`에 남겨 재사용
+
+### 컴팩트 컨텍스트 원칙
+
+- 전체 파일을 읽기 전에 "이 파일의 어느 부분이 필요한가?" 먼저 판단
+- `task_plan.md`는 체크박스 상태 파악용으로 스캔, 전문 숙독은 필요시에만
+- `findings.md`는 현재 질문과 관련된 섹션만 선택적으로 참조
+- `progress.md`는 최근 항목 위주로 읽고, 과거 기록은 필요시에만 탐색
+- 도구 호출 결과는 그대로 쓰지 말고, 목표에 연결된 요약으로 변환
+
+### 피드백 루프 사이클
+
+```
+[컨텍스트 읽기] → [응답 생성] → [헬스체크 기록] → [효율성 평가] → [다음 턴 전략 조정]
+```
+
+이 사이클을 반복하며 점진적으로 더 적은 토큰으로 더 정확한 응답을 생성하는 방향으로 발전하라.

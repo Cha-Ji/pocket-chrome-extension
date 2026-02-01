@@ -1,0 +1,19 @@
+{
+  "fields": {
+    "project": { "key": "SCRUM" },
+    "summary": "[Panel] 성과 대시보드 UI 고도화",
+    "description": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            { "type": "text", text: "Side Panel의 거래 성과 대시보드를 더 직관적이고 예쁘게 고도화합니다." }
+          ]
+        }
+      ]
+    },
+    "issuetype": { "name": "작업" }
+  }
+}
