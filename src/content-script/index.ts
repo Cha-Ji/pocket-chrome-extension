@@ -16,6 +16,7 @@ import { getIndicatorReader, IndicatorReader, IndicatorValues } from './indicato
 import { getSignalGeneratorV2, SignalGeneratorV2, generateLLMReport } from '../lib/signals/signal-generator-v2'
 import { Signal } from '../lib/signals/types'
 import { getTelegramService, TelegramService, TelegramConfig } from '../lib/notifications/telegram'
+import { getWebSocketInterceptor, WebSocketInterceptor, PriceUpdate, WebSocketMessage } from './websocket-interceptor'
 
 // ============================================================
 // Module Instances
@@ -28,6 +29,7 @@ let payoutMonitor: PayoutMonitor | null = null
 let indicatorReader: IndicatorReader | null = null
 let signalGenerator: SignalGeneratorV2 | null = null
 let telegramService: TelegramService | null = null
+let wsInterceptor: WebSocketInterceptor | null = null
 let isInitialized = false
 
 // ============================================================
@@ -85,18 +87,23 @@ async function initialize(): Promise<void> {
     expirySeconds: 60,
   })
   telegramService = await getTelegramService()
+  
+  // WebSocket Interceptor (실시간 가격 데이터 수집)
+  wsInterceptor = getWebSocketInterceptor()
 
   // Setup event handlers
   setupCandleHandler()
   setupPayoutHandler()
   setupSignalHandler()
   setupIndicatorHandler()
+  setupWebSocketHandler()
 
   // Start data collection
   dataCollector.start()
   candleCollector.start()
   payoutMonitor.start(30000) // 30초마다 페이아웃 체크
   indicatorReader.start() // 페이지 인디케이터 값 읽기 시작
+  wsInterceptor.start() // WebSocket 인터셉터 시작 (분석 모드)
   
   isInitialized = true
   console.log('[Pocket Quant V2] Content script initialized (V2 strategies active)')
@@ -179,6 +186,51 @@ function setupSignalHandler(): void {
     if (tradingConfig.enabled) {
       executeSignal(signal)
     }
+  })
+}
+
+function setupWebSocketHandler(): void {
+  if (!wsInterceptor || !candleCollector) return
+
+  // 가격 업데이트 수신 시 CandleCollector에 전달
+  wsInterceptor.onPriceUpdate((update: PriceUpdate) => {
+    console.log(`[Pocket Quant V2] 🔌 WS Price: ${update.symbol} = ${update.price}`)
+    
+    // Background에 알림
+    chrome.runtime.sendMessage({
+      type: 'WS_PRICE_UPDATE',
+      payload: update
+    }).catch(() => {})
+
+    // CandleCollector에 틱 데이터로 전달
+    if (candleCollector) {
+      candleCollector.addTickFromWebSocket(update.symbol, update.price, update.timestamp)
+    }
+  })
+
+  // 메시지 수신 시 로깅 (분석 모드)
+  wsInterceptor.onMessage((message: WebSocketMessage) => {
+    // 분석 모드에서만 Background로 전송
+    if (wsInterceptor?.getStatus().analysisMode) {
+      chrome.runtime.sendMessage({
+        type: 'WS_MESSAGE',
+        payload: {
+          connectionId: message.connectionId,
+          parsed: message.parsed,
+          timestamp: message.timestamp,
+        }
+      }).catch(() => {})
+    }
+  })
+
+  // 연결 상태 변경 시 로깅
+  wsInterceptor.onConnectionChange((connection) => {
+    console.log(`[Pocket Quant V2] 🔌 WS Connection: ${connection.id} (${connection.readyState})`)
+    
+    chrome.runtime.sendMessage({
+      type: 'WS_CONNECTION',
+      payload: connection
+    }).catch(() => {})
   })
 }
 
@@ -279,6 +331,7 @@ function getSystemStatus(): object {
       candleCollector: candleCollector?.isCollecting ?? false,
       payoutMonitor: payoutMonitor?.isMonitoring ?? false,
       indicatorReader: indicatorReader?.isReading ?? false,
+      wsInterceptor: wsInterceptor?.getStatus() ?? null,
     },
     config: tradingConfig,
     signals: signalGenerator?.getStats() ?? null,
@@ -288,6 +341,7 @@ function getSystemStatus(): object {
       count: candleCollector!.getCandles(t).length
     })) ?? [],
     pageIndicators: indicatorReader?.getValues() ?? null,
+    wsConnections: wsInterceptor?.getConnections() ?? [],
   }
 }
 
@@ -360,6 +414,31 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
 
     case 'READ_INDICATORS_NOW':
       return indicatorReader?.readNow() ?? null
+
+    // WebSocket Interceptor API
+    case 'GET_WS_STATUS':
+      return wsInterceptor?.getStatus() ?? null
+
+    case 'GET_WS_CONNECTIONS':
+      return wsInterceptor?.getConnections() ?? []
+
+    case 'GET_WS_MESSAGES': {
+      const wsPayload = message.payload as { connectionId?: string; limit?: number } | undefined
+      return wsInterceptor?.getMessages(wsPayload?.connectionId, wsPayload?.limit || 100) ?? []
+    }
+
+    case 'SET_WS_ANALYSIS_MODE': {
+      const analysisPayload = message.payload as { enabled?: boolean } | undefined
+      if (wsInterceptor && analysisPayload?.enabled !== undefined) {
+        wsInterceptor.setAnalysisMode(analysisPayload.enabled)
+        return { success: true, analysisMode: analysisPayload.enabled }
+      }
+      return { success: false }
+    }
+
+    case 'CLEAR_WS_MESSAGES':
+      wsInterceptor?.clearMessages()
+      return { success: true }
     
     case 'UPDATE_SIGNAL_RESULT': {
       const resultPayload = message.payload as { signalId?: string; result?: 'win' | 'loss' } | undefined
@@ -455,6 +534,10 @@ function healthCheck(): { status: 'healthy' | 'degraded' | 'error'; details: str
   if (!candleCollector?.isCollecting) issues.push('Candle collector not running')
   if (!payoutMonitor?.isMonitoring) issues.push('Payout monitor not running')
   if (!indicatorReader?.isReading) issues.push('Indicator reader not running')
+  
+  // WebSocket 상태 체크
+  const wsStatus = wsInterceptor?.getStatus()
+  if (!wsStatus?.isListening) issues.push('WebSocket interceptor not running')
   
   const candleCount = candleCollector?.getTickers().reduce((sum, t) => 
     sum + candleCollector!.getCandles(t).length, 0) ?? 0

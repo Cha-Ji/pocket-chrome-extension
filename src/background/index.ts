@@ -5,6 +5,7 @@
 
 import { ExtensionMessage, Tick, TradingStatus } from '../lib/types'
 import { db, TickRepository } from '../lib/db'
+import { getTelegramService } from '../lib/notifications/telegram'
 
 // ============================================================
 // State
