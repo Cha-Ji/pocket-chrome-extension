@@ -99,12 +99,18 @@
 
 ## 🔄 진행 중인 작업
 
+### PO-11: 실시간 데이터 수집 개선 (진행중 ✅)
+- Forward Test V2 업그레이드 완료 (Stochastic 제거)
+- RSI V2 + EMA Cross V2 전략만 사용
+- IndicatorReader 테스트 24개 추가 및 통과
+- 실전 Forward Test 대기 중
+
 ### 52.1%+ 승률 전략 탐색 (완료 ✅)
 - 고승률 전략 모듈 구현 완료 (high-winrate.ts)
 - 5가지 다중 확인 전략 구현
 - Vote 시스템으로 신뢰도 향상
 - **합성 데이터 백테스트 완료: RSI+BB 56.1%, EMA Pullback 54.5%**
-- 실제 데이터 검증 대기 중 (네트워크 이슈)
+- V1 Forward Test 결과: RSI 62.5%, Stochastic 31.6% (제거)
 
 ### 실시간 데이터 수집
 - CandleCollector로 DOM 가격 수집 중
