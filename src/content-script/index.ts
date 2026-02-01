@@ -12,9 +12,10 @@ import { DataCollector } from './data-collector'
 import { TradeExecutor } from './executor'
 import { getCandleCollector, CandleCollector, Candle } from './candle-collector'
 import { getPayoutMonitor, PayoutMonitor, AssetPayout } from './payout-monitor'
+import { getIndicatorReader, IndicatorReader, IndicatorValues } from './indicator-reader'
 import { getSignalGeneratorV2, SignalGeneratorV2, generateLLMReport } from '../lib/signals/signal-generator-v2'
 import { Signal } from '../lib/signals/types'
-import { getTelegramService, TelegramService } from '../lib/notifications/telegram'
+import { getTelegramService, TelegramService, TelegramConfig } from '../lib/notifications/telegram'
 
 // ============================================================
 // Module Instances
@@ -24,6 +25,7 @@ let dataCollector: DataCollector | null = null
 let tradeExecutor: TradeExecutor | null = null
 let candleCollector: CandleCollector | null = null
 let payoutMonitor: PayoutMonitor | null = null
+let indicatorReader: IndicatorReader | null = null
 let signalGenerator: SignalGeneratorV2 | null = null
 let telegramService: TelegramService | null = null
 let isInitialized = false
@@ -76,22 +78,25 @@ async function initialize(): Promise<void> {
   // V2 modules
   candleCollector = getCandleCollector()
   payoutMonitor = getPayoutMonitor()
+  indicatorReader = getIndicatorReader()
   signalGenerator = getSignalGeneratorV2({
     symbols: ['CURRENT'],
     minConfidence: 0.3,
     expirySeconds: 60,
   })
   telegramService = await getTelegramService()
-  
+
   // Setup event handlers
   setupCandleHandler()
   setupPayoutHandler()
   setupSignalHandler()
-  
+  setupIndicatorHandler()
+
   // Start data collection
   dataCollector.start()
   candleCollector.start()
   payoutMonitor.start(30000) // 30초마다 페이아웃 체크
+  indicatorReader.start() // 페이지 인디케이터 값 읽기 시작
   
   isInitialized = true
   console.log('[Pocket Quant V2] Content script initialized (V2 strategies active)')
@@ -134,9 +139,29 @@ function setupPayoutHandler(): void {
   })
 }
 
+function setupIndicatorHandler(): void {
+  if (!indicatorReader) return
+
+  indicatorReader.onUpdate((values: IndicatorValues) => {
+    // 인디케이터 값이 업데이트되면 로깅
+    if (values.rsi !== undefined) {
+      console.log(`[Pocket Quant V2] 📊 Page RSI: ${values.rsi.toFixed(1)}`)
+    }
+    if (values.stochasticK !== undefined && values.stochasticD !== undefined) {
+      console.log(`[Pocket Quant V2] 📊 Page Stochastic: K=${values.stochasticK.toFixed(1)}, D=${values.stochasticD.toFixed(1)}`)
+    }
+
+    // Background에 알림
+    chrome.runtime.sendMessage({
+      type: 'INDICATOR_UPDATE',
+      payload: values
+    }).catch(() => {})
+  })
+}
+
 function setupSignalHandler(): void {
   if (!signalGenerator) return
-  
+
   signalGenerator.onSignal((signal: Signal) => {
     // Notify Telegram
     telegramService?.notifySignal(signal)
@@ -199,9 +224,9 @@ async function executeSignal(signal: Signal): Promise<void> {
     // If result is just success/fail, we might not have profit info yet.
     // For now, simple notification.
     if (result) {
-       telegramService?.sendMessage(`🚀 <b>Trade Executed</b>\n${signal.direction} on ${signal.ticker}`)
+       telegramService?.sendMessage(`🚀 <b>Trade Executed</b>\n${signal.direction} on ${signal.symbol}`)
     } else {
-       telegramService?.notifyError(`Failed to execute trade for ${signal.ticker}`)
+       telegramService?.notifyError(`Failed to execute trade for ${signal.symbol}`)
     }
 
     // 결과 기록
@@ -253,6 +278,7 @@ function getSystemStatus(): object {
       dataCollector: dataCollector?.isCollecting ?? false,
       candleCollector: candleCollector?.isCollecting ?? false,
       payoutMonitor: payoutMonitor?.isMonitoring ?? false,
+      indicatorReader: indicatorReader?.isReading ?? false,
     },
     config: tradingConfig,
     signals: signalGenerator?.getStats() ?? null,
@@ -261,6 +287,7 @@ function getSystemStatus(): object {
       ticker: t,
       count: candleCollector!.getCandles(t).length
     })) ?? [],
+    pageIndicators: indicatorReader?.getValues() ?? null,
   }
 }
 
@@ -321,6 +348,18 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       const candlePayload = message.payload as { ticker?: string } | undefined
       return candleCollector?.exportCandles(candlePayload?.ticker || 'UNKNOWN') ?? null
     }
+
+    case 'GET_PAGE_INDICATORS':
+      return indicatorReader?.getValues() ?? null
+
+    case 'GET_PAGE_RSI':
+      return indicatorReader?.getRSI() ?? null
+
+    case 'GET_PAGE_STOCHASTIC':
+      return indicatorReader?.getStochastic() ?? null
+
+    case 'READ_INDICATORS_NOW':
+      return indicatorReader?.readNow() ?? null
     
     case 'UPDATE_SIGNAL_RESULT': {
       const resultPayload = message.payload as { signalId?: string; result?: 'win' | 'loss' } | undefined
@@ -337,8 +376,8 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
     }
     
     case 'RELOAD_TELEGRAM_CONFIG': {
-        const config = message.payload
-        if (telegramService) {
+        const config = message.payload as Partial<TelegramConfig> | undefined
+        if (telegramService && config) {
             telegramService.updateConfig(config)
             console.log('[Pocket Quant V2] Telegram config updated')
         }
@@ -411,10 +450,11 @@ function waitForElement(selector: string, timeout = 10000): Promise<Element | nu
 
 function healthCheck(): { status: 'healthy' | 'degraded' | 'error'; details: string[] } {
   const issues: string[] = []
-  
+
   if (!isInitialized) issues.push('Not initialized')
   if (!candleCollector?.isCollecting) issues.push('Candle collector not running')
   if (!payoutMonitor?.isMonitoring) issues.push('Payout monitor not running')
+  if (!indicatorReader?.isReading) issues.push('Indicator reader not running')
   
   const candleCount = candleCollector?.getTickers().reduce((sum, t) => 
     sum + candleCollector!.getCandles(t).length, 0) ?? 0
