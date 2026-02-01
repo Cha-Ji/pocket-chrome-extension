@@ -24,5 +24,5 @@ Pocket Option 사이트의 WebSocket 연결을 가로채서 실시간 가격 데
 - [x] 단위 테스트 작성 (websocket-parser) - 20개 테스트 통과
 
 ### Phase 5: 완료
-- [x] 커밋 및 푸시
+- [x] 커밋 및 푸시 (2 commits: df90da5, b5ce3f6)
 - [ ] PR 병합 또는 완료 확인
