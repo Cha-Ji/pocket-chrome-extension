@@ -1,94 +1,104 @@
 // ============================================================
-// Signal Generator V2 - Forward Test 결과 기반 개선
+// Signal Generator V2 - High Win Rate Optimized
 // ============================================================
-// - RSI 전략 중심 (실전 100% 승률)
-// - Stochastic 제거 (실전 25% 실패)
-// - DOM 기반 데이터 수집
+// 개선 사항:
+// 1. 고승률 전략 모듈 통합 (high-winrate.ts)
+// 2. 추세 방향 필터링
+// 3. 신뢰도 기반 필터링
+// 4. 시장 레짐별 전략 선택
 // ============================================================
 
 import { Candle, Signal, MarketRegime, SignalGeneratorConfig } from './types'
-import { 
-  detectRegime, 
-  getBestStrategiesV2, 
-  executeStrategyV2,
-  generateSignalsV2,
-  WINNING_STRATEGIES_V2 
-} from './strategies-v2'
+import { detectRegime } from './strategies'
+import {
+  voteStrategy,
+  rsiBBBounceStrategy,
+  emaTrendRsiPullbackStrategy,
+  tripleConfirmationStrategy,
+  StrategyResult,
+  HighWinRateConfig,
+} from '../backtest/strategies/high-winrate'
+
+// ============================================================
+// Configuration
+// ============================================================
+
+export interface SignalGeneratorV2Config {
+  symbols: string[]
+  interval: string
+  minConfidence: number
+  expirySeconds: number
+  useTrendFilter: boolean
+  minVotesForSignal: number
+  highWinRateConfig: Partial<HighWinRateConfig>
+}
+
+const DEFAULT_CONFIG: SignalGeneratorV2Config = {
+  symbols: ['BTCUSDT'],
+  interval: '1m',
+  minConfidence: 0.6,
+  expirySeconds: 60,
+  useTrendFilter: true,
+  minVotesForSignal: 2,
+  highWinRateConfig: {
+    rsiPeriod: 7,
+    rsiOversold: 25,
+    rsiOverbought: 75,
+  },
+}
 
 // ============================================================
 // Signal Generator V2 Class
 // ============================================================
 
 export class SignalGeneratorV2 {
-  private config: SignalGeneratorConfig
+  private config: SignalGeneratorV2Config
   private candleBuffer: Map<string, Candle[]> = new Map()
   private signals: Signal[] = []
   private listeners: ((signal: Signal) => void)[] = []
-  private lastSignalTime: Map<string, number> = new Map()
-  private minSignalInterval = 60000 // 1분 (연속 신호 방지)
-  
-  constructor(config?: Partial<SignalGeneratorConfig>) {
-    this.config = {
-      symbols: ['BTCUSDT'],
-      interval: '1m',
-      strategies: WINNING_STRATEGIES_V2,
-      minConfidence: 0.3,
-      expirySeconds: 60,
-      ...config
-    }
+  private stats = {
+    signalsGenerated: 0,
+    signalsFiltered: 0,
+    byStrategy: new Map<string, { count: number; wins: number; losses: number }>()
   }
-  
+
+  constructor(config?: Partial<SignalGeneratorV2Config>) {
+    this.config = { ...DEFAULT_CONFIG, ...config }
+  }
+
   // ============================================================
   // Public API
   // ============================================================
-  
+
   /**
    * Add new candle and check for signals
    */
   addCandle(symbol: string, candle: Candle): Signal | null {
-    // Get or create buffer
     if (!this.candleBuffer.has(symbol)) {
       this.candleBuffer.set(symbol, [])
     }
-    
+
     const buffer = this.candleBuffer.get(symbol)!
-    
-    // 중복 캔들 체크
-    const lastCandle = buffer[buffer.length - 1]
-    if (lastCandle && lastCandle.timestamp === candle.timestamp) {
-      // 같은 캔들 업데이트
-      buffer[buffer.length - 1] = candle
-    } else {
-      buffer.push(candle)
-    }
-    
-    // Keep last 100 candles
+    buffer.push(candle)
+
     if (buffer.length > 100) {
       buffer.shift()
     }
-    
-    // Need at least 50 candles for reliable signals
+
     if (buffer.length < 50) {
       return null
     }
-    
-    // 연속 신호 방지
-    const lastSignal = this.lastSignalTime.get(symbol) || 0
-    if (Date.now() - lastSignal < this.minSignalInterval) {
-      return null
-    }
-    
-    // Check for signals using V2 strategies
+
     return this.checkSignals(symbol, buffer)
   }
-  
+
   /**
-   * Set candle history (for initialization)
+   * Set candle history
    */
   setHistory(symbol: string, candles: Candle[]): void {
     this.candleBuffer.set(symbol, candles.slice(-100))
   }
-  
+
   /**
    * Get current market regime
    */
@@ -97,60 +107,26 @@ export class SignalGeneratorV2 {
     if (!candles || candles.length < 50) return null
     return detectRegime(candles)
   }
-  
+
   /**
    * Get recent signals
    */
   getSignals(limit = 10): Signal[] {
     return this.signals.slice(-limit)
   }
-  
+
   /**
-   * Get signal statistics
+   * Get statistics
    */
-  getStats(): {
-    total: number
-    wins: number
-    losses: number
-    pending: number
-    winRate: number
-    byStrategy: Record<string, { wins: number; losses: number; winRate: number }>
-  } {
-    const wins = this.signals.filter(s => s.status === 'win').length
-    const losses = this.signals.filter(s => s.status === 'loss').length
-    const pending = this.signals.filter(s => s.status === 'pending').length
-    const completed = wins + losses
-    
-    // 전략별 통계
-    const byStrategy: Record<string, { wins: number; losses: number; winRate: number }> = {}
-    
-    for (const signal of this.signals) {
-      if (!byStrategy[signal.strategy]) {
-        byStrategy[signal.strategy] = { wins: 0, losses: 0, winRate: 0 }
-      }
-      if (signal.status === 'win') byStrategy[signal.strategy].wins++
-      if (signal.status === 'loss') byStrategy[signal.strategy].losses++
-    }
-    
-    // 승률 계산
-    for (const key of Object.keys(byStrategy)) {
-      const s = byStrategy[key]
-      const total = s.wins + s.losses
-      s.winRate = total > 0 ? (s.wins / total) * 100 : 0
-    }
-    
+  getStats() {
     return {
-      total: this.signals.length,
-      wins,
-      losses,
-      pending,
-      winRate: completed > 0 ? (wins / completed) * 100 : 0,
-      byStrategy
+      ...this.stats,
+      byStrategy: Object.fromEntries(this.stats.byStrategy)
     }
   }
-  
+
   /**
-   * Subscribe to new signals
+   * Subscribe to signals
    */
   onSignal(callback: (signal: Signal) => void): () => void {
     this.listeners.push(callback)
@@ -158,7 +134,7 @@ export class SignalGeneratorV2 {
       this.listeners = this.listeners.filter(l => l !== callback)
     }
   }
-  
+
   /**
    * Update signal result
    */
@@ -166,114 +142,141 @@ export class SignalGeneratorV2 {
     const signal = this.signals.find(s => s.id === signalId)
     if (signal) {
       signal.status = result
+      
+      // Update stats
+      const stratStats = this.stats.byStrategy.get(signal.strategy) || { count: 0, wins: 0, losses: 0 }
+      if (result === 'win') stratStats.wins++
+      else stratStats.losses++
+      this.stats.byStrategy.set(signal.strategy, stratStats)
     }
   }
-  
-  /**
-   * Clear old signals
-   */
-  clearOldSignals(olderThanMs: number = 3600000): number {
-    const cutoff = Date.now() - olderThanMs
-    const before = this.signals.length
-    this.signals = this.signals.filter(s => s.timestamp > cutoff)
-    return before - this.signals.length
-  }
-  
+
   // ============================================================
   // Internal Methods
   // ============================================================
-  
+
   private checkSignals(symbol: string, candles: Candle[]): Signal | null {
-    // V2 멀티 전략 신호 생성
-    const result = generateSignalsV2(candles)
+    const regimeInfo = detectRegime(candles)
     
-    // 신호가 없으면 null
-    if (!result.bestSignal || !result.bestSignal.direction) {
+    // 1. 시장 레짐에 따른 전략 선택
+    const strategyResult = this.selectStrategy(candles, regimeInfo)
+    
+    if (!strategyResult || !strategyResult.signal) {
       return null
     }
-    
-    const best = result.bestSignal
-    
-    // 최소 신뢰도 체크
-    if (best.confidence < this.config.minConfidence) {
+
+    // 2. 추세 필터링 (옵션)
+    if (this.config.useTrendFilter) {
+      if (!this.passesTrendFilter(strategyResult.signal, regimeInfo)) {
+        this.stats.signalsFiltered++
+        return null
+      }
+    }
+
+    // 3. 신뢰도 필터링
+    if (strategyResult.confidence < this.config.minConfidence) {
+      this.stats.signalsFiltered++
       return null
     }
-    
-    // 추가 필터: 시장 상태와 전략 일치 확인
-    if (!this.validateSignal(result.regime, best)) {
-      return null
-    }
-    
-    // 신호 생성 (direction은 위에서 null 체크됨)
-    const signal = this.createSignal(
-      symbol,
-      best.direction!,
-      best.strategyName,
-      result,
-      candles
-    )
-    
+
+    // 4. 신호 생성
+    const signal = this.createSignal(symbol, strategyResult, regimeInfo, candles)
     this.signals.push(signal)
-    this.lastSignalTime.set(symbol, Date.now())
-    
-    // Keep only last 100 signals
+    this.stats.signalsGenerated++
+
+    // Update strategy stats
+    const stratStats = this.stats.byStrategy.get(signal.strategy) || { count: 0, wins: 0, losses: 0 }
+    stratStats.count++
+    this.stats.byStrategy.set(signal.strategy, stratStats)
+
     if (this.signals.length > 100) {
       this.signals.shift()
     }
-    
-    // Notify listeners
+
     this.listeners.forEach(l => l(signal))
-    
     return signal
   }
-  
-  private validateSignal(
-    regime: MarketRegime, 
-    signal: { strategyId: string; direction: 'CALL' | 'PUT' | null }
+
+  private selectStrategy(
+    candles: Candle[],
+    regimeInfo: { regime: MarketRegime; adx: number; direction: number }
+  ): StrategyResult | null {
+    const { regime, direction } = regimeInfo
+
+    // 레짐별 전략 선택
+    switch (regime) {
+      case 'strong_uptrend':
+      case 'strong_downtrend':
+        // 강한 추세: EMA Trend + RSI Pullback
+        return emaTrendRsiPullbackStrategy(candles, this.config.highWinRateConfig)
+
+      case 'weak_uptrend':
+      case 'weak_downtrend':
+        // 약한 추세: Triple Confirmation 우선, 없으면 EMA Pullback
+        const tripleResult = tripleConfirmationStrategy(candles, this.config.highWinRateConfig)
+        if (tripleResult.signal) return tripleResult
+        return emaTrendRsiPullbackStrategy(candles, this.config.highWinRateConfig)
+
+      case 'ranging':
+        // 횡보: RSI + BB Bounce 우선, 없으면 Vote
+        const bbResult = rsiBBBounceStrategy(candles, this.config.highWinRateConfig)
+        if (bbResult.signal) return bbResult
+        return voteStrategy(candles, this.config.minVotesForSignal, this.config.highWinRateConfig)
+
+      default:
+        // 알 수 없음: Vote 전략 사용
+        return voteStrategy(candles, this.config.minVotesForSignal, this.config.highWinRateConfig)
+    }
+  }
+
+  private passesTrendFilter(
+    direction: 'CALL' | 'PUT',
+    regimeInfo: { regime: MarketRegime; adx: number; direction: number }
   ): boolean {
-    if (!signal.direction) return false
-    
-    // RSI는 ranging 시장에서 가장 효과적
-    if (signal.strategyId === 'rsi-v2') {
-      // RSI PUT은 모든 시장에서 효과적 (Forward Test 100%)
-      if (signal.direction === 'PUT') return true
-      // RSI CALL은 상승 추세가 아닐 때만
-      if (signal.direction === 'CALL' && !regime.includes('uptrend')) return true
+    const { regime, direction: trendDirection } = regimeInfo
+
+    // 강한 추세에서는 추세 방향과 일치하는 신호만 허용
+    if (regime === 'strong_uptrend') {
+      return direction === 'CALL'
     }
-    
-    // EMA Cross는 강한 추세에서만
-    if (signal.strategyId === 'ema-cross-v2') {
-      if (regime.includes('strong_')) {
-        // CALL은 상승 추세, PUT은 하락 추세
-        if (signal.direction === 'CALL' && regime === 'strong_uptrend') return true
-        if (signal.direction === 'PUT' && regime === 'strong_downtrend') return true
-      }
-      return false
+    if (regime === 'strong_downtrend') {
+      return direction === 'PUT'
     }
-    
+
+    // 약한 추세에서는 역추세 신호를 약간 허용 (반전 기회)
+    // ADX가 30 이상이면 추세 방향만, 미만이면 모두 허용
+    if (regimeInfo.adx >= 30) {
+      if (regime === 'weak_uptrend' && direction === 'PUT') return false
+      if (regime === 'weak_downtrend' && direction === 'CALL') return false
+    }
+
+    // 횡보장에서는 모든 방향 허용
     return true
   }
-  
+
   private createSignal(
     symbol: string,
-    direction: 'CALL' | 'PUT',
-    strategyName: string,
-    result: ReturnType<typeof generateSignalsV2>,
+    strategyResult: StrategyResult,
+    regimeInfo: { regime: MarketRegime; adx: number; direction: number },
     candles: Candle[]
   ): Signal {
     const lastCandle = candles[candles.length - 1]
-    
+
     return {
       id: `${symbol}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       timestamp: Date.now(),
       symbol,
-      direction,
-      strategy: strategyName,
-      regime: result.regime,
-      confidence: result.bestSignal?.confidence || 0,
+      direction: strategyResult.signal!,
+      strategy: strategyResult.reason,
+      regime: regimeInfo.regime,
+      confidence: strategyResult.confidence,
       expiry: this.config.expirySeconds,
       entryPrice: lastCandle.close,
-      indicators: result.bestSignal?.indicators || {},
+      indicators: {
+        adx: regimeInfo.adx,
+        trendDirection: regimeInfo.direction,
+        ...strategyResult.indicators,
+      },
       status: 'pending'
     }
   }
@@ -285,168 +288,139 @@ export class SignalGeneratorV2 {
 
 let generatorInstance: SignalGeneratorV2 | null = null
 
-export function getSignalGeneratorV2(config?: Partial<SignalGeneratorConfig>): SignalGeneratorV2 {
+export function getSignalGeneratorV2(config?: Partial<SignalGeneratorV2Config>): SignalGeneratorV2 {
   if (!generatorInstance) {
     generatorInstance = new SignalGeneratorV2(config)
   }
   return generatorInstance
 }
 
-// ============================================================
-// LLM-Friendly Report Generator
-// ============================================================
-
-export interface BacktestReportV2 {
-  summary: {
-    totalTrades: number
-    wins: number
-    losses: number
-    winRate: number
-    netProfit: number
-    profitFactor: number
-    maxDrawdown: number
-    recommendation: string
-  }
-  strategyPerformance: Array<{
-    name: string
-    trades: number
-    winRate: number
-    avgProfit: number
-    recommendation: 'USE' | 'AVOID' | 'CONDITIONAL'
-    conditions: string[]
-  }>
-  marketConditions: Array<{
-    regime: MarketRegime
-    trades: number
-    winRate: number
-    bestStrategy: string
-  }>
-  signals: Array<{
-    time: string
-    direction: 'CALL' | 'PUT'
-    strategy: string
-    result: 'win' | 'loss' | 'pending'
-    regime: MarketRegime
-    confidence: number
-  }>
+export function resetSignalGeneratorV2(): void {
+  generatorInstance = null
 }
 
-export function generateLLMReport(signals: Signal[]): BacktestReportV2 {
-  const completed = signals.filter(s => s.status === 'win' || s.status === 'loss')
-  const wins = completed.filter(s => s.status === 'win').length
-  const losses = completed.filter(s => s.status === 'loss').length
-  const winRate = completed.length > 0 ? (wins / completed.length) * 100 : 0
-  
-  // 전략별 성과
-  const strategyMap = new Map<string, { wins: number; losses: number; profits: number[] }>()
-  for (const s of completed) {
-    if (!strategyMap.has(s.strategy)) {
-      strategyMap.set(s.strategy, { wins: 0, losses: 0, profits: [] })
-    }
-    const data = strategyMap.get(s.strategy)!
-    if (s.status === 'win') {
-      data.wins++
-      data.profits.push(10) // 92% payout 가정
-    } else {
-      data.losses++
-      data.profits.push(-10)
-    }
-  }
-  
-  // 시장 상태별 성과
-  const regimeMap = new Map<MarketRegime, { wins: number; losses: number; strategies: Map<string, number> }>()
-  for (const s of completed) {
-    if (!regimeMap.has(s.regime)) {
-      regimeMap.set(s.regime, { wins: 0, losses: 0, strategies: new Map() })
-    }
-    const data = regimeMap.get(s.regime)!
-    if (s.status === 'win') data.wins++
-    else data.losses++
-    
-    const count = data.strategies.get(s.strategy) || 0
-    data.strategies.set(s.strategy, count + (s.status === 'win' ? 1 : 0))
-  }
-  
-  // 전략 추천
-  const strategyPerformance = Array.from(strategyMap.entries()).map(([name, data]) => {
-    const total = data.wins + data.losses
-    const wr = total > 0 ? (data.wins / total) * 100 : 0
-    const avgProfit = data.profits.length > 0 
-      ? data.profits.reduce((a, b) => a + b, 0) / data.profits.length 
-      : 0
-    
-    let recommendation: 'USE' | 'AVOID' | 'CONDITIONAL' = 'CONDITIONAL'
-    let conditions: string[] = []
-    
-    if (name.includes('RSI')) {
-      recommendation = wr >= 60 ? 'USE' : 'CONDITIONAL'
-      conditions = ['Ranging 시장에서 최적', 'PUT 시그널 우선']
-    } else if (name.includes('EMA')) {
-      recommendation = wr >= 50 ? 'CONDITIONAL' : 'AVOID'
-      conditions = ['ADX 30+ 필수', 'strong_trend에서만 사용']
-    } else if (name.includes('Stoch')) {
-      recommendation = 'AVOID'
-      conditions = ['실전 테스트 실패 (25%)', '비활성화 권장']
-    }
-    
+// ============================================================
+// LLM Report Generator
+// ============================================================
+
+export function generateLLMReport(signals: Signal[]): object {
+  if (signals.length === 0) {
     return {
-      name,
-      trades: total,
-      winRate: wr,
-      avgProfit,
-      recommendation,
-      conditions
+      summary: 'No signals generated yet',
+      recommendation: 'Wait for market conditions to generate signals',
+    }
+  }
+
+  const wins = signals.filter(s => s.status === 'win').length
+  const losses = signals.filter(s => s.status === 'loss').length
+  const pending = signals.filter(s => s.status === 'pending').length
+  const total = wins + losses
+  const winRate = total > 0 ? (wins / total * 100).toFixed(1) : 'N/A'
+
+  // Strategy breakdown
+  const byStrategy: Record<string, { count: number; wins: number; losses: number }> = {}
+  signals.forEach(s => {
+    const key = s.strategy.split(':')[0].trim()
+    if (!byStrategy[key]) byStrategy[key] = { count: 0, wins: 0, losses: 0 }
+    byStrategy[key].count++
+    if (s.status === 'win') byStrategy[key].wins++
+    if (s.status === 'loss') byStrategy[key].losses++
+  })
+
+  // Regime breakdown
+  const byRegime: Record<string, { count: number; wins: number; losses: number }> = {}
+  signals.forEach(s => {
+    if (!byRegime[s.regime]) byRegime[s.regime] = { count: 0, wins: 0, losses: 0 }
+    byRegime[s.regime].count++
+    if (s.status === 'win') byRegime[s.regime].wins++
+    if (s.status === 'loss') byRegime[s.regime].losses++
+  })
+
+  // Recent signals (last 5)
+  const recentSignals = signals.slice(-5).map(s => ({
+    direction: s.direction,
+    strategy: s.strategy,
+    regime: s.regime,
+    confidence: `${(s.confidence * 100).toFixed(0)}%`,
+    status: s.status,
+    timestamp: new Date(s.timestamp).toLocaleTimeString(),
+  }))
+
+  // Best performing strategy
+  let bestStrategy = { name: 'N/A', winRate: 0 }
+  Object.entries(byStrategy).forEach(([name, stats]) => {
+    const totalCompleted = stats.wins + stats.losses
+    if (totalCompleted >= 3) {
+      const rate = stats.wins / totalCompleted
+      if (rate > bestStrategy.winRate) {
+        bestStrategy = { name, winRate: rate }
+      }
     }
   })
-  
-  // 시장 상태별 추천
-  const marketConditions = Array.from(regimeMap.entries()).map(([regime, data]) => {
-    const total = data.wins + data.losses
-    const wr = total > 0 ? (data.wins / total) * 100 : 0
-    
-    // 가장 성공적인 전략 찾기
-    let bestStrategy = 'None'
-    let maxWins = 0
-    data.strategies.forEach((wins, strategy) => {
-      if (wins > maxWins) {
-        maxWins = wins
-        bestStrategy = strategy
-      }
-    })
-    
-    return { regime, trades: total, winRate: wr, bestStrategy }
-  })
-  
-  // 종합 추천
-  let recommendation = ''
-  if (winRate >= 60) {
-    recommendation = '✅ 실전 투입 가능. RSI 전략 중심으로 운영.'
-  } else if (winRate >= 50) {
-    recommendation = '⚠️ 조건부 사용. RSI만 활성화, 다른 전략 비활성화 권장.'
-  } else {
-    recommendation = '❌ 추가 최적화 필요. 전략 파라미터 조정 필요.'
-  }
-  
+
   return {
     summary: {
-      totalTrades: completed.length,
+      totalSignals: signals.length,
+      completed: total,
+      pending,
+      winRate: `${winRate}%`,
       wins,
       losses,
-      winRate,
-      netProfit: wins * 9.2 - losses * 10, // 92% payout
-      profitFactor: losses > 0 ? (wins * 9.2) / (losses * 10) : wins > 0 ? Infinity : 0,
-      maxDrawdown: 0, // TODO: 계산
-      recommendation
     },
-    strategyPerformance,
-    marketConditions,
-    signals: signals.slice(-20).map(s => ({
-      time: new Date(s.timestamp).toISOString(),
-      direction: s.direction,
-      strategy: s.strategy,
-      result: (s.status === 'win' || s.status === 'loss') ? s.status : 'pending' as const,
-      regime: s.regime,
-      confidence: s.confidence
-    }))
+    performance: {
+      byStrategy: Object.entries(byStrategy).map(([name, stats]) => ({
+        name,
+        signals: stats.count,
+        winRate: stats.wins + stats.losses > 0 
+          ? `${((stats.wins / (stats.wins + stats.losses)) * 100).toFixed(1)}%`
+          : 'N/A'
+      })),
+      byRegime: Object.entries(byRegime).map(([name, stats]) => ({
+        name,
+        signals: stats.count,
+        winRate: stats.wins + stats.losses > 0 
+          ? `${((stats.wins / (stats.wins + stats.losses)) * 100).toFixed(1)}%`
+          : 'N/A'
+      })),
+    },
+    recentSignals,
+    recommendation: generateRecommendation(winRate, bestStrategy, byRegime),
   }
+}
+
+function generateRecommendation(
+  winRate: string,
+  bestStrategy: { name: string; winRate: number },
+  byRegime: Record<string, { count: number; wins: number; losses: number }>
+): string {
+  const recommendations: string[] = []
+
+  // Win rate recommendation
+  if (winRate !== 'N/A') {
+    const rate = parseFloat(winRate)
+    if (rate >= 55) {
+      recommendations.push(`✅ Win rate ${winRate} is above target (52.1%). Continue current strategy.`)
+    } else if (rate >= 50) {
+      recommendations.push(`⚠️ Win rate ${winRate} is marginal. Consider tightening filters.`)
+    } else {
+      recommendations.push(`🔴 Win rate ${winRate} is below breakeven. Review strategy selection.`)
+    }
+  }
+
+  // Best strategy recommendation
+  if (bestStrategy.name !== 'N/A') {
+    recommendations.push(`🎯 Best performing strategy: ${bestStrategy.name} (${(bestStrategy.winRate * 100).toFixed(1)}%)`)
+  }
+
+  // Regime recommendation
+  const ranging = byRegime['ranging']
+  const trending = byRegime['strong_uptrend'] || byRegime['strong_downtrend']
+  if (ranging && ranging.wins + ranging.losses > 0) {
+    const rangingRate = ranging.wins / (ranging.wins + ranging.losses)
+    if (rangingRate > 0.55) {
+      recommendations.push(`📊 Ranging market signals performing well (${(rangingRate * 100).toFixed(1)}%)`)
+    }
+  }
+
+  return recommendations.join('\n')
 }
