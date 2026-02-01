@@ -43,13 +43,37 @@ const SELECTORS = {
 
 ## 코드 스니펫
 
-### Forward Test 기본 구조
+### Forward Test V2 사용법
 
-```typescript
-// scripts/forward-test.ts 참고
-// 1. 시그널 생성
-// 2. 거래 실행
-// 3. 결과 대기 (60초 만료)
-// 4. 승/패 기록
-// 5. 통계 계산
+```bash
+# 기본 실행 (60분, Binance API)
+npx tsx scripts/forward-test.ts
+
+# 로컬 데이터 사용 (API 실패 대비)
+npx tsx scripts/forward-test.ts --local
+
+# 시간 지정 (30분)
+npx tsx scripts/forward-test.ts 30
+
+# 심볼 지정
+npx tsx scripts/forward-test.ts --symbol=ETHUSDT --local
 ```
+
+### IndicatorReader 테스트 결과 (2026-02-01)
+
+```
+✓ src/content-script/indicator-reader.test.ts (24 tests) 63ms
+   - DOM 파싱: RSI, Stochastic K/D 정상 동작
+   - 엣지 케이스: 잘못된 형식, 범위 초과 처리 확인
+   - 이벤트 구독/해제 정상 동작
+```
+
+### V1 Forward Test 실패 분석
+
+| 전략 | 거래수 | 승률 | 분석 |
+|------|--------|------|------|
+| RSI (14) | 8 | 62.5% | ✅ 유지 |
+| Stochastic | 19 | 31.6% | ❌ 제거 필요 |
+| EMA Cross | 8 | 37.5% | ⚠️ ADX 30+ 조건 추가 |
+
+→ V2에서 Stochastic 제거, EMA에 ADX 조건 추가
