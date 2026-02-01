@@ -51,6 +51,10 @@ export interface BacktestConfig {
   payout: number // expected payout percentage (e.g., 92)
   expirySeconds: number // trade duration
   
+  // High-fidelity simulation
+  slippage?: number // average price slippage in pips/points
+  latencyMs?: number // execution delay in milliseconds
+  
   // Strategy
   strategyId: string
   strategyParams: Record<string, number>
@@ -74,6 +78,10 @@ export interface BacktestResult {
   netProfitPercent: number
   maxDrawdown: number
   maxDrawdownPercent: number
+  
+  // High-fidelity simulation results
+  slippageImpact?: number
+  latencyImpact?: number
   
   // Risk metrics
   sharpeRatio?: number
