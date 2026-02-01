@@ -103,6 +103,13 @@ ${resultEmoji}
     if (!this.config.notifyErrors) return
     await this.sendMessage(`⚠️ <b>System Error</b>\n${error}`)
   }
+
+  /**
+   * Send a system status update (useful for session starts)
+   */
+  async notifyStatus(status: string): Promise<void> {
+    await this.sendMessage(`ℹ️ <b>System Status</b>\n${status}`)
+  }
 }
 
 // Singleton for global use
