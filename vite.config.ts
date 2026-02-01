@@ -18,6 +18,16 @@ export default defineConfig({
     rollupOptions: {
       input: {
         sidepanel: resolve(__dirname, 'src/side-panel/index.html'),
+        'inject-websocket': resolve(__dirname, 'src/content-script/inject-websocket.ts'),
+      },
+      output: {
+        entryFileNames: (chunkInfo) => {
+          // inject-websocket은 루트에 배치
+          if (chunkInfo.name === 'inject-websocket') {
+            return 'inject-websocket.js'
+          }
+          return 'assets/[name]-[hash].js'
+        },
       },
     },
   },

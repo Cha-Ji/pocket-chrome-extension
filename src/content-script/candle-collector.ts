@@ -190,6 +190,33 @@ export class CandleCollector {
     return 0
   }
 
+  /**
+   * Add tick data from WebSocket (external source)
+   * WebSocket 인터셉터에서 받은 가격 데이터를 캔들 수집에 추가
+   */
+  addTickFromWebSocket(symbol: string, price: number, timestamp: number): void {
+    if (!price || price <= 0) return
+    
+    // 심볼 정규화
+    const ticker = symbol.replace(/\s+/g, '-').toUpperCase() || 'UNKNOWN'
+    if (ticker === 'UNKNOWN') return
+
+    const tick: TickData = {
+      price,
+      timestamp,
+      ticker
+    }
+
+    // 틱 기록
+    this.recordTick(tick)
+    
+    // 캔들 업데이트
+    this.updateCandleBuffer(tick)
+    
+    // Background에 알림
+    this.notifyBackground(tick)
+  }
+
   // ============================================================
   // DOM Scraping
   // ============================================================

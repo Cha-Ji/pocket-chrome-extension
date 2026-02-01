@@ -122,6 +122,15 @@ export type MessageType =
   | 'INDICATOR_VALUES'
   // Telegram
   | 'RELOAD_TELEGRAM_CONFIG'
+  // WebSocket API
+  | 'WS_PRICE_UPDATE'
+  | 'WS_MESSAGE'
+  | 'WS_CONNECTION'
+  | 'GET_WS_STATUS'
+  | 'GET_WS_CONNECTIONS'
+  | 'GET_WS_MESSAGES'
+  | 'SET_WS_ANALYSIS_MODE'
+  | 'CLEAR_WS_MESSAGES'
 
 export interface ExtensionMessage<T = unknown> {
   type: MessageType
