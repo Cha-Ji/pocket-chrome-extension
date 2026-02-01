@@ -96,10 +96,12 @@ export class BacktestEngine {
 
         const exitCandle = filteredCandles[exitCandleIndex]
 
-        // Determine result
+        // Determine result with slippage/latency simulation
+        const entryPrice = currentCandle.close + (config.slippage || 0) * (signal.direction === 'CALL' ? 1 : -1)
+        
         const result = this.determineResult(
           signal.direction,
-          currentCandle.close,
+          entryPrice,
           exitCandle.close
         )
 
@@ -109,8 +111,8 @@ export class BacktestEngine {
 
         // Track trade
         const trade: BacktestTrade = {
-          entryTime: currentCandle.timestamp,
-          entryPrice: currentCandle.close,
+          entryTime: currentCandle.timestamp + (config.latencyMs || 0),
+          entryPrice: entryPrice,
           exitTime: exitCandle.timestamp,
           exitPrice: exitCandle.close,
           direction: signal.direction,
