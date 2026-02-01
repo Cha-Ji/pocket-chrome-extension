@@ -18,6 +18,17 @@ export default defineConfig({
     rollupOptions: {
       input: {
         sidepanel: resolve(__dirname, 'src/side-panel/index.html'),
+        // WebSocket inject script (페이지 컨텍스트용)
+        'inject-websocket': resolve(__dirname, 'src/content-script/inject-websocket.ts'),
+      },
+      output: {
+        entryFileNames: (chunkInfo) => {
+          // inject-websocket은 별도 이름으로 출력
+          if (chunkInfo.name === 'inject-websocket') {
+            return '[name].js'
+          }
+          return 'assets/[name]-[hash].js'
+        },
       },
     },
   },

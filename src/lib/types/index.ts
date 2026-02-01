@@ -120,6 +120,15 @@ export type MessageType =
   | 'READ_INDICATORS_NOW'
   | 'INDICATOR_UPDATE'
   | 'INDICATOR_VALUES'
+  // WebSocket Interceptor API
+  | 'GET_WS_STATUS'
+  | 'GET_WS_CONNECTIONS'
+  | 'GET_WS_MESSAGES'
+  | 'SET_WS_ANALYSIS_MODE'
+  | 'CLEAR_WS_MESSAGES'
+  | 'WS_PRICE_UPDATE'
+  | 'WS_MESSAGE'
+  | 'WS_CONNECTION'
   // Telegram
   | 'RELOAD_TELEGRAM_CONFIG'
 
