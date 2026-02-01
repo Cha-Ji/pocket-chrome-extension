@@ -7,9 +7,9 @@ Pocket Option에서 실시간 가격 데이터를 안정적으로 수집하고, 
 ## 📋 단계별 체크리스트
 
 ### Phase 1: 현황 분석 및 개선점 도출
-- [ ] 기존 CandleCollector/DataCollector 코드 분석
-- [ ] DOM 셀렉터 유효성 검증 (Pocket Option 현재 구조)
-- [ ] WebSocket 연결 가능성 조사
+- [x] 기존 CandleCollector/DataCollector 코드 분석
+- [x] DOM 셀렉터 유효성 검증 (Pocket Option 현재 구조)
+- [x] WebSocket 연결 가능성 조사
 - [ ] 가격 수집 안정성 테스트
 
 ### Phase 2: 데이터 수집 개선
@@ -19,16 +19,16 @@ Pocket Option에서 실시간 가격 데이터를 안정적으로 수집하고, 
 - [ ] 가격 데이터 검증 로직 추가
 
 ### Phase 3: 페이지 인디케이터 읽기 개선
-- [ ] RSI 셀렉터 검증 및 수정
-- [ ] Stochastic 셀렉터 검증 및 수정
-- [ ] 인디케이터 값 정확도 검증
+- [x] RSI 셀렉터 검증 및 수정
+- [x] Stochastic 셀렉터 검증 및 수정
+- [x] 인디케이터 값 정확도 검증 (테스트 24개 추가)
 - [ ] 계산된 값 vs 페이지 값 비교 로직
 
 ### Phase 4: Forward Test 시스템
-- [ ] Forward Test 스크립트 분석 (scripts/forward-test.ts)
-- [ ] 실시간 시그널 생성 → 거래 실행 → 결과 기록 파이프라인
-- [ ] 승률 자동 계산 및 리포트
-- [ ] 최소 20회 거래로 전략 검증
+- [x] Forward Test 스크립트 분석 (scripts/forward-test.ts)
+- [x] Forward Test V2로 업그레이드 (Stochastic 제외, RSI/EMA만 사용)
+- [x] 승률 자동 계산 및 리포트 (전략별/시장상태별 통계)
+- [ ] 최소 20회 거래로 전략 검증 (실전 테스트 대기)
 
 ### Phase 5: 테스트 및 문서화
 - [ ] 단위 테스트 추가/업데이트
