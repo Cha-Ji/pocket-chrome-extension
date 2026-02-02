@@ -87,6 +87,16 @@ export interface TradeSnapshot {
   priceHistory: number[]
 }
 
+export interface ErrorLog {
+  id?: number
+  timestamp: number
+  severity: 'info' | 'warning' | 'error' | 'critical'
+  module: string
+  message: string
+  stack?: string
+  metadata?: Record<string, unknown>
+}
+
 // ============================================================
 // Message Types for Extension Communication
 // ============================================================
@@ -145,14 +155,14 @@ export interface DOMSelectors {
   putButton: string
   amountInput: string
   expirationDisplay: string
-  
+
   // Display elements
   balanceDisplay: string
   balanceLabel: string
   tickerSelector: string
   chartContainer: string
   priceDisplay: string
-  
+
   // Account type detection
   demoIndicator: string
 }
@@ -164,14 +174,14 @@ export const DEFAULT_SELECTORS: DOMSelectors = {
   putButton: '.switch-state-block__item:last-child',   // 매도 button
   amountInput: '#put-call-buttons-chart-1 input[type="text"]',
   expirationDisplay: '.block--expiration-inputs .value__val',
-  
+
   // Display elements  
   balanceDisplay: '.balance-info-block__value',
   balanceLabel: '.balance-info-block__label', // Shows "QT Demo" or account type
   tickerSelector: '.chart-item .pair',         // e.g., "Alibaba OTC"
   chartContainer: '.chart-item',
   priceDisplay: '.chart-item', // Price extracted from chart (TBD - may need canvas reading)
-  
+
   // Demo detection
   demoIndicator: '.balance-info-block__label', // Contains "Demo" text when demo
 }
@@ -198,18 +208,18 @@ export function isDemoMode(): boolean {
   if (window.location.pathname.includes('demo')) {
     return true
   }
-  
+
   // Method 2: Check for demo class on chart
   if (document.querySelector('.is-chart-demo')) {
     return true
   }
-  
+
   // Method 3: Check balance label text
   const balanceLabel = document.querySelector(DEFAULT_SELECTORS.demoIndicator)
   if (balanceLabel?.textContent?.toLowerCase().includes('demo')) {
     return true
   }
-  
+
   // When uncertain, assume LIVE (safer - prevents accidental live trading)
   return false
 }
@@ -222,22 +232,22 @@ export function getAccountType(): { type: AccountType; confidence: 'high' | 'med
   const hasChartDemoClass = !!document.querySelector('.is-chart-demo')
   const labelText = document.querySelector(DEFAULT_SELECTORS.demoIndicator)?.textContent?.toLowerCase() || ''
   const labelHasDemo = labelText.includes('demo')
-  
+
   // All indicators agree on demo
   if (urlHasDemo && hasChartDemoClass && labelHasDemo) {
     return { type: 'DEMO', confidence: 'high' }
   }
-  
+
   // URL says demo (most reliable)
   if (urlHasDemo) {
     return { type: 'DEMO', confidence: 'medium' }
   }
-  
+
   // URL doesn't have demo - likely live
   if (!urlHasDemo && !labelHasDemo) {
     return { type: 'LIVE', confidence: 'medium' }
   }
-  
+
   // Mixed signals
   return { type: 'UNKNOWN', confidence: 'low' }
 }

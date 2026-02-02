@@ -16,6 +16,7 @@ import { getIndicatorReader, IndicatorReader, IndicatorValues } from './indicato
 import { getSignalGeneratorV2, SignalGeneratorV2, generateLLMReport } from '../lib/signals/signal-generator-v2'
 import { Signal } from '../lib/signals/types'
 import { getTelegramService, TelegramService, TelegramConfig } from '../lib/notifications/telegram'
+import { reportError } from '../lib/errors'
 
 // ============================================================
 // Module Instances
@@ -240,7 +241,13 @@ async function executeSignal(signal: Signal): Promise<void> {
     }).catch(() => {})
     
   } catch (error) {
-    console.error('[Pocket Quant V2] Trade execution error:', error)
+    await reportError(error, {
+      context: {
+        module: 'content-script',
+        action: 'executeSignal',
+        metadata: { symbol: signal.symbol, strategy: signal.strategy },
+      },
+    })
   }
 }
 

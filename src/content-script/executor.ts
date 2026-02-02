@@ -6,6 +6,7 @@
 // ============================================================
 
 import { DOMSelectors, Direction, isDemoMode, getAccountType, AccountType } from '../lib/types'
+import { reportError, toErrorMessage } from '../lib/errors'
 import { getSelectorResolver } from './selector-resolver'
 
 export class TradeExecutor {
@@ -155,8 +156,14 @@ export class TradeExecutor {
 
       return { success: true }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
-      return { success: false, error: message }
+      await reportError(error, {
+        context: {
+          module: 'content-script',
+          action: 'executeTrade',
+          metadata: { direction, amount },
+        },
+      })
+      return { success: false, error: toErrorMessage(error) }
     }
   }
 

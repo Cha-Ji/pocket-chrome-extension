@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
-import type { Tick, Strategy, Session, Trade } from '../types'
+import type { Tick, Strategy, Session, Trade, ErrorLog } from '../types'
 
 // ============================================================
 // Candle Type (IndexedDB 저장용)
@@ -28,10 +28,11 @@ export class PocketDB extends Dexie {
   sessions!: EntityTable<Session, 'id'>
   trades!: EntityTable<Trade, 'id'>
   candles!: EntityTable<StoredCandle, 'id'>
+  logs!: EntityTable<ErrorLog, 'id'>
 
   constructor() {
     super('PocketQuantTrader')
-    
+
     // Version 1: 기본 테이블
     this.version(1).stores({
       ticks: '++id, ticker, timestamp, [ticker+timestamp]',
@@ -39,7 +40,7 @@ export class PocketDB extends Dexie {
       sessions: '++id, type, strategyId, startTime',
       trades: '++id, sessionId, ticker, entryTime, result',
     })
-    
+
     // Version 2: 캔들 테이블 추가
     this.version(2).stores({
       ticks: '++id, ticker, timestamp, [ticker+timestamp]',
@@ -47,6 +48,16 @@ export class PocketDB extends Dexie {
       sessions: '++id, type, strategyId, startTime',
       trades: '++id, sessionId, ticker, entryTime, result',
       candles: '++id, ticker, interval, timestamp, [ticker+interval], [ticker+interval+timestamp]',
+    })
+
+    // Version 3: 로그 테이블 추가
+    this.version(3).stores({
+      ticks: '++id, ticker, timestamp, [ticker+timestamp]',
+      strategies: '++id, name, createdAt',
+      sessions: '++id, type, strategyId, startTime',
+      trades: '++id, sessionId, ticker, entryTime, result',
+      candles: '++id, ticker, interval, timestamp, [ticker+interval], [ticker+interval+timestamp]',
+      logs: '++id, timestamp, severity, module, [module+timestamp], [severity+timestamp]',
     })
   }
 }
@@ -138,8 +149,8 @@ export const SessionRepository = {
     const session = await db.sessions.get(id)
     if (!session) return
 
-    const winRate = session.totalTrades > 0 
-      ? (session.wins / session.totalTrades) * 100 
+    const winRate = session.totalTrades > 0
+      ? (session.wins / session.totalTrades) * 100
       : 0
 
     await db.sessions.update(id, {
@@ -217,7 +228,7 @@ export const CandleRepository = {
       ...c,
       createdAt: Date.now()
     }))
-    
+
     let added = 0
     for (const candle of withCreatedAt) {
       // 중복 체크
@@ -225,7 +236,7 @@ export const CandleRepository = {
         .where('[ticker+interval+timestamp]')
         .equals([candle.ticker, candle.interval, candle.timestamp])
         .first()
-      
+
       if (!existing) {
         await db.candles.add(candle)
         added++
@@ -238,8 +249,8 @@ export const CandleRepository = {
    * 티커의 캔들 조회
    */
   async getByTicker(
-    ticker: string, 
-    interval: number, 
+    ticker: string,
+    interval: number,
     limit = 500
   ): Promise<StoredCandle[]> {
     return await db.candles
@@ -308,7 +319,7 @@ export const CandleRepository = {
       .where('[ticker+interval+timestamp]')
       .below([ticker, interval, timestamp])
       .primaryKeys()
-    
+
     await db.candles.bulkDelete(toDelete)
     return toDelete.length
   },
@@ -321,7 +332,7 @@ export const CandleRepository = {
       .where('ticker')
       .equals(ticker)
       .primaryKeys()
-    
+
     await db.candles.bulkDelete(toDelete)
     return toDelete.length
   },
@@ -344,12 +355,12 @@ export const CandleRepository = {
     newestTimestamp: number | null
   }> {
     const candles = await db.candles.toArray()
-    
+
     // 티커별 카운트
     const tickerMap = new Map<string, { interval: number; count: number }>()
     let oldest: number | null = null
     let newest: number | null = null
-    
+
     for (const c of candles) {
       const key = `${c.ticker}-${c.interval}`
       const existing = tickerMap.get(key)
@@ -358,17 +369,17 @@ export const CandleRepository = {
       } else {
         tickerMap.set(key, { interval: c.interval, count: 1 })
       }
-      
+
       if (!oldest || c.timestamp < oldest) oldest = c.timestamp
       if (!newest || c.timestamp > newest) newest = c.timestamp
     }
-    
+
     const tickers = Array.from(tickerMap.entries()).map(([key, val]) => ({
       ticker: key.split('-')[0],
       interval: val.interval,
       count: val.count
     }))
-    
+
     return {
       totalCandles: candles.length,
       tickers,
@@ -407,7 +418,7 @@ export const CandleRepository = {
     if (!data.ticker || !data.interval || !Array.isArray(data.candles)) {
       throw new Error('Invalid candle data format')
     }
-    
+
     const candles = data.candles.map((c: any) => ({
       ticker: data.ticker,
       interval: data.interval,
@@ -418,7 +429,52 @@ export const CandleRepository = {
       close: c.c,
       volume: c.v
     }))
-    
+
     return await this.bulkAdd(candles)
   }
+}
+
+// ============================================================
+// Log Repository
+// ============================================================
+
+export const LogRepository = {
+  async add(log: Omit<ErrorLog, 'id'>): Promise<number | undefined> {
+    return await db.logs.add(log)
+  },
+
+  async query(options: {
+    startTime?: number,
+    endTime?: number,
+    severity?: ErrorLog['severity'],
+    module?: string,
+    limit?: number
+  } = {}): Promise<ErrorLog[]> {
+    let collection = db.logs.orderBy('timestamp').reverse()
+
+    if (options.startTime) {
+      collection = collection.filter(log => log.timestamp >= options.startTime!)
+    }
+    if (options.endTime) {
+      collection = collection.filter(log => log.timestamp <= options.endTime!)
+    }
+    if (options.severity) {
+      collection = collection.filter(log => log.severity === options.severity)
+    }
+    if (options.module) {
+      collection = collection.filter(log => log.module === options.module)
+    }
+
+    if (options.limit) {
+      collection = collection.limit(options.limit)
+    }
+
+    return await collection.toArray()
+  },
+
+  async clearOlderThan(timestamp: number): Promise<number> {
+    const toDelete = await db.logs.where('timestamp').below(timestamp).primaryKeys()
+    await db.logs.bulkDelete(toDelete)
+    return toDelete.length
+  },
 }
