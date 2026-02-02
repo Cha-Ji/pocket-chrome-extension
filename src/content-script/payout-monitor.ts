@@ -217,15 +217,21 @@ export class PayoutMonitor {
 
     // Try asset list
     const assetItems = document.querySelectorAll(SELECTORS.assetItem)
+    console.log(`[PayoutMonitor] Scraping ${assetItems.length} items from DOM...`);
 
-    assetItems.forEach(item => {
+    assetItems.forEach((item, index) => {
       const labelEl = item.querySelector(SELECTORS.assetLabel)
       const profitEl = item.querySelector(SELECTORS.assetProfit)
 
       if (labelEl && profitEl) {
         const name = labelEl.textContent?.trim() || ''
+        // Use textContent or innerText to ensure we get the nested span value
         const profitText = profitEl.textContent?.trim() || ''
         const payout = this.parsePayoutPercent(profitText)
+
+        if (index < 3) {
+          console.log(`[PayoutMonitor] Sample Item ${index}: Name="${name}", RawText="${profitText}", Parsed=${payout}`);
+        }
 
         if (name && payout > 0) {
           payouts.push({
@@ -235,6 +241,8 @@ export class PayoutMonitor {
             lastUpdated: Date.now(),
           })
         }
+      } else if (index < 3) {
+        console.warn(`[PayoutMonitor] Missing elements in item ${index}: Label=${!!labelEl}, Profit=${!!profitEl}`);
       }
     })
 
@@ -245,8 +253,11 @@ export class PayoutMonitor {
    * Parse payout percentage from text like "+92%"
    */
   private parsePayoutPercent(text: string): number {
-    const match = text.match(/\+?(\d+)%?/)
-    return match ? parseInt(match[1], 10) : 0
+    if (!text) return 0;
+    // Remove all non-numeric characters except the numbers
+    const cleaned = text.replace(/[^0-9]/g, '');
+    const payout = parseInt(cleaned, 10);
+    return isNaN(payout) ? 0 : payout;
   }
 
   /**
