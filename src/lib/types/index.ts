@@ -129,6 +129,14 @@ export type MessageType =
   | 'WS_PRICE_UPDATE'
   | 'WS_MESSAGE'
   | 'WS_CONNECTION'
+  // Auto Miner
+  | 'START_AUTO_MINER'
+  | 'STOP_AUTO_MINER'
+  | 'GET_MINER_STATUS'
+  // Mining Status
+  | 'TOGGLE_MINING'
+  | 'MINING_STATS'
+  | 'MINING_STOPPED'
   // Telegram
   | 'RELOAD_TELEGRAM_CONFIG'
 

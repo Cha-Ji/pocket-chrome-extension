@@ -19,7 +19,7 @@ export default defineConfig({
       input: {
         sidepanel: resolve(__dirname, 'src/side-panel/index.html'),
         // WebSocket inject script (페이지 컨텍스트용)
-        'inject-websocket': resolve(__dirname, 'src/content-script/inject-websocket.ts'),
+        'inject-websocket': resolve(__dirname, 'src/content-script/inject-websocket.js'),
       },
       output: {
         entryFileNames: (chunkInfo) => {

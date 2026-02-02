@@ -17,6 +17,7 @@ import { getSignalGeneratorV2, SignalGeneratorV2, generateLLMReport } from '../l
 import { Signal } from '../lib/signals/types'
 import { getTelegramService, TelegramService, TelegramConfig } from '../lib/notifications/telegram'
 import { getWebSocketInterceptor, WebSocketInterceptor, PriceUpdate, WebSocketMessage } from './websocket-interceptor'
+import { AutoMiner } from './auto-miner'
 
 // ============================================================
 // Module Instances
@@ -104,6 +105,9 @@ async function initialize(): Promise<void> {
   payoutMonitor.start(30000) // 30초마다 페이아웃 체크
   indicatorReader.start() // 페이지 인디케이터 값 읽기 시작
   wsInterceptor.start() // WebSocket 인터셉터 시작 (분석 모드)
+  
+  // Auto Miner 초기화
+  AutoMiner.init(payoutMonitor)
   
   isInitialized = true
   console.log('[Pocket Quant V2] Content script initialized (V2 strategies active)')
@@ -364,6 +368,17 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _, sendResponse
 async function handleMessage(message: ExtensionMessage): Promise<unknown> {
   switch (message.type) {
     // V2 API
+    case 'START_AUTO_MINER':
+      AutoMiner.start()
+      return { success: true, message: 'Auto Miner Started' }
+
+    case 'STOP_AUTO_MINER':
+      AutoMiner.stop()
+      return { success: true, message: 'Auto Miner Stopped' }
+
+    case 'GET_MINER_STATUS':
+      return AutoMiner.getStatus()
+
     case 'GET_STATUS_V2':
       return getSystemStatus()
     

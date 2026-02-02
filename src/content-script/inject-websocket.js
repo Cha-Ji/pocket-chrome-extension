@@ -10,11 +10,11 @@
   'use strict'
 
   // 이미 인터셉터가 설치되었는지 확인
-  if ((window as any).__pocketQuantWsInterceptor) {
+  if (window.__pocketQuantWsInterceptor) {
     console.log('[WS Intercept] Already installed, skipping...')
     return
   }
-  (window as any).__pocketQuantWsInterceptor = true
+  window.__pocketQuantWsInterceptor = true
 
   console.log('[WS Intercept] Installing WebSocket interceptor...')
 
@@ -22,7 +22,7 @@
   const OriginalWebSocket = window.WebSocket
 
   // WebSocket 연결 추적
-  const connections: Map<WebSocket, { url: string; id: string }> = new Map()
+  const connections = new Map()
   let connectionIdCounter = 0
 
   // 가격 관련 URL 패턴 (Pocket Option)
@@ -38,19 +38,19 @@
   ]
 
   // URL이 가격 데이터 관련인지 확인
-  function isPriceRelatedUrl(url: string): boolean {
+  function isPriceRelatedUrl(url) {
     return PRICE_URL_PATTERNS.some(pattern => pattern.test(url))
   }
 
   // CustomEvent 디스패치 (Content Script로 데이터 전달)
-  function dispatchToContentScript(type: string, data: any): void {
+  function dispatchToContentScript(type, data) {
     window.dispatchEvent(new CustomEvent('pocket-quant-ws', {
       detail: { type, data, timestamp: Date.now() }
     }))
   }
 
   // 메시지 파싱 시도
-  function tryParseMessage(data: any): any {
+  function tryParseMessage(data) {
     // 문자열인 경우 JSON 파싱 시도
     if (typeof data === 'string') {
       try {
@@ -84,11 +84,7 @@
   }
 
   // WebSocket 생성자 오버라이드
-  const PatchedWebSocket = function(
-    this: WebSocket,
-    url: string | URL,
-    protocols?: string | string[]
-  ): WebSocket {
+  const PatchedWebSocket = function(url, protocols) {
     const urlString = url.toString()
     const connectionId = `ws-${++connectionIdCounter}`
     const isPriceRelated = isPriceRelatedUrl(urlString)
@@ -117,13 +113,9 @@
 
     // 메시지 이벤트 가로채기
     const originalAddEventListener = ws.addEventListener.bind(ws)
-    ws.addEventListener = function(
-      type: string,
-      listener: EventListenerOrEventListenerObject,
-      options?: boolean | AddEventListenerOptions
-    ): void {
+    ws.addEventListener = function(type, listener, options) {
       if (type === 'message') {
-        const wrappedListener = function(event: MessageEvent) {
+        const wrappedListener = function(event) {
           // 가격 관련 연결만 상세 로깅
           if (isPriceRelated) {
             const parsed = tryParseMessage(event.data)
@@ -143,20 +135,20 @@
             listener.handleEvent(event)
           }
         }
-        return originalAddEventListener(type, wrappedListener as EventListener, options)
+        return originalAddEventListener(type, wrappedListener, options)
       }
       return originalAddEventListener(type, listener, options)
     }
 
     // onmessage 프로퍼티 감시
-    let _onmessage: ((event: MessageEvent) => void) | null = null
+    let _onmessage = null
     Object.defineProperty(ws, 'onmessage', {
       get: () => _onmessage,
-      set: (handler: ((event: MessageEvent) => void) | null) => {
+      set: (handler) => {
         _onmessage = handler
         if (handler && isPriceRelated) {
           const originalHandler = handler
-          ws.addEventListener('message', function(event: MessageEvent) {
+          ws.addEventListener('message', function(event) {
             const parsed = tryParseMessage(event.data)
             dispatchToContentScript('message', {
               connectionId,
@@ -193,7 +185,7 @@
     })
 
     return ws
-  } as unknown as typeof WebSocket
+  }
 
   // WebSocket 프로토타입 복사
   PatchedWebSocket.prototype = OriginalWebSocket.prototype
@@ -204,10 +196,10 @@
   Object.defineProperty(PatchedWebSocket, 'CLOSED', { value: OriginalWebSocket.CLOSED })
 
   // 전역 WebSocket 교체
-  ;(window as any).WebSocket = PatchedWebSocket
+  window.WebSocket = PatchedWebSocket
 
   // 상태 확인 함수 (디버깅용)
-  ;(window as any).__pocketQuantWsStatus = function() {
+  window.__pocketQuantWsStatus = function() {
     return {
       installed: true,
       activeConnections: connections.size,
