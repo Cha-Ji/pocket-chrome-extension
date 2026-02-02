@@ -121,20 +121,23 @@ export class PayoutMonitor {
   async switchAsset(assetName: string): Promise<boolean> {
     console.log(`[PayoutMonitor] Attempting to switch to: ${assetName}`)
 
-    // 1. Open picker
+    // 1. Open picker and wait for stability
     await this.openAssetPicker()
-    await this.wait(500) // Wait for animation
+    await this.wait(800) // Increased wait for animation and React rendering
 
-    // 2. Find asset element
-    const assetItems = document.querySelectorAll(SELECTORS.assetItem)
+    // 2. Find asset element - multiple attempts in case of lazy loading
     let targetElement: HTMLElement | null = null
-
-    for (const item of assetItems) {
-      const labelEl = item.querySelector(SELECTORS.assetLabel)
-      if (labelEl && labelEl.textContent?.trim() === assetName) {
-        targetElement = item as HTMLElement
-        break
+    for (let i = 0; i < 3; i++) {
+      const assetItems = document.querySelectorAll(SELECTORS.assetItem)
+      for (const item of assetItems) {
+        const labelEl = item.querySelector(SELECTORS.assetLabel)
+        if (labelEl && labelEl.textContent?.trim() === assetName) {
+          targetElement = item as HTMLElement
+          break
+        }
       }
+      if (targetElement) break
+      await this.wait(300)
     }
 
     // 3. Click if found using advanced force click
@@ -143,18 +146,15 @@ export class PayoutMonitor {
       
       if (clicked) {
         console.log(`[PayoutMonitor] Force clicked asset: ${assetName}`)
-      } else {
-        console.warn(`[PayoutMonitor] Force click failed for: ${assetName}`)
+        // Wait for switch to complete (UI update)
+        await this.wait(1000)
+        return true
       }
-      
-      // Wait for switch
-      await this.wait(500)
-      return clicked
-    } else {
-      console.warn(`[PayoutMonitor] Asset not found in list: ${assetName}`)
-      await this.closeAssetPicker()
-      return false
     }
+    
+    console.warn(`[PayoutMonitor] Failed to switch to asset: ${assetName}`)
+    await this.closeAssetPicker()
+    return false
   }
 
   /**
@@ -239,20 +239,24 @@ export class PayoutMonitor {
    * Open asset picker dropdown
    */
   private async openAssetPicker(): Promise<void> {
-    // Check if already open
+    // Check if already open (check visibility of the list container)
     const list = document.querySelector(SELECTORS.assetList)
-    if (list && list.getBoundingClientRect().height > 0) {
-        console.log('[PayoutMonitor] Asset picker already open')
+    if (list && window.getComputedStyle(list).display !== 'none' && list.getBoundingClientRect().height > 0) {
+        console.log('[PayoutMonitor] Asset picker already open and visible')
         return
     }
 
-    const trigger = document.querySelector(SELECTORS.pairTrigger) as HTMLElement
+    console.log('[PayoutMonitor] Opening asset picker...')
+    
+    // Find the trigger element - Priority: .pair-number-wrap (has React onClick) -> .current-symbol
+    const trigger = (document.querySelector('.pair-number-wrap') || 
+                     document.querySelector(SELECTORS.pairTrigger)) as HTMLElement
+    
     if (trigger) {
-      trigger.click()
+      await forceClick(trigger)
     } else {
-        // Fallback for different UI versions
-        const fallback = document.querySelector('.pair-number-wrap, .pair') as HTMLElement
-        if (fallback) fallback.click()
+        const fallback = document.querySelector('.pair') as HTMLElement
+        if (fallback) await forceClick(fallback)
     }
   }
 
@@ -260,13 +264,21 @@ export class PayoutMonitor {
    * Close asset picker
    */
   private async closeAssetPicker(): Promise<void> {
+    const list = document.querySelector(SELECTORS.assetList)
+    if (!list || window.getComputedStyle(list).display === 'none' || list.getBoundingClientRect().height === 0) {
+        return
+    }
+
+    console.log('[PayoutMonitor] Closing asset picker...')
+    
     // Click overlay or close button
     const overlay = document.querySelector(SELECTORS.overlay) as HTMLElement
     if (overlay) {
-        overlay.click()
+        await forceClick(overlay)
     } else {
-        // Fallback: Click body (sometimes closes dropdowns)
-        document.body.click()
+        // Fallback: Click the trigger again to toggle if overlay not found
+        const trigger = document.querySelector('.pair-number-wrap') as HTMLElement
+        if (trigger) await forceClick(trigger)
     }
   }
 
