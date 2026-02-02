@@ -1,27 +1,23 @@
-# Task Plan - Auto Miner Click Logic Fix (PO-15)
+# Task Plan - Asset Switching Logic Verification (PO-15)
 
 ## 🎯 목표
-Auto Miner의 자산 선택(Asset Selection) 클릭 동작 실패 원인을 규명하고, Playwright 기반 E2E 테스트 환경 구축을 통해 검증 가능한 해결책 마련
-
-## 🚨 문제 상황
-- `Start Auto Mining` 시 자산 목록은 열리지만, 특정 자산 클릭이 묵묵부답.
-- `click()` 및 `MouseEvent` dispatch 모두 실패 추정.
-- 단순 DOM 조작으로는 최신 SPA 프레임워크의 이벤트 핸들링을 뚫지 못하고 있음.
+`PayoutMonitor.switchAsset` 로직의 결함(특히 자산 목록 오픈 후 실제 항목 클릭 단계)을 해결하고, 자동 자산 전환의 안정성을 100% 확보한다.
 
 ## 📋 작업 목록
 
-### Phase 1: 진단 도구 강화
-- [ ] `diagnostics.ts` 작성: 클릭 시도 시 이벤트 리스너가 반응하는지 확인하는 스크립트.
-- [ ] 브라우저 콘솔에서 직접 실행 가능한 'Manual Trigger Snippet' 제공.
+### Phase 1: 원인 분석 및 가설 설정
+- [ ] 현재 `switchAsset` 로직 흐름 재검토 (Open -> Wait -> Find -> Click).
+- [ ] **가설 1**: `forceClick`이 React 핸들러를 찾았지만, 이벤트 객체(`nativeEvent`) 구성이 부족하여 React가 거부했을 가능성.
+- [ ] **가설 2**: `alist__item`이 아닌 `alist__link`에 직접 이벤트를 보내야 함 (현재 보완되었으나 재검증 필요).
+- [ ] **가설 3**: 자산 목록이 열린 후 렌더링 지연이 800ms보다 길 수 있음.
 
-### Phase 2: 고급 클릭 기법 도입
-- [ ] **좌표 기반 클릭 (Coordinates Click)**: `getBoundingClientRect()`로 위치를 찾아 `document.elementFromPoint(x, y).click()` 시도.
-- [ ] **React Props 접근**: DOM 요소에 붙은 `__reactEventHandlers...` 또는 `__vue...` 속성을 찾아 핸들러 직접 호출.
-- [ ] **Focus & Enter**: `focus()` 후 `Enter` 키보드 이벤트 전송.
+### Phase 2: 검증 코드 작성 (Standalone Test)
+- [ ] `tests/manual/test-switch.ts` 작성: 익스텐션 로직과 무관하게 콘솔에서 즉시 자산 전환을 시도하는 스크립트.
+- [ ] 다양한 클릭 방식(React Hack, Human Simulation, Coordinate Click)을 순차적으로 시도하는 'Universal Clicker' 작성.
 
-### Phase 3: Playwright 테스트 환경
-- [ ] `tests/e2e/auto-miner.spec.ts` 작성.
-- [ ] 실제 PO 데모 계정으로 로그인하여 클릭 동작 자동화 테스트.
+### Phase 3: 로직 수정 및 자체 검증
+- [ ] 검증된 방식을 `payout-monitor.ts` 및 `dom-utils.ts`에 반영.
+- [ ] 버전 `0.1.3`으로 빌드 후 팡 팡님께 수동 검증 요청.
 
 ## 📅 일정
-- 2026-02-03: 진단 및 고급 클릭 기법 적용
+- 2026-02-03 07:30: 검증 스크립트 배포 및 결과 확인
