@@ -62,6 +62,8 @@ export const AutoMiner = {
       .filter(asset => asset.payout >= 92)
       .map(asset => asset.name)
 
+    console.log(`[AutoMiner] Scan found ${highPayoutAssets.length} high payout assets. Completed: ${minerState.completedAssets.size}`)
+
     // 2. 아직 채굴 안 한 자산 찾기
     const nextAsset = highPayoutAssets.find(asset => !minerState.completedAssets.has(asset))
 
@@ -74,6 +76,14 @@ export const AutoMiner = {
 
     // 3. 자산 전환 및 채굴 시작
     console.log(`[AutoMiner] ⛏️ Target acquired: ${nextAsset}`)
+    
+    // 이전에 완료된 자산 리스트에 현재 타겟이 있다면 (방금 클리어한 경우 등) 방어 로직
+    if (minerState.completedAssets.has(nextAsset)) {
+       console.log(`[AutoMiner] ${nextAsset} already in completed list, moving to next...`)
+       this.scanAndMineNext()
+       return
+    }
+
     this.mineAsset(nextAsset)
   },
 
