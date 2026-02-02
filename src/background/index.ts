@@ -5,6 +5,8 @@
 
 import { ExtensionMessage, Tick, TradingStatus } from '../lib/types'
 import { db, TickRepository } from '../lib/db'
+import { reportError, toErrorMessage } from '../lib/errors'
+import { getTelegramService } from '../lib/notifications/telegram'
 
 // ============================================================
 // State
@@ -32,7 +34,10 @@ chrome.runtime.onStartup.addListener(async () => {
     const telegram = await getTelegramService()
     await telegram.notifyStatus('Extension Service Worker Started')
   } catch (e) {
-    console.error('[Background] Startup notification failed:', e)
+    void reportError(e, {
+      context: { module: 'background', action: 'startup-notify' },
+      severity: 'warning',
+    })
   }
 })
 
@@ -62,7 +67,10 @@ async function handleMessage(
   try {
     await getTelegramService()
   } catch (e) {
-    console.error('[Background] Telegram Init Error:', e)
+    void reportError(e, {
+      context: { module: 'background', action: 'telegram-init' },
+      severity: 'warning',
+    })
   }
 
   switch (message.type) {
@@ -116,7 +124,7 @@ async function startTrading(): Promise<{ success: boolean; error?: string }> {
     
     return { success: false, error: response?.message || 'Failed to start' }
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
+    const message = toErrorMessage(error)
     return { success: false, error: message }
   }
 }
@@ -139,7 +147,7 @@ async function stopTrading(): Promise<{ success: boolean; error?: string }> {
     
     return { success: true }
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
+    const message = toErrorMessage(error)
     return { success: false, error: message }
   }
 }
@@ -170,7 +178,13 @@ async function handleTickData(tick: Tick): Promise<void> {
       await TickRepository.deleteOlderThan(cutoff)
     }
   } catch (error) {
-    console.error('[Background] Failed to store tick:', error)
+    void reportError(error, {
+      context: {
+        module: 'background',
+        action: 'handleTickData',
+        metadata: { ticker: tick?.ticker },
+      },
+    })
   }
 }
 
