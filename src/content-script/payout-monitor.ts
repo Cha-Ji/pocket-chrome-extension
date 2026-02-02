@@ -27,9 +27,9 @@ const DEFAULT_FILTER: PayoutFilter = {
 // DOM Selectors for asset list
 const SELECTORS = {
   assetList: '.assets-block__alist.alist',
-  assetItem: '.alist__item', // Reverted to simple selector
+  assetItem: '.alist__item',
   assetLabel: '.alist__label',
-  assetProfit: '.alist__profit',
+  assetProfit: '.alist__payout', // Changed from .alist__profit
   pairTrigger: '.current-symbol',
   overlay: '.modal-overlay',
 }
@@ -169,27 +169,35 @@ export class PayoutMonitor {
    */
   private async fetchPayouts(): Promise<void> {
     try {
-      // Try to get payouts from already visible list
+      // 1. Try to get payouts from already visible list
       let payouts = this.scrapePayoutsFromDOM()
 
-      // If not enough, try opening the asset picker
+      // 2. If not enough, try opening the asset picker with forced click
       if (payouts.length < 5) {
+        console.log('[PayoutMonitor] Payouts not visible or empty, forcing picker...')
         await this.openAssetPicker()
-        await this.wait(500)
+        await this.wait(1000) // Increased wait for DOM update
         payouts = this.scrapePayoutsFromDOM()
-        await this.closeAssetPicker()
+        
+        // Don't close immediately if we're in AutoMiner flow, 
+        // but for routine polling, we should close it.
+        // However, if we fail to find payouts even after opening, close it.
+        if (payouts.length < 5) {
+          await this.closeAssetPicker()
+        }
       }
 
       // Update internal state
-      const now = Date.now()
-      payouts.forEach(p => {
-        this.assets.set(p.name, { ...p, lastUpdated: now })
-      })
+      if (payouts.length > 0) {
+        const now = Date.now()
+        payouts.forEach(p => {
+          this.assets.set(p.name, { ...p, lastUpdated: now })
+        })
+        console.log(`[PayoutMonitor] Updated ${payouts.length} assets. High payout: ${this.getHighPayoutAssets().length}`)
+      }
 
       // Notify observers
       this.notifyObservers()
-
-      console.log(`[PayoutMonitor] Updated ${payouts.length} assets. High payout: ${this.getHighPayoutAssets().length}`)
     } catch (error) {
       console.error('[PayoutMonitor] Error fetching payouts:', error)
     }
@@ -239,11 +247,19 @@ export class PayoutMonitor {
    * Open asset picker dropdown
    */
   private async openAssetPicker(): Promise<void> {
-    // Check if already open (check visibility of the list container)
-    const list = document.querySelector(SELECTORS.assetList)
-    if (list && window.getComputedStyle(list).display !== 'none' && list.getBoundingClientRect().height > 0) {
-        console.log('[PayoutMonitor] Asset picker already open and visible')
-        return
+    // Check if already open and visible in the viewport
+    const list = document.querySelector(SELECTORS.assetList) as HTMLElement
+    if (list) {
+      const rect = list.getBoundingClientRect()
+      const isVisible = rect.height > 0 && 
+                        rect.width > 0 && 
+                        window.getComputedStyle(list).display !== 'none' &&
+                        rect.top >= 0 // Ensure it's not scrolled away or hidden
+      
+      if (isVisible) {
+          console.log('[PayoutMonitor] Asset picker already open and visible')
+          return
+      }
     }
 
     console.log('[PayoutMonitor] Opening asset picker...')
