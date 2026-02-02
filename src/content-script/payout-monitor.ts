@@ -5,6 +5,8 @@
 // Filters for high-payout assets (92%+) for optimal trading
 // ============================================================
 
+import { forceClick } from '../lib/dom-utils'
+
 export interface AssetPayout {
   name: string
   payout: number // percentage, e.g., 92
@@ -25,10 +27,11 @@ const DEFAULT_FILTER: PayoutFilter = {
 // DOM Selectors for asset list
 const SELECTORS = {
   assetList: '.assets-block__alist.alist',
-  assetItem: '.alist__item',
+  assetItem: '.alist__item', // Reverted to simple selector
   assetLabel: '.alist__label',
   assetProfit: '.alist__profit',
-  pairTrigger: '.pair-number-wrap, .pair',
+  pairTrigger: '.current-symbol',
+  overlay: '.modal-overlay',
 }
 
 export class PayoutMonitor {
@@ -134,14 +137,19 @@ export class PayoutMonitor {
       }
     }
 
-    // 3. Click if found
+    // 3. Click if found using advanced force click
     if (targetElement) {
-      targetElement.click()
-      console.log(`[PayoutMonitor] Clicked asset: ${assetName}`)
+      const clicked = await forceClick(targetElement)
+      
+      if (clicked) {
+        console.log(`[PayoutMonitor] Force clicked asset: ${assetName}`)
+      } else {
+        console.warn(`[PayoutMonitor] Force click failed for: ${assetName}`)
+      }
       
       // Wait for switch
       await this.wait(500)
-      return true
+      return clicked
     } else {
       console.warn(`[PayoutMonitor] Asset not found in list: ${assetName}`)
       await this.closeAssetPicker()
@@ -231,9 +239,20 @@ export class PayoutMonitor {
    * Open asset picker dropdown
    */
   private async openAssetPicker(): Promise<void> {
+    // Check if already open
+    const list = document.querySelector(SELECTORS.assetList)
+    if (list && list.getBoundingClientRect().height > 0) {
+        console.log('[PayoutMonitor] Asset picker already open')
+        return
+    }
+
     const trigger = document.querySelector(SELECTORS.pairTrigger) as HTMLElement
     if (trigger) {
       trigger.click()
+    } else {
+        // Fallback for different UI versions
+        const fallback = document.querySelector('.pair-number-wrap, .pair') as HTMLElement
+        if (fallback) fallback.click()
     }
   }
 
@@ -241,8 +260,14 @@ export class PayoutMonitor {
    * Close asset picker
    */
   private async closeAssetPicker(): Promise<void> {
-    // Click elsewhere to close
-    document.body.click()
+    // Click overlay or close button
+    const overlay = document.querySelector(SELECTORS.overlay) as HTMLElement
+    if (overlay) {
+        overlay.click()
+    } else {
+        // Fallback: Click body (sometimes closes dropdowns)
+        document.body.click()
+    }
   }
 
   /**
