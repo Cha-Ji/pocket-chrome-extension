@@ -178,20 +178,23 @@ export class PayoutMonitor {
     try {
       // 1. Try to get payouts from already visible list
       let payouts = this.scrapePayoutsFromDOM()
-      console.log(`[PayoutMonitor] Initial scrape found ${payouts.length} assets.`);
-
-      // 2. If not enough, try opening the asset picker with forced click
+      
+      // 2. If not enough, try opening the asset picker
       if (payouts.length < 5) {
-        console.log('[PayoutMonitor] Payouts insufficient, attempting to open picker...');
+        console.log('[PayoutMonitor] Payouts insufficient or empty. Checking if picker is actually visible...');
+        
         await this.openAssetPicker()
-        await this.wait(1000) 
-        payouts = this.scrapePayoutsFromDOM()
+        // Wait longer and multiple times for React rendering
+        for (let i = 0; i < 3; i++) {
+            await this.wait(500)
+            payouts = this.scrapePayoutsFromDOM()
+            if (payouts.length >= 5) break;
+            console.log(`[PayoutMonitor] Waiting for assets to render... (${i+1}/3)`)
+        }
         
         if (payouts.length < 5) {
-          console.warn('[PayoutMonitor] Still no assets after opening picker. Closing and retrying later.');
+          console.warn('[PayoutMonitor] Still no assets after opening picker. Closing.');
           await this.closeAssetPicker()
-        } else {
-          console.log(`[PayoutMonitor] Successfully opened picker and found ${payouts.length} assets.`);
         }
       }
 
@@ -202,16 +205,12 @@ export class PayoutMonitor {
           this.assets.set(p.name, { ...p, lastUpdated: now })
         })
         const highCount = this.getHighPayoutAssets().length;
-        console.log(`[PayoutMonitor] Update Cycle Complete:
-          - Total Assets: ${payouts.length}
-          - High Payout (92%+): ${highCount}
-          - Duration: ${Date.now() - startTime}ms`);
+        console.log(`[PayoutMonitor] Cycle Complete: Total=${payouts.length}, High=${highCount}, Time=${Date.now() - startTime}ms`);
       }
 
-      // Notify observers
       this.notifyObservers()
     } catch (error) {
-      console.error('[PayoutMonitor] Critical error in fetchPayouts:', error)
+      console.error('[PayoutMonitor] Critical error:', error)
     }
   }
 
