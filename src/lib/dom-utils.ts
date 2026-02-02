@@ -31,76 +31,65 @@ export function getReactProps(element: HTMLElement): any {
   export async function forceClick(element: HTMLElement): Promise<boolean> {
     if (!element) return false
 
-    console.log('[DOMUtils] Attempting brute force click on:', element)
+    console.log('[DOMUtils] Starting Multi-Phase Click Sequence on:', element)
 
-    // 1. Try native .click() first - some environments prefer this if listeners are native
-    try {
-      element.click();
-      // 약간 대기하여 네이티브 클릭이 처리될 시간을 줌
-      await new Promise(r => setTimeout(r, 50));
-    } catch (e) {}
-
-    // 2. React Hack (Enhanced Event Object)
+    // 1. PHASE ONE: React Direct Execution (Synthetic Event)
     const props = getReactProps(element)
     if (props && typeof props.onClick === 'function') {
-      console.log('[DOMUtils] React onClick found. Triggering with full synthetic event...');
       try {
-        const mouseEvent = new MouseEvent('click', { 
-          bubbles: true, 
-          cancelable: true, 
-          view: window,
-          buttons: 1
-        });
-        
-        // React 17+ Synthetic Event Simulation
         const syntheticEvent = {
-          nativeEvent: mouseEvent,
+          nativeEvent: new MouseEvent('click', { bubbles: true, cancelable: true, view: window }),
           currentTarget: element,
           target: element,
           type: 'click',
           bubbles: true,
           cancelable: true,
-          timeStamp: Date.now(),
-          defaultPrevented: false,
-          isTrusted: true,
-          preventDefault: () => { (syntheticEvent as any).defaultPrevented = true; },
-          stopPropagation: () => {},
           persist: () => {},
+          preventDefault: () => {},
+          stopPropagation: () => {},
           isPropagationStopped: () => false,
-          isDefaultPrevented: () => (syntheticEvent as any).defaultPrevented
+          isDefaultPrevented: () => false
         };
-        
         props.onClick(syntheticEvent)
-        await new Promise(r => setTimeout(r, 150));
+        console.log('[DOMUtils] Phase 1: React onClick triggered');
       } catch (e) {
-        console.warn('[DOMUtils] React onClick execution error:', e)
+        console.warn('[DOMUtils] Phase 1 Error:', e);
       }
     }
 
-    // 3. Dispatch full mouse event sequence to the element and its first child
+    // 2. PHASE TWO: Native Event Sequence (Bubbling)
     const rect = element.getBoundingClientRect()
     const x = rect.left + rect.width / 2
     const y = rect.top + rect.height / 2
-
-    const eventConfig = {
+    
+    const mouseConfig = {
       view: window,
       bubbles: true,
       cancelable: true,
       clientX: x,
       clientY: y,
-      screenX: x,
-      screenY: y,
       buttons: 1
     };
 
-    const targetNodes = [element];
-    if (element.firstElementChild) targetNodes.push(element.firstElementChild as HTMLElement);
+    ['mousedown', 'mouseup', 'click'].forEach(type => {
+      element.dispatchEvent(new MouseEvent(type, mouseConfig));
+    });
+    console.log('[DOMUtils] Phase 2: Native sequence dispatched');
 
-    for (const node of targetNodes) {
+    // 3. PHASE THREE: Deep Child Dispatch
+    // If we clicked the LI, the A or SPAN might need the event directly
+    const deepTarget = element.querySelector('.alist__link, .alist__label') as HTMLElement;
+    if (deepTarget && deepTarget !== element) {
       ['mousedown', 'mouseup', 'click'].forEach(type => {
-        node.dispatchEvent(new MouseEvent(type, eventConfig));
+        deepTarget.dispatchEvent(new MouseEvent(type, mouseConfig));
       });
+      console.log('[DOMUtils] Phase 3: Deep target sequence dispatched');
     }
+
+    // 4. PHASE FOUR: Pointer Simulation
+    ['pointerdown', 'pointerup'].forEach(type => {
+      element.dispatchEvent(new PointerEvent(type, { ...mouseConfig, pointerId: 1, isPrimary: true }));
+    });
 
     return true
   }
