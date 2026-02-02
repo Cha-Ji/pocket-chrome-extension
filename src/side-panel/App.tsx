@@ -7,12 +7,23 @@ import { SignalPanel } from './components/SignalPanel'
 import { AutoTradePanel } from './components/AutoTradePanel'
 import { SettingsPanel } from './components/SettingsPanel'
 import { Dashboard } from './components/Dashboard'
+import { AutoMinerControl } from './components/AutoMinerControl'
+import { HistoryMiner } from './components/HistoryMiner'
 import { useTradingStatus } from './hooks/useTradingStatus'
 import { useLogs } from './hooks/useLogs'
 import { useTrades } from './hooks/useTrades'
 import { Signal } from '../lib/signals/types'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  )
+}
+
+function AppContent() {
   const { status, startTrading, stopTrading, isLoading } = useTradingStatus()
   const { logs, addLog, clearLogs } = useLogs()
   const { trades } = useTrades()
@@ -23,7 +34,9 @@ export default function App() {
   }, [])
 
   const handleSignal = (signal: Signal) => {
-    addLog('success', `🎯 ${signal.direction} signal: ${signal.strategy} @ $${signal.entryPrice.toFixed(2)}`)
+    // entryPrice can be undefined in some cases
+    const price = signal.entryPrice ?? 0
+    addLog('success', `🎯 ${signal.direction} signal: ${signal.strategy} @ $${price.toFixed(2)}`)
   }
 
   const handleStart = async () => {
@@ -122,7 +135,14 @@ export default function App() {
       )}
 
       {activeTab === 'auto' && (
-        <AutoTradePanel />
+        <>
+          <AutoTradePanel />
+          <div className="border-t border-gray-700 pt-4">
+             <h3 className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Data Mining</h3>
+             <AutoMinerControl />
+             <HistoryMiner />
+          </div>
+        </>
       )}
 
       {activeTab === 'status' && (

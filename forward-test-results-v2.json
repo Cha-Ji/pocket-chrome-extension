@@ -1,0 +1,23 @@
+{
+  "testInfo": {
+    "startTime": "2026-02-02T09:41:15.312Z",
+    "endTime": "2026-02-02T09:51:15.786Z",
+    "durationMinutes": 10,
+    "symbol": "BTCUSDT",
+    "initialBalance": 1000,
+    "riskPerTrade": "1%",
+    "version": "v2-high-winrate"
+  },
+  "summary": {
+    "totalTrades": 0,
+    "wins": 0,
+    "losses": 0,
+    "winRate": "0%",
+    "netProfit": "$0.00",
+    "finalBalance": "$1000.00",
+    "avgConfidence": "0.0%"
+  },
+  "byRegime": {},
+  "byStrategy": {},
+  "trades": []
+}

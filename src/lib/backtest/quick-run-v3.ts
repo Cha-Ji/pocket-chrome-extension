@@ -50,14 +50,13 @@ async function run() {
   console.log(`Max Drawdown: $${result.maxDrawdown.toFixed(2)}`)
   console.log(`Profit Factor: ${result.profitFactor.toFixed(2)}`)
   
-  // Optimization Test (Wider Range for 52.1% Goal)
-  console.log('\n--- Searching for Secret 52.1%+ WinRate ---')
+  // Optimization Test (Focused Range for Stability)
+  console.log('\n--- Searching for Secret 52.1%+ WinRate (Focused) ---')
   const optResults = engine.optimize(config, candles, {
-    smmaFast: { min: 3, max: 7, step: 4 },
-    smmaMid: { min: 8, max: 20, step: 6 },
-    stochK: { min: 5, max: 21, step: 16 },
-    rsiPeriod: { min: 7, max: 21, step: 14 },
-    volatilityMultiplier: { min: 0.0001, max: 0.0003, step: 0.0001 }
+    smmaFast: { min: 3, max: 7, step: 2 },
+    smmaMid: { min: 10, max: 14, step: 2 },
+    stochK: { min: 5, max: 14, step: 9 }, // Reduced steps
+    rsiPeriod: { min: 7, max: 14, step: 7 } // Reduced steps
   })
 
   console.log(`Top 15 Param Combinations (out of ${optResults.length}):`)
