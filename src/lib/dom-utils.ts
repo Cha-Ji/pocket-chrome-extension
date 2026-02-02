@@ -9,7 +9,20 @@ export function getReactProps(element: HTMLElement): any {
   const key = Object.keys(element).find(k => 
     k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$')
   )
-  return key ? (element as any)[key] : null
+  let props = key ? (element as any)[key] : null
+
+  // If no props on element, check immediate children (common in nested React components)
+  if (!props || !props.onClick) {
+    const linkChild = element.querySelector('a, .alist__link') as HTMLElement
+    if (linkChild) {
+      const childKey = Object.keys(linkChild).find(k => 
+        k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$')
+      )
+      if (childKey) props = (linkChild as any)[childKey]
+    }
+  }
+
+  return props
 }
 
 /**
