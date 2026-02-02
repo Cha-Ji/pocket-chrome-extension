@@ -119,40 +119,46 @@ export class PayoutMonitor {
    * Switch to a specific asset
    */
   async switchAsset(assetName: string): Promise<boolean> {
-    console.log(`[PayoutMonitor] Attempting to switch to: ${assetName}`)
+    console.log(`[PayoutMonitor] 🔄 Attempting to switch to: ${assetName}`)
 
     // 1. Open picker and wait for stability
     await this.openAssetPicker()
-    await this.wait(800) // Increased wait for animation and React rendering
+    await this.wait(1000) // UI 안정화 대기 시간 증가
 
-    // 2. Find asset element - multiple attempts in case of lazy loading
+    // 2. Find asset element - multiple attempts
     let targetElement: HTMLElement | null = null
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) { // 시도 횟수 증가
       const assetItems = document.querySelectorAll(SELECTORS.assetItem)
       for (const item of assetItems) {
         const labelEl = item.querySelector(SELECTORS.assetLabel)
         if (labelEl && labelEl.textContent?.trim() === assetName) {
-          targetElement = item as HTMLElement
+          // alist__link가 있으면 그것을, 없으면 item 자체를 타겟팅
+          targetElement = (item.querySelector('.alist__link') as HTMLElement) || (item as HTMLElement)
           break
         }
       }
       if (targetElement) break
-      await this.wait(300)
+      console.log(`[PayoutMonitor] Asset ${assetName} not found, retrying... (${i+1}/5)`)
+      await this.wait(500)
     }
 
     // 3. Click if found using advanced force click
     if (targetElement) {
+      console.log(`[PayoutMonitor] Target found for ${assetName}. Executing forceClick...`)
       const clicked = await forceClick(targetElement)
       
       if (clicked) {
-        console.log(`[PayoutMonitor] Force clicked asset: ${assetName}`)
-        // Wait for switch to complete (UI update)
-        await this.wait(1000)
+        console.log(`[PayoutMonitor] ✅ Force click sent for: ${assetName}`)
+        // 클릭 후 전환 대기
+        await this.wait(1500)
+        
+        // 검증: 자산 목록이 닫혔는지 또는 현재 자산 이름이 바뀌었는지 확인 (선택 사항)
+        await this.closeAssetPicker() 
         return true
       }
     }
     
-    console.warn(`[PayoutMonitor] Failed to switch to asset: ${assetName}`)
+    console.warn(`[PayoutMonitor] ❌ Failed to find or click asset: ${assetName}`)
     await this.closeAssetPicker()
     return false
   }
