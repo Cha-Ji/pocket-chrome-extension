@@ -31,57 +31,57 @@ export function getReactProps(element: HTMLElement): any {
 export async function forceClick(element: HTMLElement): Promise<boolean> {
   if (!element) return false
 
-  console.log('[DOMUtils] Attempting force click on:', element)
+  console.log('[DOMUtils] Attempting brute force click on:', element)
 
-  // 1. Try React Hack
+  // 1. React Hack (Enhanced Event Object)
   const props = getReactProps(element)
   if (props && typeof props.onClick === 'function') {
-    console.log('[DOMUtils] React onClick handler found, calling directly...')
+    console.log('[DOMUtils] React onClick found. Triggering with enhanced event...');
     try {
+      const mouseEvent = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
       props.onClick({
-        nativeEvent: new MouseEvent('click', { bubbles: true, cancelable: true }),
+        nativeEvent: mouseEvent,
         currentTarget: element,
         target: element,
+        type: 'click',
+        bubbles: true,
+        cancelable: true,
         preventDefault: () => {},
-        stopPropagation: () => {}
+        stopPropagation: () => {},
+        persist: () => {},
+        isPropagationStopped: () => false,
+        isDefaultPrevented: () => false
       })
-      return true
+      // React 핸들러 호출 후 상태 반영을 위해 약간 대기
+      await new Promise(r => setTimeout(r, 100));
     } catch (e) {
-      console.warn('[DOMUtils] Failed to call React onClick directly:', e)
+      console.warn('[DOMUtils] React onClick error:', e)
     }
   }
 
-  // 2. Try coordinate-based click (Simulation)
+  // 2. Human-like Event Sequence
   const rect = element.getBoundingClientRect()
-  if (rect.width > 0 && rect.height > 0) {
-    const x = rect.left + rect.width / 2
-    const y = rect.top + rect.height / 2
-    
-    console.log(`[DOMUtils] Attempting coordinate click at (${x}, ${y})...`)
-    
-    const clickEvent = new MouseEvent('click', {
+  const x = rect.left + rect.width / 2
+  const y = rect.top + rect.height / 2
+
+  const events = ['mousedown', 'mouseup', 'click']
+  for (const type of events) {
+    element.dispatchEvent(new MouseEvent(type, {
       view: window,
       bubbles: true,
       cancelable: true,
       clientX: x,
       clientY: y,
-      screenX: x,
-      screenY: y
-    })
-    
-    // Dispatch to both the target and whatever is at that point
-    element.dispatchEvent(clickEvent)
-    
-    const elementAtPoint = document.elementFromPoint(x, y)
-    if (elementAtPoint && elementAtPoint !== element) {
-      elementAtPoint.dispatchEvent(clickEvent)
-    }
-    
-    return true
+      buttons: 1
+    }))
   }
 
-  // 3. Last resort: Standard click
-  element.click()
+  // 3. Coordinate-based click on the actual point
+  const elAtPoint = document.elementFromPoint(x, y) as HTMLElement
+  if (elAtPoint && elAtPoint !== element) {
+    elAtPoint.click()
+  }
+
   return true
 }
 
