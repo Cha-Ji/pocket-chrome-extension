@@ -34,35 +34,50 @@ export async function forceClick(element: HTMLElement): Promise<boolean> {
   const cls = element.className;
   console.log(`[DOMUtils] 🎯 Starting Multi-Phase Click on: <${tag} class="${cls}">`);
 
-  // Phase 1: React Hack
-  const props = getReactProps(element);
+  // Phase 1: React Hack (Standard & Parent check)
+  let props = getReactProps(element);
+  
+  // If target has no onClick, try parent (e.g., LI might hold the handler for the whole row)
+  if (!props?.onClick && element.parentElement) {
+       const parentProps = getReactProps(element.parentElement);
+       if (parentProps?.onClick) {
+         props = parentProps;
+         console.log('[DOMUtils] Using React handler from parent element');
+       }
+  }
+
   if (props && typeof props.onClick === 'function') {
     try {
-      props.onClick({
+      const syntheticEvent = {
         nativeEvent: new MouseEvent('click', { bubbles: true, cancelable: true, view: window }),
         currentTarget: element,
         target: element,
         type: 'click',
+        bubbles: true,
+        cancelable: true,
         persist: () => {},
         preventDefault: () => {},
         stopPropagation: () => {},
-        isPropagationStopped: () => false
-      });
+        isPropagationStopped: () => false,
+        isDefaultPrevented: () => false
+      };
+      props.onClick(syntheticEvent)
       console.log('[DOMUtils] ✅ Phase 1 (React) Success');
     } catch (e) {
       console.warn('[DOMUtils] ❌ Phase 1 Error:', e);
     }
   } else {
-    console.log('[DOMUtils] ℹ️ Phase 1 Skipped: No React handler');
+    console.log('[DOMUtils] ℹ️ Phase 1 Skipped: No React handler found');
   }
 
-  // Phase 2: Native Sequence
+  // Phase 2: Native Sequence with Focus
   const rect = element.getBoundingClientRect();
   const x = rect.left + rect.width / 2;
   const y = rect.top + rect.height / 2;
   const mouseConfig = { view: window, bubbles: true, cancelable: true, clientX: x, clientY: y, buttons: 1 };
 
   try {
+    element.focus();
     ['mousedown', 'mouseup', 'click'].forEach(type => element.dispatchEvent(new MouseEvent(type, mouseConfig)));
     console.log('[DOMUtils] ✅ Phase 2 (Native) Success');
   } catch (e) {
