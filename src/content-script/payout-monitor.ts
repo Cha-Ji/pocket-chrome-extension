@@ -130,14 +130,19 @@ export class PayoutMonitor {
     const assetItems = document.querySelectorAll(SELECTORS.assetItem)
     console.log(`[PayoutMonitor] Searching through ${assetItems.length} items for "${assetName}"...`)
     
+    // Normalize target name for comparison
+    const normalizedTarget = assetName.replace(/\s+/g, ' ').trim().toLowerCase();
+
     for (const item of assetItems) {
       const labelEl = item.querySelector(SELECTORS.assetLabel)
-      const labelText = labelEl?.textContent?.trim() || ''
+      const rawLabel = labelEl?.textContent || ''
       
-      // Exact match check with logging
-      if (labelText === assetName) {
+      // Normalize found label: remove non-breaking spaces, collapse whitespace, trim, lowercase
+      const normalizedLabel = rawLabel.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+      
+      if (normalizedLabel === normalizedTarget) {
         targetElement = (item.querySelector('.alist__link') as HTMLElement) || (item as HTMLElement)
-        console.log(`[PayoutMonitor] 🎯 Found exact match: "${labelText}"`)
+        console.log(`[PayoutMonitor] 🎯 Found match: "${rawLabel.trim()}" (Normalized: "${normalizedLabel}")`)
         break
       }
     }
@@ -219,7 +224,6 @@ export class PayoutMonitor {
   private scrapePayoutsFromDOM(): AssetPayout[] {
     const payouts: AssetPayout[] = []
 
-    // Try asset list
     const assetItems = document.querySelectorAll(SELECTORS.assetItem)
     if (assetItems.length > 0) {
       console.log(`[PayoutMonitor] Scraping ${assetItems.length} items from DOM...`);
@@ -230,11 +234,11 @@ export class PayoutMonitor {
       const profitEl = item.querySelector(SELECTORS.assetProfit)
 
       if (labelEl && profitEl) {
-        const name = labelEl.textContent?.trim() || ''
+        // Use innerText as secondary fallback for better human-readable text
+        const name = (labelEl.textContent || (labelEl as HTMLElement).innerText || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
         const profitText = profitEl.textContent?.trim() || ''
         const payout = this.parsePayoutPercent(profitText)
 
-        // Only log if it's high payout or first few to reduce noise
         if (payout >= 90 || index < 2) {
           console.log(`[PayoutMonitor] Scraped: "${name}" - Payout: ${payout}%`);
         }
@@ -243,7 +247,7 @@ export class PayoutMonitor {
           payouts.push({
             name,
             payout,
-            isOTC: name.includes('OTC'),
+            isOTC: name.toUpperCase().includes('OTC'),
             lastUpdated: Date.now(),
           })
         }
