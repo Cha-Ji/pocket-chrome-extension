@@ -128,17 +128,23 @@ export class PayoutMonitor {
     // 2. Find asset element
     let targetElement: HTMLElement | null = null
     const assetItems = document.querySelectorAll(SELECTORS.assetItem)
+    console.log(`[PayoutMonitor] Searching through ${assetItems.length} items for "${assetName}"...`)
+    
     for (const item of assetItems) {
       const labelEl = item.querySelector(SELECTORS.assetLabel)
-      if (labelEl && labelEl.textContent?.trim() === assetName) {
+      const labelText = labelEl?.textContent?.trim() || ''
+      
+      // Exact match check with logging
+      if (labelText === assetName) {
         targetElement = (item.querySelector('.alist__link') as HTMLElement) || (item as HTMLElement)
+        console.log(`[PayoutMonitor] 🎯 Found exact match: "${labelText}"`)
         break
       }
     }
 
     // 3. Click if found
     if (targetElement) {
-      console.log(`[PayoutMonitor] Target link found for ${assetName}. Executing forceClick...`)
+      console.log(`[PayoutMonitor] Starting forceClick on target for ${assetName}`)
       await forceClick(targetElement)
       
       // IMPORTANT: After clicking the asset, wait for it to process
@@ -215,7 +221,9 @@ export class PayoutMonitor {
 
     // Try asset list
     const assetItems = document.querySelectorAll(SELECTORS.assetItem)
-    console.log(`[PayoutMonitor] Scraping ${assetItems.length} items from DOM...`);
+    if (assetItems.length > 0) {
+      console.log(`[PayoutMonitor] Scraping ${assetItems.length} items from DOM...`);
+    }
 
     assetItems.forEach((item, index) => {
       const labelEl = item.querySelector(SELECTORS.assetLabel)
@@ -223,12 +231,12 @@ export class PayoutMonitor {
 
       if (labelEl && profitEl) {
         const name = labelEl.textContent?.trim() || ''
-        // Use textContent or innerText to ensure we get the nested span value
         const profitText = profitEl.textContent?.trim() || ''
         const payout = this.parsePayoutPercent(profitText)
 
-        if (index < 3) {
-          console.log(`[PayoutMonitor] Sample Item ${index}: Name="${name}", RawText="${profitText}", Parsed=${payout}`);
+        // Only log if it's high payout or first few to reduce noise
+        if (payout >= 90 || index < 2) {
+          console.log(`[PayoutMonitor] Scraped: "${name}" - Payout: ${payout}%`);
         }
 
         if (name && payout > 0) {
@@ -239,8 +247,6 @@ export class PayoutMonitor {
             lastUpdated: Date.now(),
           })
         }
-      } else if (index < 3) {
-        console.warn(`[PayoutMonitor] Missing elements in item ${index}: Label=${!!labelEl}, Profit=${!!profitEl}`);
       }
     })
 
