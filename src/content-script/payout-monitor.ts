@@ -123,42 +123,35 @@ export class PayoutMonitor {
 
     // 1. Open picker and wait for stability
     await this.openAssetPicker()
-    await this.wait(1000) // UI 안정화 대기 시간 증가
+    await this.wait(1000)
 
-    // 2. Find asset element - multiple attempts
+    // 2. Find asset element
     let targetElement: HTMLElement | null = null
-    for (let i = 0; i < 5; i++) { // 시도 횟수 증가
-      const assetItems = document.querySelectorAll(SELECTORS.assetItem)
-      for (const item of assetItems) {
-        const labelEl = item.querySelector(SELECTORS.assetLabel)
-        if (labelEl && labelEl.textContent?.trim() === assetName) {
-          // alist__link가 있으면 그것을, 없으면 item 자체를 타겟팅
-          targetElement = (item.querySelector('.alist__link') as HTMLElement) || (item as HTMLElement)
-          break
-        }
+    const assetItems = document.querySelectorAll(SELECTORS.assetItem)
+    for (const item of assetItems) {
+      const labelEl = item.querySelector(SELECTORS.assetLabel)
+      if (labelEl && labelEl.textContent?.trim() === assetName) {
+        targetElement = (item.querySelector('.alist__link') as HTMLElement) || (item as HTMLElement)
+        break
       }
-      if (targetElement) break
-      console.log(`[PayoutMonitor] Asset ${assetName} not found, retrying... (${i+1}/5)`)
-      await this.wait(500)
     }
 
-    // 3. Click if found using advanced force click
+    // 3. Click if found
     if (targetElement) {
-      console.log(`[PayoutMonitor] Target found for ${assetName}. Executing forceClick...`)
-      const clicked = await forceClick(targetElement)
+      console.log(`[PayoutMonitor] Target link found for ${assetName}. Executing forceClick...`)
+      await forceClick(targetElement)
       
-      if (clicked) {
-        console.log(`[PayoutMonitor] ✅ Force click sent for: ${assetName}`)
-        // 클릭 후 전환 대기
-        await this.wait(1500)
-        
-        // 검증: 자산 목록이 닫혔는지 또는 현재 자산 이름이 바뀌었는지 확인 (선택 사항)
-        await this.closeAssetPicker() 
-        return true
-      }
+      // IMPORTANT: After clicking the asset, wait for it to process
+      await this.wait(1000)
+      
+      // 4. Close the picker (The picker usually stays open after a React-invoked click)
+      await this.closeAssetPicker()
+      
+      console.log(`[PayoutMonitor] ✅ Switch process finished for: ${assetName}`)
+      return true
     }
     
-    console.warn(`[PayoutMonitor] ❌ Failed to find or click asset: ${assetName}`)
+    console.warn(`[PayoutMonitor] ❌ Asset not found in list: ${assetName}`)
     await this.closeAssetPicker()
     return false
   }
@@ -309,14 +302,22 @@ export class PayoutMonitor {
 
     console.log('[PayoutMonitor] Closing asset picker...')
     
-    // Click overlay or close button
+    // 1. Try clicking overlay first
     const overlay = document.querySelector(SELECTORS.overlay) as HTMLElement
     if (overlay) {
         await forceClick(overlay)
-    } else {
-        // Fallback: Click the trigger again to toggle if overlay not found
-        const trigger = document.querySelector('.pair-number-wrap') as HTMLElement
-        if (trigger) await forceClick(trigger)
+        await this.wait(300)
+    }
+
+    // 2. If still open, click the trigger again (toggle)
+    const listAfter = document.querySelector(SELECTORS.assetList)
+    if (listAfter && listAfter.getBoundingClientRect().height > 0) {
+      const trigger = (document.querySelector('.pair-number-wrap') || 
+                       document.querySelector(SELECTORS.pairTrigger)) as HTMLElement
+      if (trigger) {
+        console.log('[PayoutMonitor] Overlay failed or not present, toggling trigger to close...')
+        await forceClick(trigger)
+      }
     }
   }
 
