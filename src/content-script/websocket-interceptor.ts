@@ -5,7 +5,7 @@
 // WebSocket 메시지를 분석하여 가격 데이터를 추출합니다.
 // ============================================================
 
-import { getWebSocketParser, WebSocketParser } from './websocket-parser'
+import { getWebSocketParser, WebSocketParser, CandleData } from './websocket-parser'
 
 export interface WebSocketConnection {
   id: string
@@ -40,6 +40,7 @@ export interface WebSocketEvent {
 }
 
 type PriceUpdateCallback = (update: PriceUpdate) => void
+type HistoryCallback = (candles: CandleData[]) => void
 type MessageCallback = (message: WebSocketMessage) => void
 type ConnectionCallback = (connection: WebSocketConnection) => void
 
@@ -54,6 +55,7 @@ class WebSocketInterceptor {
   
   // 콜백 핸들러
   private priceUpdateCallbacks: PriceUpdateCallback[] = []
+  private historyCallbacks: HistoryCallback[] = []
   private messageCallbacks: MessageCallback[] = []
   private connectionCallbacks: ConnectionCallback[] = []
 
@@ -249,6 +251,15 @@ class WebSocketInterceptor {
     // 메시지 콜백 호출
     this.messageCallbacks.forEach(cb => cb(data))
 
+    // 히스토리 데이터 감지 (Phase 2 Add)
+    if (data.parsed && data.parsed.type === 'candle_history' && Array.isArray(data.parsed.data)) {
+        const candles = data.parsed.data as CandleData[]
+        if (candles.length > 0) {
+            console.log(`[WS Interceptor] 📜 History Captured: ${candles.length} candles for ${candles[0].symbol}`)
+            this.historyCallbacks.forEach(cb => cb(candles))
+        }
+    }
+
     // 가격 데이터 추출 시도
     const priceUpdate = this.tryExtractPrice(data)
     if (priceUpdate) {
@@ -328,6 +339,17 @@ class WebSocketInterceptor {
     return () => {
       const index = this.priceUpdateCallbacks.indexOf(callback)
       if (index > -1) this.priceUpdateCallbacks.splice(index, 1)
+    }
+  }
+
+  /**
+   * 히스토리 데이터 콜백 등록 (PO-16)
+   */
+  onHistoryReceived(callback: HistoryCallback): () => void {
+    this.historyCallbacks.push(callback)
+    return () => {
+      const index = this.historyCallbacks.indexOf(callback)
+      if (index > -1) this.historyCallbacks.splice(index, 1)
     }
   }
 
