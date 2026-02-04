@@ -11,6 +11,7 @@ import { PriceUpdate } from './websocket-interceptor'
 export type MessageType = 
   | 'price_update'
   | 'candle_data'
+  | 'candle_history' // Array of candles
   | 'orderbook'
   | 'trade'
   | 'heartbeat'
@@ -18,7 +19,7 @@ export type MessageType =
 
 export interface ParsedMessage {
   type: MessageType
-  data: PriceUpdate | CandleData | OrderBookData | TradeData | null
+  data: PriceUpdate | CandleData | CandleData[] | OrderBookData | TradeData | null
   raw: any
   confidence: number // 0-1, 파싱 확신도
 }
@@ -192,12 +193,39 @@ export class WebSocketParser {
         const action = data.action || data.cmd || data.type
         
         // 가격 관련 액션인지 확인
-        const priceActions = ['tick', 'price', 'quote', 'candle', 'rate', 'update', 'stream']
+        const priceActions = ['tick', 'price', 'quote', 'candle', 'rate', 'update', 'stream', 'history', 'load']
         const isPriceAction = priceActions.some(a => action.toLowerCase().includes(a))
         
         if (isPriceAction) {
-          // 데이터에서 가격 추출 시도
           const payload = data.data || data.payload || data.body || data
+          
+          // Case 1: History Array (Array of candles)
+          if (Array.isArray(payload) && payload.length > 0) {
+             const first = payload[0];
+             if (typeof first === 'object' && ('open' in first || 'close' in first || 'rate' in first)) {
+                // Reuse logic from candle_history_array pattern (defined below)
+                // But for now, let's just return it as unknown so the specialized pattern catches it,
+                // OR handle it here. Let's handle it here for specific action wrapper.
+                const symbol = data.symbol || data.asset || data.pair || 'CURRENT'
+                const candles: CandleData[] = payload.map((item: any) => ({
+                    symbol: item.symbol || symbol,
+                    timestamp: item.timestamp || item.time || item.t || Date.now(),
+                    open: item.open ?? item.o ?? item.rate ?? 0,
+                    high: item.high ?? item.h ?? item.max ?? (item.open ?? 0),
+                    low: item.low ?? item.l ?? item.min ?? (item.open ?? 0),
+                    close: item.close ?? item.c ?? item.rate ?? (item.open ?? 0),
+                    volume: item.volume ?? item.v ?? 0
+                }));
+                return {
+                    type: 'candle_history',
+                    data: candles,
+                    raw: data,
+                    confidence: 0.95
+                }
+             }
+          }
+
+          // Case 2: Single Price
           const price = this.extractPriceFromPayload(payload)
           
           if (price) {
@@ -232,6 +260,54 @@ export class WebSocketParser {
           confidence: 0,
         }
       },
+    })
+
+    // 패턴 7: 캔들 히스토리 배열 (General)
+    this.patterns.push({
+      name: 'candle_history_array',
+      detect: (data) => {
+        // 1. 직접 배열인 경우
+        if (Array.isArray(data) && data.length > 2) { 
+          const first = data[0]
+          return typeof first === 'object' && first !== null && 
+                 ('open' in first || 'close' in first || 'rate' in first) &&
+                 ('time' in first || 'timestamp' in first || 't' in first)
+        }
+        
+        // 2. data/payload 필드가 배열인 경우
+        const payload = data?.data || data?.payload || data?.result || data?.history
+        if (Array.isArray(payload) && payload.length > 2) {
+          const first = payload[0]
+          return typeof first === 'object' && first !== null && 
+                 ('open' in first || 'close' in first || 'rate' in first) &&
+                 ('time' in first || 'timestamp' in first || 't' in first)
+        }
+
+        return false
+      },
+      parse: (data) => {
+        let rawList = Array.isArray(data) ? data : (data.data || data.payload || data.result || data.history)
+        
+        // 심볼 추출 시도
+        const symbol = data.symbol || data.asset || data.pair || 'CURRENT'
+
+        const candles: CandleData[] = rawList.map((item: any) => ({
+          symbol: item.symbol || symbol,
+          timestamp: item.timestamp || item.time || item.t || Date.now(),
+          open: item.open ?? item.o ?? item.rate ?? 0,
+          high: item.high ?? item.h ?? item.max ?? (item.open ?? 0),
+          low: item.low ?? item.l ?? item.min ?? (item.open ?? 0),
+          close: item.close ?? item.c ?? item.rate ?? (item.open ?? 0),
+          volume: item.volume ?? item.v ?? 0
+        }))
+
+        return {
+          type: 'candle_history',
+          data: candles,
+          raw: data,
+          confidence: 0.95
+        }
+      }
     })
   }
 

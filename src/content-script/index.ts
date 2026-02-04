@@ -17,7 +17,9 @@ import { getSignalGeneratorV2, SignalGeneratorV2, generateLLMReport } from '../l
 import { Signal } from '../lib/signals/types'
 import { getTelegramService, TelegramService, TelegramConfig } from '../lib/notifications/telegram'
 import { getWebSocketInterceptor, WebSocketInterceptor, PriceUpdate, WebSocketMessage } from './websocket-interceptor'
+import { CandleData } from './websocket-parser'
 import { AutoMiner } from './auto-miner'
+import { DataSender } from '../lib/data-sender' // Added Import
 
 // ============================================================
 // Module Instances
@@ -210,6 +212,20 @@ function setupWebSocketHandler(): void {
     if (candleCollector) {
       candleCollector.addTickFromWebSocket(update.symbol, update.price, update.timestamp)
     }
+  })
+
+  // 히스토리 데이터 수신 시 서버로 전송 (PO-16 Fix)
+  wsInterceptor.onHistoryReceived((candles: CandleData[]) => {
+      if (!candles || candles.length === 0) return
+
+      console.log(`[Pocket Quant V2] 📜 History Received: ${candles.length} candles from ${candles[0].symbol}`)
+      
+      const payload = candles.map(c => ({
+          ...c,
+          ticker: c.symbol // Map symbol to ticker for DataSender
+      }))
+
+      DataSender.sendHistory(payload)
   })
 
   // 메시지 수신 시 로깅 (분석 모드)
