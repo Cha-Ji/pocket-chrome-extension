@@ -108,7 +108,7 @@ export class POError extends Error {
   readonly code: ErrorCode;
   readonly severity: ErrorSeverity;
   readonly context: ErrorContext;
-  override readonly cause?: Error;
+  readonly cause?: Error;
 
   constructor(options: POErrorOptions) {
     const message = options.message ?? ERROR_MESSAGES[options.code];
