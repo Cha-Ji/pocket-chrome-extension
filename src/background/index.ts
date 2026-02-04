@@ -6,6 +6,31 @@
 import { ExtensionMessage, Tick, TradingStatus } from '../lib/types'
 import { db, TickRepository } from '../lib/db'
 import { getTelegramService } from '../lib/notifications/telegram'
+import {
+  POError,
+  ErrorCode,
+  ErrorSeverity,
+  errorHandler,
+  Result,
+  tryCatchAsync,
+  ignoreError,
+} from '../lib/errors'
+
+// ============================================================
+// Error Handler Setup
+// ============================================================
+
+// Subscribe to critical errors for Telegram notification
+errorHandler.onError(async (error) => {
+  if (error.isSeverityAtLeast(ErrorSeverity.ERROR)) {
+    try {
+      const telegram = await getTelegramService()
+      await telegram.notifyError(error.toShortString())
+    } catch {
+      // Telegram notification failure should not cause further errors
+    }
+  }
+})
 
 // ============================================================
 // State
@@ -29,12 +54,14 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onStartup.addListener(async () => {
   console.log('[Background] Extension started')
-  try {
-    const telegram = await getTelegramService()
-    await telegram.notifyStatus('Extension Service Worker Started')
-  } catch (e) {
-    console.error('[Background] Startup notification failed:', e)
-  }
+  await ignoreError(
+    async () => {
+      const telegram = await getTelegramService()
+      await telegram.notifyStatus('Extension Service Worker Started')
+    },
+    { module: 'background', function: 'onStartup' },
+    { logLevel: 'warn' }
+  )
 })
 
 /**
@@ -55,38 +82,51 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
 })
 
 async function handleMessage(
-  message: ExtensionMessage, 
+  message: ExtensionMessage,
   sender: chrome.runtime.MessageSender
 ): Promise<unknown> {
+  const ctx = { module: 'background' as const, function: 'handleMessage' }
+
   // Ensure Telegram service is initialized (singleton will handle it)
-  // This helps prevent missing notifications on fresh session starts
-  try {
-    await getTelegramService()
-  } catch (e) {
-    console.error('[Background] Telegram Init Error:', e)
-  }
+  await ignoreError(
+    () => getTelegramService(),
+    { ...ctx, function: 'getTelegramService' },
+    { logLevel: 'warn' }
+  )
 
   switch (message.type) {
     case 'TICK_DATA':
       return handleTickData(message.payload as Tick)
-    
+
     case 'TRADE_EXECUTED':
       return handleTradeExecuted(message.payload)
-    
+
     case 'GET_STATUS':
       return tradingStatus
-    
+
     case 'START_TRADING':
       return startTrading()
-    
+
     case 'STOP_TRADING':
       return stopTrading()
-    
+
     case 'STATUS_UPDATE':
       return updateStatus(message.payload as Partial<TradingStatus>)
-    
+
+    case 'GET_ERROR_STATS':
+      return errorHandler.getStats()
+
+    case 'GET_ERROR_HISTORY':
+      return errorHandler.getHistory((message.payload as { limit?: number })?.limit ?? 20)
+
     default:
-      console.warn('[Background] Unknown message type:', message.type)
+      errorHandler.handle(
+        new POError({
+          code: ErrorCode.MSG_INVALID_TYPE,
+          message: `Unknown message type: ${message.type}`,
+          context: ctx,
+        })
+      )
       return null
   }
 }
@@ -96,53 +136,72 @@ async function handleMessage(
 // ============================================================
 
 async function startTrading(): Promise<{ success: boolean; error?: string }> {
+  const ctx = { module: 'background' as const, function: 'startTrading' }
+
   if (tradingStatus.isRunning) {
     return { success: false, error: 'Already running' }
   }
 
-  try {
-    // Send message to content script
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    if (!tab?.id) {
-      return { success: false, error: 'No active tab' }
-    }
+  const result = await tryCatchAsync(
+    async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (!tab?.id) {
+        throw new POError({
+          code: ErrorCode.MSG_NO_RECEIVER,
+          message: 'No active tab found',
+          context: ctx,
+        })
+      }
 
-    const response = await chrome.tabs.sendMessage(tab.id, { type: 'START_TRADING' })
-    
-    if (response?.success) {
+      const response = await chrome.tabs.sendMessage(tab.id, { type: 'START_TRADING' })
+
+      if (!response?.success) {
+        throw new POError({
+          code: ErrorCode.TRADE_EXECUTION_FAILED,
+          message: response?.message || 'Failed to start trading',
+          context: { ...ctx, extra: { response } },
+        })
+      }
+
       tradingStatus.isRunning = true
       notifyStatusChange()
-      return { success: true }
-    }
-    
-    return { success: false, error: response?.message || 'Failed to start' }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return { success: false, error: message }
-  }
+      return true
+    },
+    ctx,
+    ErrorCode.TRADE_EXECUTION_FAILED
+  )
+
+  return Result.toLegacy(result)
 }
 
 async function stopTrading(): Promise<{ success: boolean; error?: string }> {
+  const ctx = { module: 'background' as const, function: 'stopTrading' }
+
   if (!tradingStatus.isRunning) {
     return { success: false, error: 'Not running' }
   }
 
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    if (!tab?.id) {
-      return { success: false, error: 'No active tab' }
-    }
+  const result = await tryCatchAsync(
+    async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (!tab?.id) {
+        throw new POError({
+          code: ErrorCode.MSG_NO_RECEIVER,
+          message: 'No active tab found',
+          context: ctx,
+        })
+      }
 
-    const response = await chrome.tabs.sendMessage(tab.id, { type: 'STOP_TRADING' })
-    
-    tradingStatus.isRunning = false
-    notifyStatusChange()
-    
-    return { success: true }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return { success: false, error: message }
-  }
+      await chrome.tabs.sendMessage(tab.id, { type: 'STOP_TRADING' })
+
+      tradingStatus.isRunning = false
+      notifyStatusChange()
+      return true
+    },
+    ctx
+  )
+
+  return Result.toLegacy(result)
 }
 
 function updateStatus(updates: Partial<TradingStatus>): void {
@@ -157,21 +216,30 @@ function updateStatus(updates: Partial<TradingStatus>): void {
 async function handleTickData(tick: Tick): Promise<void> {
   if (!tick) return
 
-  try {
-    // Store tick in database
-    await TickRepository.add(tick)
-    
-    // Update current ticker
-    tradingStatus.currentTicker = tick.ticker
-    
-    // Periodically clean old data (every 1000 ticks)
-    const count = await TickRepository.count() || 0
-    if (count > 10000) {
-      const cutoff = Date.now() - 24 * 60 * 60 * 1000 // 24 hours
-      await TickRepository.deleteOlderThan(cutoff)
-    }
-  } catch (error) {
-    console.error('[Background] Failed to store tick:', error)
+  const ctx = { module: 'background' as const, function: 'handleTickData' }
+
+  const result = await tryCatchAsync(
+    async () => {
+      // Store tick in database
+      await TickRepository.add(tick)
+
+      // Update current ticker
+      tradingStatus.currentTicker = tick.ticker
+
+      // Periodically clean old data (every 1000 ticks)
+      const count = (await TickRepository.count()) || 0
+      if (count > 10000) {
+        const cutoff = Date.now() - 24 * 60 * 60 * 1000 // 24 hours
+        await TickRepository.deleteOlderThan(cutoff)
+      }
+    },
+    ctx,
+    ErrorCode.DB_WRITE_FAILED
+  )
+
+  // Log but don't throw - tick data loss is acceptable
+  if (!result.success) {
+    // Error already logged by tryCatchAsync via errorHandler
   }
 }
 
@@ -186,11 +254,12 @@ async function handleTradeExecuted(payload: unknown): Promise<void> {
 
 function notifyStatusChange(): void {
   // Broadcast status change to all extension pages (side panel)
+  // Use ignoreError since side panel may not be open
   chrome.runtime.sendMessage({
     type: 'STATUS_UPDATE',
     payload: tradingStatus,
   }).catch(() => {
-    // Side panel may not be open
+    // Side panel may not be open - this is expected
   })
 }
 
@@ -207,8 +276,16 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 })
 
 async function cleanupOldData(): Promise<void> {
-  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000 // 7 days
-  await TickRepository.deleteOlderThan(cutoff)
+  const ctx = { module: 'background' as const, function: 'cleanupOldData' }
+
+  await tryCatchAsync(
+    async () => {
+      const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000 // 7 days
+      await TickRepository.deleteOlderThan(cutoff)
+    },
+    ctx,
+    ErrorCode.DB_DELETE_FAILED
+  )
 }
 
 // Setup cleanup alarm
