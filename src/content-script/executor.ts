@@ -7,6 +7,14 @@
 
 import { DOMSelectors, Direction, isDemoMode, getAccountType, AccountType } from '../lib/types'
 import { getSelectorResolver } from './selector-resolver'
+import {
+  POError,
+  ErrorCode,
+  ErrorSeverity,
+  Result,
+  errorHandler,
+  tryCatchAsync,
+} from '../lib/errors'
 
 export class TradeExecutor {
   private selectors: DOMSelectors
@@ -61,20 +69,25 @@ export class TradeExecutor {
    * SAFETY: Blocks if not in demo mode (unless explicitly allowed)
    */
   startAutoTrading(): { success: boolean; message: string } {
+    const ctx = { module: 'content-script' as const, function: 'startAutoTrading' }
+
     if (this._isTrading) {
       return { success: false, message: 'Already trading' }
     }
 
     // ⚠️ CRITICAL SAFETY CHECK
     const accountInfo = this.getAccountInfo()
-    
+
     if (accountInfo.type !== 'DEMO') {
       if (!this._allowLiveTrading) {
-        const msg = `🚫 BLOCKED: Cannot start auto-trading on ${accountInfo.type} account. ` +
-                    `Demo mode required for safety. ` +
-                    `(Confidence: ${accountInfo.confidence})`
-        console.error('[TradeExecutor]', msg)
-        return { success: false, message: msg }
+        const error = new POError({
+          code: ErrorCode.TRADE_NOT_DEMO,
+          message: `🚫 BLOCKED: Cannot start auto-trading on ${accountInfo.type} account. Demo mode required for safety.`,
+          context: { ...ctx, extra: { accountType: accountInfo.type, confidence: accountInfo.confidence } },
+          severity: ErrorSeverity.CRITICAL,
+        })
+        errorHandler.logError(error)
+        return { success: false, message: error.message }
       } else {
         console.warn('[TradeExecutor] ⚠️ Starting auto-trading on LIVE account!')
       }
@@ -111,53 +124,69 @@ export class TradeExecutor {
    * SAFETY: Blocks if not in demo mode (unless explicitly allowed)
    */
   async executeTrade(direction: Direction, amount?: number): Promise<{ success: boolean; error?: string }> {
+    const ctx = { module: 'content-script' as const, function: 'executeTrade' }
     console.log(`[TradeExecutor] Executing ${direction} trade...`)
 
-    try {
-      // ⚠️ CRITICAL SAFETY CHECK - Must be first!
-      const accountInfo = this.getAccountInfo()
-      
-      if (accountInfo.type !== 'DEMO' && !this._allowLiveTrading) {
-        const error = `🚫 BLOCKED: Cannot execute trade on ${accountInfo.type} account. Demo mode required.`
-        console.error('[TradeExecutor]', error)
-        return { success: false, error }
-      }
+    const result = await tryCatchAsync(
+      async () => {
+        // ⚠️ CRITICAL SAFETY CHECK - Must be first!
+        const accountInfo = this.getAccountInfo()
 
-      if (accountInfo.type !== 'DEMO' && this._allowLiveTrading) {
-        console.warn(`[TradeExecutor] ⚠️ Executing ${direction} trade on LIVE account!`)
-      }
+        if (accountInfo.type !== 'DEMO' && !this._allowLiveTrading) {
+          throw new POError({
+            code: ErrorCode.TRADE_NOT_DEMO,
+            message: `🚫 BLOCKED: Cannot execute trade on ${accountInfo.type} account. Demo mode required.`,
+            context: { ...ctx, extra: { accountType: accountInfo.type, direction } },
+            severity: ErrorSeverity.CRITICAL,
+          })
+        }
 
-      // Validate we can trade
-      const validation = await this.validateTradeConditions()
-      if (!validation.canTrade) {
-        return { success: false, error: validation.reason }
-      }
+        if (accountInfo.type !== 'DEMO' && this._allowLiveTrading) {
+          console.warn(`[TradeExecutor] ⚠️ Executing ${direction} trade on LIVE account!`)
+        }
 
-      // Click the appropriate button
-      const button = await this.getTradeButton(direction)
-      if (!button) {
-        return { success: false, error: `${direction} button not found` }
-      }
+        // Validate we can trade
+        const validation = await this.validateTradeConditions()
+        if (!validation.canTrade) {
+          throw new POError({
+            code: ErrorCode.TRADE_VALIDATION_FAILED,
+            message: validation.reason || 'Trade validation failed',
+            context: { ...ctx, extra: { direction, validation } },
+          })
+        }
 
-      // TODO: Set amount if specified
-      if (amount) {
-        await this.setTradeAmount(amount)
-      }
+        // Click the appropriate button
+        const button = await this.getTradeButton(direction)
+        if (!button) {
+          throw new POError({
+            code: ErrorCode.TRADE_BUTTON_NOT_FOUND,
+            message: `${direction} button not found`,
+            context: { ...ctx, extra: { direction } },
+            severity: ErrorSeverity.CRITICAL,
+          })
+        }
 
-      // Execute click
-      this.simulateClick(button)
+        // Set amount if specified
+        if (amount) {
+          await this.setTradeAmount(amount)
+        }
 
-      // Notify background
-      chrome.runtime.sendMessage({
-        type: 'TRADE_EXECUTED',
-        payload: { direction, amount, timestamp: Date.now() },
-      })
+        // Execute click
+        this.simulateClick(button)
 
-      return { success: true }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
-      return { success: false, error: message }
-    }
+        // Notify background
+        chrome.runtime.sendMessage({
+          type: 'TRADE_EXECUTED',
+          payload: { direction, amount, timestamp: Date.now() },
+        })
+
+        return true
+      },
+      ctx,
+      ErrorCode.TRADE_EXECUTION_FAILED
+    )
+
+    return Result.toLegacy(result)
   }
 
   // ============================================================
