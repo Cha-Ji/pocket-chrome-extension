@@ -443,7 +443,11 @@ export class WebSocketParser {
         }
 
         // 특정 이벤트에 따른 추가 파싱
-        if (event === 'load_history' || event === 'history' || event === 'updateHistoryNewFast') {
+        const historyEvents = [
+          'load_history', 'history', 'updateHistoryNewFast',
+          'loadHistoryPeriod', 'getHistory', 'historyResult', 'candleHistory'
+        ];
+        if (historyEvents.includes(event)) {
            return {
              type: 'candle_history',
              data: parseSocketIOArray([event, decodedPayload], decodedPayload).data as CandleData[],
