@@ -31,7 +31,6 @@ export const AutoMiner = {
   },
 
   start() {
-    if (minerState.isActive) return
     console.log('[PO] [Miner] 🚀 Starting WebSocket-Direct mining...')
     minerState.isActive = true
     minerState.completedAssets.clear()
@@ -52,9 +51,9 @@ export const AutoMiner = {
     const nextAsset = highPayoutAssets.find(asset => !minerState.completedAssets.has(asset))
     
     if (!nextAsset) {
-      console.log('[PO] [Miner] ✅ All assets mined! Waiting 5 min...')
+      console.log('[PO] [Miner] ✅ All assets mined or none found! Waiting 1 min...')
       minerState.completedAssets.clear()
-      rotationTimeout = setTimeout(() => this.scanAndMineNext(), 5 * 60 * 1000)
+      rotationTimeout = setTimeout(() => this.scanAndMineNext(), 1 * 60 * 1000)
       return
     }
 
@@ -102,13 +101,16 @@ export const AutoMiner = {
       const fallbackId = asset.toUpperCase().replace(/\s+OTC$/i, '_otc').replace(/\s+/g, '_');
       const finalAssetId = trackedId || (fallbackId.startsWith('#') ? fallbackId : '#' + fallbackId);
 
-      console.log(`[PO] [Miner] 📤 Direct History Request for: ${finalAssetId}`);
+      const now = Math.floor(Date.now() / 1000);
+      const index = now * 100 + Math.floor(Math.random() * 100);
+
+      console.log(`[PO] [Miner] 📤 Requesting loadHistoryPeriod for: ${finalAssetId}`);
       
-      // 패턴 A: getHistory
+      // [PO-17] 사용자가 직접 확인한 고성능 패킷 포맷 적용
+      interceptor.send(`42["loadHistoryPeriod",{"asset":"${finalAssetId}","index":${index},"time":${now},"offset":9000,"period":60}]`);
+      
+      // 백업용 getHistory
       interceptor.send(`42["getHistory",{"asset":"${finalAssetId}","period":60}]`);
-      
-      // 패턴 B: load_history
-      interceptor.send(`42["load_history",{"symbol":"${finalAssetId}","period":60}]`);
 
     }, 3000) // 요청 주기 3초로 약간 완화
   },

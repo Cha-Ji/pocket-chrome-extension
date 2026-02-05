@@ -65,23 +65,21 @@ export const DataSender = {
     try {
       const firstCandle = candles[0];
       const symbol = firstCandle.symbol || firstCandle.ticker || 'UNKNOWN';
-      console.log(`[DataSender] Attempting bulk send: ${candles.length} candles from ${symbol}`);
+      console.log(`[DataSender] 📦 Attempting bulk send: ${candles.length} candles for ${symbol}`);
       
       const payload = {
         candles: candles.map(c => ({
-          symbol: c.symbol || c.ticker || 'UNKNOWN',
+          symbol: (c.symbol || c.ticker || symbol).toUpperCase().replace(/\s+/g, '-'), // 서버 표준 포맷 강제
           interval: '1m',
-          timestamp: c.timestamp,
-          open: c.open,
-          high: c.high,
-          low: c.low,
-          close: c.close,
-          volume: c.volume || 0,
+          timestamp: Number(c.timestamp),
+          open: Number(c.open),
+          high: Number(c.high),
+          low: Number(c.low),
+          close: Number(c.close),
+          volume: Number(c.volume || 0),
           source: 'history'
-        }))
+        })).filter(c => c.symbol && c.timestamp && c.open && c.close)
       }
-
-      console.log(`[DataSender] Bulk payload sample:`, JSON.stringify(payload.candles[0]));
 
       const response = await fetch(`${SERVER_URL}/api/candles/bulk`, {
         method: 'POST',
@@ -90,13 +88,14 @@ export const DataSender = {
       })
       
       if (response.ok) {
-        console.log(`[DataSender] Successfully sent ${candles.length} history candles`);
+        const result = await response.json();
+        console.log(`[DataSender] ✅ Successfully saved ${result.count || candles.length} history candles`);
       } else {
         const errorText = await response.text();
-        console.error(`[DataSender] Bulk send failed (${response.status}):`, errorText);
+        console.error(`[DataSender] ❌ Bulk send failed (${response.status}):`, errorText);
       }
     } catch (error: any) {
-      console.error('[DataSender] Bulk send network error:', error.message);
+      console.error('[DataSender] ❌ Bulk send network error:', error.message);
     }
   }
 }

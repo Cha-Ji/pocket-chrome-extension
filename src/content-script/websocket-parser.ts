@@ -284,29 +284,32 @@ export class WebSocketParser {
         const parseHistoryData = (data: any, symbol: string = 'CURRENT'): CandleData[] => {
           if (!Array.isArray(data)) return [];
           return data.map((c: any) => {
-            // 형식 1: 배열 [timestamp, open, close, high, low] 또는 [timestamp, open, high, low, close]
+            // [PO-17] 캔들 데이터 무결성 강화
+            let candle: CandleData;
+            
             if (Array.isArray(c)) {
-              return {
+              candle = {
                 symbol,
                 timestamp: c[0],
                 open: c[1],
-                close: c[2] ?? c[4],
-                high: c[3] ?? c[2],
-                low: c[4] ?? c[3],
+                close: c[2] ?? c[1], // close가 없으면 open값이라도 사용
+                high: c[3] ?? c[1],
+                low: c[4] ?? c[1],
                 volume: c[5] || 0
-              } as CandleData;
+              };
+            } else {
+              candle = {
+                symbol: c.symbol || c.asset || symbol,
+                timestamp: c.timestamp || c.time || c.t || Date.now(),
+                open: c.open ?? c.o ?? 0,
+                high: c.high ?? c.h ?? (c.open ?? 0),
+                low: c.low ?? c.l ?? (c.open ?? 0),
+                close: c.close ?? c.c ?? (c.open ?? 0),
+                volume: c.volume ?? c.v ?? 0
+              };
             }
-            // 형식 2: 객체 { timestamp, open, high, low, close, ... }
-            return {
-              symbol: c.symbol || c.asset || symbol,
-              timestamp: c.timestamp || c.time || c.t || Date.now(),
-              open: c.open ?? c.o ?? 0,
-              high: c.high ?? c.h ?? (c.open ?? 0),
-              low: c.low ?? c.l ?? (c.open ?? 0),
-              close: c.close ?? c.c ?? (c.open ?? 0),
-              volume: c.volume ?? c.v ?? 0
-            } as CandleData;
-          }).filter((c: CandleData) => c.timestamp && (c.open || c.close));
+            return candle;
+          }).filter((c: CandleData) => c.timestamp && c.open && c.close); // 필수 필드 존재 여부 재검증
         };
 
         // 히스토리 이벤트 처리
@@ -418,25 +421,43 @@ export class WebSocketParser {
       parse: (data) => parseSocketIOArray(data, data)
     })
 
+    // 패턴 10: [PO-17] Socket.IO Binary Payload (Bridge 결합 형태)
     this.patterns.push({
-      name: 'socketio_message',
-      detect: (data) => {
-        if (typeof data !== 'string') return false;
-        return /^\d+-?(\{.*\}|\[.*\])$/s.test(data);
-      },
+      name: 'socketio_binary_payload',
+      detect: (data) => data && data.type === 'binary_payload' && data.event && data.data,
       parse: (data) => {
+        const { event, data: rawData } = data;
+        let decodedPayload: any = null;
+
         try {
-          const jsonStr = data.replace(/^\d+-?/, '');
-          const parsed = JSON.parse(jsonStr);
-          return parseSocketIOArray(parsed, data);
-        } catch (e) {
-          return {
-            type: 'unknown',
-            data: null,
-            raw: data,
-            confidence: 0,
+          // 바이너리 데이터가 JSON 문자열인 경우 처리
+          const text = new TextDecoder('utf-8').decode(rawData instanceof ArrayBuffer ? rawData : rawData.buffer);
+          if (text.startsWith('{') || text.startsWith('[')) {
+            decodedPayload = JSON.parse(text);
+          } else {
+            // 다른 형식(예: 직접적인 숫자 배열 등)인 경우 rawData 그대로 사용
+            decodedPayload = rawData;
           }
+        } catch (e) {
+          decodedPayload = rawData;
         }
+
+        // 특정 이벤트에 따른 추가 파싱
+        if (event === 'load_history' || event === 'history' || event === 'updateHistoryNewFast') {
+           return {
+             type: 'candle_history',
+             data: parseSocketIOArray([event, decodedPayload], decodedPayload).data as CandleData[],
+             raw: data,
+             confidence: 0.95
+           };
+        }
+
+        return {
+          type: 'unknown',
+          data: decodedPayload,
+          raw: data,
+          confidence: 0.5
+        };
       }
     })
   }
