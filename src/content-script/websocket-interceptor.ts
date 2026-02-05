@@ -51,6 +51,9 @@ class WebSocketInterceptor {
   private historyCallbacks: HistoryCallback[] = []
   private messageCallbacks: MessageCallback[] = []
   private connectionCallbacks: ConnectionCallback[] = []
+  
+  // [PO-17] 실시간 자산 코드 추적
+  private lastAssetId: string | null = null;
 
   private static instance: WebSocketInterceptor | null = null
 
@@ -133,17 +136,39 @@ class WebSocketInterceptor {
   }
 
   private handleMessage(data: WebSocketMessage, timestamp: number): void {
-    const parsedMessage = data.parsed ? data.parsed : this.parser.parse(data.text ?? data.raw)
+    // [PO-16] 이미 파싱된 데이터가 있더라도, 구조화된 ParsedMessage 형태가 아니면 다시 파싱 시도
+    let parsedMessage = data.parsed;
+    if (!parsedMessage || typeof parsedMessage.type !== 'string') {
+      parsedMessage = this.parser.parse(data.text ?? data.raw);
+    }
 
     const enriched: WebSocketMessage = { ...data, parsed: parsedMessage }
     this.messageCallbacks.forEach(cb => cb(enriched))
 
-    if (parsedMessage && parsedMessage.type === 'candle_history' && Array.isArray(parsedMessage.data)) {
+    // [PO-17] 자산 코드 추적 (changeSymbol 메시지 가로채기)
+    if (parsedMessage && Array.isArray(parsedMessage)) {
+       const event = parsedMessage[0];
+       const payload = parsedMessage[1];
+       if (event === 'changeSymbol' && payload?.asset) {
+          this.lastAssetId = payload.asset;
+          console.log(`[PO] [WS] 🎯 Tracked Active Asset ID: ${this.lastAssetId}`);
+       }
+    }
+
+    if (parsedMessage && (parsedMessage.type === 'candle_history' || parsedMessage.type === 'candle_data') && Array.isArray(parsedMessage.data)) {
       const candles = parsedMessage.data as CandleData[]
       if (candles.length > 0) {
-        console.log(`[PO] [WS] History Captured: ${candles.length} candles for ${candles[0].symbol}`)
+        // [PO-16] 로그 가독성 개선
+        const symbol = candles[0].symbol || 'UNKNOWN';
+        console.log(`[PO] [WS] History/Bulk Captured: ${candles.length} candles for ${symbol}`);
         this.historyCallbacks.forEach(cb => cb(candles))
       }
+    } else if (parsedMessage && (parsedMessage.type === 'candle_data' || parsedMessage.type === 'price_update') && !Array.isArray(parsedMessage.data)) {
+        // [PO-16] 단일 객체 형태의 히스토리 또는 실시간 데이터 대응
+        const candle = parsedMessage.data as CandleData;
+        if (candle && candle.open && candle.close) {
+           this.historyCallbacks.forEach(cb => cb([candle]));
+        }
     }
 
     const priceUpdate = parsedMessage ? this.parser.extractPrice(parsedMessage.raw ?? parsedMessage) : null
@@ -178,6 +203,22 @@ class WebSocketInterceptor {
       analysisMode: this.analysisMode,
       messageCount: this.messageBuffer.length,
     }
+  }
+
+  /**
+   * [PO-17] WebSocket을 통해 직접 메시지 전송 (Bridge 경유)
+   */
+  send(payload: any, urlPart?: string): void {
+    window.postMessage({
+      source: 'pq-content',
+      type: 'ws-send',
+      payload,
+      urlPart
+    }, '*');
+  }
+
+  getActiveAssetId(): string | null {
+    return this.lastAssetId;
   }
 }
 
