@@ -151,4 +151,24 @@
     // Bridge Ready 신호
     window.postMessage({ source: 'pq-bridge', type: 'bridge-ready' }, '*');
 
+    // 외부(Content Script)로부터의 메시지 전송 요청 처리
+    window.addEventListener('message', (event) => {
+        if (event.data?.source !== 'pq-content' || event.data?.type !== 'ws-send') return;
+
+        const payload = event.data.payload;
+        const targetUrlPart = event.data.urlPart; // 특정 소켓에만 보내고 싶을 경우
+
+        const activeWs = win._ws_instances.find(ws => 
+            ws.readyState === WebSocket.OPEN && 
+            (!targetUrlPart || ws.url.includes(targetUrlPart))
+        );
+
+        if (activeWs) {
+            console.log(`${LOG_PREFIX} 📤 Sending direct message:`, LOG_STYLE, payload);
+            activeWs.send(typeof payload === 'string' ? payload : JSON.stringify(payload));
+        } else {
+            console.warn(`${LOG_PREFIX} ❌ No active WebSocket found to send message`, LOG_STYLE);
+        }
+    });
+
 })();

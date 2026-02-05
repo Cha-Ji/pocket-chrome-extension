@@ -56,11 +56,20 @@ export class PayoutMonitor {
 
   async switchAsset(assetName: string): Promise<boolean> {
     console.log(`[PO] [Monitor] 🔄 Switching to: ${assetName}`)
+    const normalizedTarget = assetName.replace(/\s+/g, ' ').trim().toLowerCase();
+    
+    // 현재 이미 해당 자산인지 확인
+    const currentEl = document.querySelector('.current-symbol');
+    if (currentEl && currentEl.textContent?.toLowerCase().includes(normalizedTarget)) {
+       console.log(`[PO] [Monitor] Already on ${assetName}`);
+       return true;
+    }
+
     await this.openAssetPicker()
-    await this.wait(1000)
+    await this.wait(1500)
+
     let targetElement: HTMLElement | null = null
     const assetItems = document.querySelectorAll(SELECTORS.assetItem)
-    const normalizedTarget = assetName.replace(/\s+/g, ' ').trim().toLowerCase();
     for (const item of assetItems) {
       const labelEl = item.querySelector(SELECTORS.assetLabel)
       const rawLabel = labelEl?.textContent || ''
@@ -71,14 +80,36 @@ export class PayoutMonitor {
         break
       }
     }
+
     if (targetElement) {
       await forceClick(targetElement)
-      await this.wait(1000)
+      await this.wait(2000) // 전환 대기 시간 증가
+      
+      // 전환 성공 여부 확인
+      const afterEl = document.querySelector('.current-symbol');
+      const isSwitched = afterEl?.textContent?.toLowerCase().includes(normalizedTarget);
+      
+      if (!isSwitched) {
+         console.warn(`[PO] [Monitor] ❌ Switch failed (UI didn't update).`);
+         await this.closeAssetPicker();
+         return false;
+      }
+
       await this.closeAssetPicker()
+      await this.wait(1000)
+
+      // 이용 불가능 여부 최종 확인
+      const errorMsg = document.querySelector('.asset-inactive');
+      if (errorMsg && errorMsg.textContent?.includes('불가능') && (errorMsg as HTMLElement).offsetParent !== null) {
+         console.warn(`[PO] [Monitor] ⚠️ Asset ${assetName} is confirmed unavailable.`);
+         return false;
+      }
+
       console.log(`[PO] [Monitor] ✅ Switch finished: ${assetName}`)
       return true
     }
-    console.warn(`[PO] [Monitor] ❌ Asset not found: ${assetName}`)
+
+    console.warn(`[PO] [Monitor] ❌ Asset not found in list: ${assetName}`)
     await this.closeAssetPicker()
     return false
   }
@@ -139,8 +170,15 @@ export class PayoutMonitor {
     const list = document.querySelector(SELECTORS.assetList)
     if (!list || list.getBoundingClientRect().height === 0) return
     console.log('[PO] [Monitor] Closing picker...')
+
+    // [PO-17] ESC 키 시뮬레이션 추가
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await this.wait(200);
+
     const overlay = document.querySelector(SELECTORS.overlay) as HTMLElement
     if (overlay) { await forceClick(overlay); await this.wait(300); }
+    
+    // 여전히 열려있다면 다시 시도
     const listAfter = document.querySelector(SELECTORS.assetList)
     if (listAfter && listAfter.getBoundingClientRect().height > 0) {
       const trigger = (document.querySelector('.pair-number-wrap') || document.querySelector(SELECTORS.pairTrigger)) as HTMLElement

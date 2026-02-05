@@ -131,8 +131,16 @@ function setupWebSocketHandler(): void {
       const payload = candles.map(c => ({ ...c, ticker: c.symbol }));
       DataSender.sendHistory(payload).catch(err => console.error('[PO] History send failed:', err));
   })
-  wsInterceptor.onMessage((message: WebSocketMessage) => {
-    if (wsInterceptor?.getStatus().analysisMode) {
+    wsInterceptor.onMessage((message: WebSocketMessage) => {
+      // [PO-17] 모든 웹소켓 메시지 로깅 (디버그용)
+      if (message.parsed && Array.isArray(message.parsed)) {
+         const event = message.parsed[0];
+         if (event === 'load_history' || event === 'history' || event === 'candles') {
+            console.log(`[PO] [WS-Debug] History response detected! Event: ${event}`);
+         }
+      }
+      
+      if (wsInterceptor?.getStatus().analysisMode) {
       try { chrome.runtime.sendMessage({ type: 'WS_MESSAGE', payload: { connectionId: message.connectionId, parsed: message.parsed, timestamp: message.timestamp } }).catch(() => {}) } catch {}
     }
   })

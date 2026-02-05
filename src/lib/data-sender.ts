@@ -26,7 +26,7 @@ export const DataSender = {
     try {
       // 1. 필요한 필드만 추출 및 변환
       const payload = {
-        symbol: candle.ticker || 'UNKNOWN',
+        symbol: candle.symbol || candle.ticker || 'UNKNOWN',
         interval: '1m', // 일단 1분봉 고정 (추후 동적 처리)
         timestamp: candle.timestamp,
         open: candle.open,
@@ -63,10 +63,13 @@ export const DataSender = {
     if (candles.length === 0) return
 
     try {
-      console.log(`[DataSender] Attempting bulk send: ${candles.length} candles from ${candles[0].ticker}`);
+      const firstCandle = candles[0];
+      const symbol = firstCandle.symbol || firstCandle.ticker || 'UNKNOWN';
+      console.log(`[DataSender] Attempting bulk send: ${candles.length} candles from ${symbol}`);
+      
       const payload = {
         candles: candles.map(c => ({
-          symbol: c.ticker || 'UNKNOWN',
+          symbol: c.symbol || c.ticker || 'UNKNOWN',
           interval: '1m',
           timestamp: c.timestamp,
           open: c.open,
