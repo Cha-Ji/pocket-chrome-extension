@@ -12,6 +12,24 @@ import {
   getTripleStochasticZone,
   crossAbove,
   crossBelow,
+  calculateCCI,
+  calculateWilliamsR,
+  calculateSMMA,
+  calculateTrueRange,
+  calculateATR,
+  calculateStochRSI,
+  calculateStochasticRSI,
+  calculateADX,
+  calculateVWAP,
+  calculateVWAPFromCandles,
+  CCI,
+  WilliamsR,
+  SMMA,
+  ATR,
+  StochRSI,
+  StochasticRSI,
+  ADX,
+  VWAP,
 } from './index'
 
 describe('Technical Indicators', () => {
@@ -387,6 +405,337 @@ describe('Technical Indicators', () => {
       expect(crossBelow(29, 31, 30)).toBe(true)
       expect(crossBelow(31, 29, 30)).toBe(false)
       expect(crossBelow(29, 29, 30)).toBe(false)
+    })
+  })
+
+  // ============================================================
+  // CCI Tests
+  // ============================================================
+  describe('calculateCCI', () => {
+    it('should calculate CCI correctly', () => {
+      const highs = Array(25).fill(0).map((_, i) => 100 + i + Math.sin(i) * 2)
+      const lows = Array(25).fill(0).map((_, i) => 98 + i + Math.sin(i) * 2)
+      const closes = Array(25).fill(0).map((_, i) => 99 + i + Math.sin(i) * 2)
+
+      const cci = calculateCCI(highs, lows, closes, 20)
+      expect(cci).not.toBeNull()
+      expect(typeof cci).toBe('number')
+    })
+
+    it('should return null for insufficient data', () => {
+      expect(calculateCCI([1, 2], [1, 2], [1, 2], 20)).toBeNull()
+    })
+
+    it('should handle zero mean deviation', () => {
+      const flat = Array(25).fill(100)
+      const cci = calculateCCI(flat, flat, flat, 20)
+      expect(cci).toBe(0)
+    })
+  })
+
+  describe('CCI class-style', () => {
+    it('should calculate series', () => {
+      const highs = Array(30).fill(0).map((_, i) => 100 + i)
+      const lows = Array(30).fill(0).map((_, i) => 98 + i)
+      const closes = Array(30).fill(0).map((_, i) => 99 + i)
+
+      const series = CCI.calculate(highs, lows, closes, 20)
+      expect(series.length).toBeGreaterThan(0)
+    })
+  })
+
+  // ============================================================
+  // Williams %R Tests
+  // ============================================================
+  describe('calculateWilliamsR', () => {
+    it('should calculate Williams %R correctly', () => {
+      const highs = Array(20).fill(0).map((_, i) => 100 + Math.sin(i) * 5)
+      const lows = Array(20).fill(0).map((_, i) => 95 + Math.sin(i) * 5)
+      const closes = Array(20).fill(0).map((_, i) => 97 + Math.sin(i) * 5)
+
+      const wr = calculateWilliamsR(highs, lows, closes, 14)
+      expect(wr).not.toBeNull()
+      expect(wr).toBeGreaterThanOrEqual(-100)
+      expect(wr).toBeLessThanOrEqual(0)
+    })
+
+    it('should return 0 at highest high', () => {
+      const highs = Array(14).fill(100)
+      const lows = Array(14).fill(90)
+      const closes = Array(14).fill(100)
+
+      const wr = calculateWilliamsR(highs, lows, closes, 14)
+      expect(wr).toBeCloseTo(0, 10)
+    })
+
+    it('should return -100 at lowest low', () => {
+      const highs = Array(14).fill(100)
+      const lows = Array(14).fill(90)
+      const closes = Array(14).fill(90)
+
+      const wr = calculateWilliamsR(highs, lows, closes, 14)
+      expect(wr).toBe(-100)
+    })
+
+    it('should return null for insufficient data', () => {
+      expect(calculateWilliamsR([1, 2], [1, 2], [1, 2], 14)).toBeNull()
+    })
+  })
+
+  describe('WilliamsR class-style', () => {
+    it('should calculate series', () => {
+      const highs = Array(20).fill(0).map((_, i) => 100 + i)
+      const lows = Array(20).fill(0).map((_, i) => 98 + i)
+      const closes = Array(20).fill(0).map((_, i) => 99 + i)
+
+      const series = WilliamsR.calculate(highs, lows, closes, 14)
+      expect(series.length).toBeGreaterThan(0)
+    })
+  })
+
+  // ============================================================
+  // SMMA Tests
+  // ============================================================
+  describe('calculateSMMA', () => {
+    it('should calculate SMMA correctly', () => {
+      const data = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+      const smma = calculateSMMA(data, 5)
+      expect(smma).not.toBeNull()
+      expect(typeof smma).toBe('number')
+    })
+
+    it('should return null for insufficient data', () => {
+      expect(calculateSMMA([1, 2], 5)).toBeNull()
+    })
+
+    it('should return SMA for first value', () => {
+      const data = [10, 11, 12, 13, 14]
+      const smma = calculateSMMA(data, 5)
+      const expectedSMA = (10 + 11 + 12 + 13 + 14) / 5
+      expect(smma).toBe(expectedSMA)
+    })
+  })
+
+  describe('SMMA class-style', () => {
+    it('should calculate series', () => {
+      const data = Array(20).fill(0).map((_, i) => 100 + i)
+      const series = SMMA.calculate(data, 5)
+      expect(series.length).toBe(data.length - 5 + 1)
+    })
+
+    it('should calculate multiple periods', () => {
+      const data = Array(30).fill(0).map((_, i) => 100 + i)
+      const result = SMMA.calculateMultiple(data, [5, 10, 15])
+      expect(result.size).toBe(3)
+      expect(result.get(5)!.length).toBeGreaterThan(0)
+    })
+  })
+
+  // ============================================================
+  // ATR Tests
+  // ============================================================
+  describe('calculateTrueRange', () => {
+    it('should calculate true range correctly', () => {
+      expect(calculateTrueRange(110, 100, 105)).toBe(10)
+      expect(calculateTrueRange(120, 110, 100)).toBe(20)
+      expect(calculateTrueRange(105, 90, 110)).toBe(20)
+    })
+  })
+
+  describe('calculateATR', () => {
+    it('should calculate ATR correctly', () => {
+      const highs = Array(20).fill(0).map((_, i) => 110 + Math.sin(i) * 5)
+      const lows = Array(20).fill(0).map((_, i) => 100 + Math.sin(i) * 5)
+      const closes = Array(20).fill(0).map((_, i) => 105 + Math.sin(i) * 5)
+
+      const atr = calculateATR(highs, lows, closes, 14)
+      expect(atr).not.toBeNull()
+      expect(atr).toBeGreaterThan(0)
+    })
+
+    it('should return null for insufficient data', () => {
+      expect(calculateATR([1, 2], [1, 2], [1, 2], 14)).toBeNull()
+    })
+  })
+
+  describe('ATR class-style', () => {
+    it('should calculate series', () => {
+      const highs = Array(20).fill(0).map((_, i) => 110 + i)
+      const lows = Array(20).fill(0).map((_, i) => 100 + i)
+      const closes = Array(20).fill(0).map((_, i) => 105 + i)
+
+      const series = ATR.calculate(highs, lows, closes, 14)
+      expect(series.length).toBeGreaterThan(0)
+    })
+  })
+
+  // ============================================================
+  // Stochastic RSI Tests
+  // ============================================================
+  describe('calculateStochRSI', () => {
+    it('should calculate Stochastic RSI correctly', () => {
+      const data = Array(50).fill(0).map((_, i) => 100 + Math.sin(i * 0.5) * 10)
+
+      const stochRsi = calculateStochRSI(data, 14, 14, 3, 3)
+      expect(stochRsi).not.toBeNull()
+      expect(stochRsi!.k).toBeGreaterThanOrEqual(0)
+      expect(stochRsi!.k).toBeLessThanOrEqual(100)
+      expect(stochRsi!.d).toBeGreaterThanOrEqual(0)
+      expect(stochRsi!.d).toBeLessThanOrEqual(100)
+    })
+
+    it('should return null for insufficient data', () => {
+      expect(calculateStochRSI([1, 2, 3, 4, 5], 14, 14, 3, 3)).toBeNull()
+    })
+
+    it('should have alias calculateStochasticRSI', () => {
+      expect(calculateStochasticRSI).toBe(calculateStochRSI)
+    })
+
+    it('should have alias StochasticRSI', () => {
+      expect(StochasticRSI).toBe(StochRSI)
+    })
+  })
+
+  describe('StochRSI class-style', () => {
+    it('should calculate series', () => {
+      const data = Array(60).fill(0).map((_, i) => 100 + Math.sin(i * 0.3) * 10)
+      const series = StochRSI.calculate(data, 14, 14, 3, 3)
+      expect(series.length).toBeGreaterThan(0)
+    })
+  })
+
+  // ============================================================
+  // ADX Tests
+  // ============================================================
+  describe('calculateADX', () => {
+    it('should calculate ADX correctly', () => {
+      const highs = Array(35).fill(0).map((_, i) => 100 + i * 2 + Math.sin(i))
+      const lows = Array(35).fill(0).map((_, i) => 98 + i * 2 + Math.sin(i))
+      const closes = Array(35).fill(0).map((_, i) => 99 + i * 2 + Math.sin(i))
+
+      const adx = calculateADX(highs, lows, closes, 14)
+      expect(adx).not.toBeNull()
+      expect(adx!.adx).toBeGreaterThanOrEqual(0)
+      expect(adx!.adx).toBeLessThanOrEqual(100)
+      expect(adx!.plusDI).toBeGreaterThanOrEqual(0)
+      expect(adx!.minusDI).toBeGreaterThanOrEqual(0)
+    })
+
+    it('should return null for insufficient data', () => {
+      expect(calculateADX([1, 2, 3], [1, 2, 3], [1, 2, 3], 14)).toBeNull()
+    })
+
+    it('should show higher +DI in uptrend', () => {
+      const highs = Array(35).fill(0).map((_, i) => 100 + i * 3)
+      const lows = Array(35).fill(0).map((_, i) => 98 + i * 3)
+      const closes = Array(35).fill(0).map((_, i) => 99 + i * 3)
+
+      const adx = calculateADX(highs, lows, closes, 14)
+      expect(adx!.plusDI).toBeGreaterThan(adx!.minusDI)
+    })
+
+    it('should show higher -DI in downtrend', () => {
+      const highs = Array(35).fill(0).map((_, i) => 200 - i * 3)
+      const lows = Array(35).fill(0).map((_, i) => 198 - i * 3)
+      const closes = Array(35).fill(0).map((_, i) => 199 - i * 3)
+
+      const adx = calculateADX(highs, lows, closes, 14)
+      expect(adx!.minusDI).toBeGreaterThan(adx!.plusDI)
+    })
+  })
+
+  describe('ADX class-style', () => {
+    it('should calculate series', () => {
+      const highs = Array(35).fill(0).map((_, i) => 100 + i)
+      const lows = Array(35).fill(0).map((_, i) => 98 + i)
+      const closes = Array(35).fill(0).map((_, i) => 99 + i)
+
+      const series = ADX.calculate(highs, lows, closes, 14)
+      expect(series.length).toBeGreaterThan(0)
+    })
+  })
+
+  // ============================================================
+  // VWAP Tests
+  // ============================================================
+  describe('calculateVWAP', () => {
+    it('should calculate VWAP correctly', () => {
+      const highs = [110, 112, 115, 113, 114]
+      const lows = [108, 109, 111, 110, 111]
+      const closes = [109, 111, 113, 112, 113]
+      const volumes = [1000, 1500, 2000, 1200, 1800]
+
+      const vwap = calculateVWAP(highs, lows, closes, volumes)
+      expect(vwap).not.toBeNull()
+
+      const tp = highs.map((h, i) => (h + lows[i] + closes[i]) / 3)
+      const sumTPV = tp.reduce((sum, t, i) => sum + t * volumes[i], 0)
+      const sumV = volumes.reduce((a, b) => a + b, 0)
+      const expectedVWAP = sumTPV / sumV
+
+      expect(vwap).toBeCloseTo(expectedVWAP, 10)
+    })
+
+    it('should return null for empty data', () => {
+      expect(calculateVWAP([], [], [], [])).toBeNull()
+    })
+
+    it('should return null for zero volume', () => {
+      const highs = [110, 112]
+      const lows = [108, 109]
+      const closes = [109, 111]
+      const volumes = [0, 0]
+
+      expect(calculateVWAP(highs, lows, closes, volumes)).toBeNull()
+    })
+  })
+
+  describe('calculateVWAPFromCandles', () => {
+    it('should calculate VWAP from candles', () => {
+      const candles = [
+        { high: 110, low: 108, close: 109, volume: 1000 },
+        { high: 112, low: 109, close: 111, volume: 1500 },
+        { high: 115, low: 111, close: 113, volume: 2000 },
+      ]
+
+      const vwap = calculateVWAPFromCandles(candles)
+      expect(vwap).not.toBeNull()
+    })
+
+    it('should handle candles without volume', () => {
+      const candles = [
+        { high: 110, low: 108, close: 109 },
+        { high: 112, low: 109, close: 111 },
+      ]
+
+      expect(calculateVWAPFromCandles(candles)).toBeNull()
+    })
+
+    it('should return null for empty candles', () => {
+      expect(calculateVWAPFromCandles([])).toBeNull()
+    })
+  })
+
+  describe('VWAP class-style', () => {
+    it('should calculate series', () => {
+      const highs = [110, 112, 115, 113, 114]
+      const lows = [108, 109, 111, 110, 111]
+      const closes = [109, 111, 113, 112, 113]
+      const volumes = [1000, 1500, 2000, 1200, 1800]
+
+      const series = VWAP.calculate(highs, lows, closes, volumes)
+      expect(series.length).toBe(5)
+    })
+
+    it('should calculate from candles', () => {
+      const candles = [
+        { high: 110, low: 108, close: 109, volume: 1000 },
+        { high: 112, low: 109, close: 111, volume: 1500 },
+      ]
+
+      const vwap = VWAP.fromCandles(candles)
+      expect(vwap).not.toBeNull()
     })
   })
 })
