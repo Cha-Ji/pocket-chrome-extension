@@ -137,41 +137,42 @@ class WebSocketInterceptor {
 
   private handleMessage(data: WebSocketMessage, timestamp: number): void {
     // [PO-16] 이미 파싱된 데이터가 있더라도, 구조화된 ParsedMessage 형태가 아니면 다시 파싱 시도
-    let parsedMessage = data.parsed;
-    if (!parsedMessage || typeof parsedMessage.type !== 'string') {
-      parsedMessage = this.parser.parse(data.text ?? data.raw);
+    let parsed = data.parsed;
+    if (!parsed || typeof parsed.type !== 'string') {
+      parsed = this.parser.parse(data.text ?? data.raw);
     }
 
-    const enriched: WebSocketMessage = { ...data, parsed: parsedMessage }
+    const enriched: WebSocketMessage = { ...data, parsed }
     this.messageCallbacks.forEach(cb => cb(enriched))
 
     // [PO-17] 자산 코드 추적 (changeSymbol 메시지 가로채기)
-    if (parsedMessage && Array.isArray(parsedMessage)) {
-       const event = parsedMessage[0];
-       const payload = parsedMessage[1];
+    if (parsed && Array.isArray(parsed)) {
+       const event = parsed[0];
+       const payload = parsed[1];
        if (event === 'changeSymbol' && payload?.asset) {
           this.lastAssetId = payload.asset;
           console.log(`[PO] [WS] 🎯 Tracked Active Asset ID: ${this.lastAssetId}`);
        }
     }
 
-    if (parsedMessage && (parsedMessage.type === 'candle_history' || parsedMessage.type === 'candle_data') && Array.isArray(parsedMessage.data)) {
-      const candles = parsedMessage.data as CandleData[]
-      if (candles.length > 0) {
-        // [PO-16] 로그 가독성 개선
-        const symbol = candles[0].symbol || 'UNKNOWN';
-        console.log(`[PO] [WS] History/Bulk Captured: ${candles.length} candles for ${symbol}`);
-        this.historyCallbacks.forEach(cb => cb(candles))
-      }
-    } else if (parsedMessage && (parsedMessage.type === 'candle_data' || parsedMessage.type === 'price_update') && !Array.isArray(parsedMessage.data)) {
-        // [PO-16] 단일 객체 형태의 히스토리 또는 실시간 데이터 대응
-        const candle = parsedMessage.data as CandleData;
+    // [PO-17] 디버깅 로그 추가
+    if (parsed && parsed.type === 'candle_history') {
+       const candles = parsed.data as CandleData[];
+       console.log(`[PO] [WS-Interceptor] Candle History Detected! Count: ${candles?.length || 0}`);
+       if (candles && candles.length > 0) {
+          const symbol = candles[0].symbol || 'UNKNOWN';
+          console.log(`[PO] [WS] History/Bulk Captured: ${candles.length} candles for ${symbol}`);
+          this.historyCallbacks.forEach(cb => cb(candles));
+       }
+    } else if (parsed && (parsed.type === 'candle_data' || parsed.type === 'price_update') && !Array.isArray(parsed.data)) {
+        // 단일 객체 대응
+        const candle = parsed.data as CandleData;
         if (candle && candle.open && candle.close) {
            this.historyCallbacks.forEach(cb => cb([candle]));
         }
     }
 
-    const priceUpdate = parsedMessage ? this.parser.extractPrice(parsedMessage.raw ?? parsedMessage) : null
+    const priceUpdate = parsed ? this.parser.extractPrice(parsed.raw ?? parsed) : null
     if (priceUpdate) {
       this.priceUpdateCallbacks.forEach(cb => cb({ ...priceUpdate, timestamp: priceUpdate.timestamp || timestamp }))
     }
