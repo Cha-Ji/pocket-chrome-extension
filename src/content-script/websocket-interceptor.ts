@@ -15,6 +15,8 @@ export interface WebSocketMessage {
   parsed: any
   rawType: string
   timestamp: number
+  raw?: any
+  text?: string | null
 }
 
 export interface PriceUpdate {
@@ -63,7 +65,7 @@ class WebSocketInterceptor {
 
   start(): void {
     if (this.isListening) return
-    console.log('[PO] [WS] Starting Interceptor...');
+    // console.log('[PO] [WS] Starting Interceptor...');
     this.setupEventListener()
     this.injectScript()
     this.isListening = true
@@ -76,6 +78,13 @@ class WebSocketInterceptor {
   }
 
   private injectScript(): void {
+    // [PO-16] Tampermonkey 사용 시 Extension 자체 주입은 비활성화
+    // Tampermonkey가 이미 'window.__pocketQuantWsHook'을 설정하므로 충돌 방지됨.
+    // 하지만 안전을 위해 아예 주입 시도를 막아둡니다.
+    // console.log('[PO] [WS] Skipping Extension Injection (Using Tampermonkey)');
+    return;
+
+    /*
     try {
       if (document.querySelector('script[data-pocket-quant-ws]')) return
 
@@ -94,16 +103,27 @@ class WebSocketInterceptor {
     } catch (error) {
       console.error('[PO] [WS] Injection failed:', error)
     }
+    */
   }
 
   private setupEventListener(): void {
     window.addEventListener('message', (event) => {
-        if (event.data?.source !== 'pq-bridge') return;
-        if (event.data.type === 'ws-message') {
-            this.handleMessage(event.data.data, Date.now());
-        } else if (event.data.type === 'bridge-ready') {
-            console.log('[PO] [WS] Main World Bridge Connected');
-        }
+      if (event.data?.source !== 'pq-bridge') return;
+      if (event.data.type === 'ws-message') {
+        const data = event.data.data || {};
+        const message: WebSocketMessage = {
+          connectionId: data.url || 'tm-bridge',
+          url: data.url || 'unknown',
+          parsed: data.payload ?? null,
+          rawType: data.dataType || (data.text ? 'string' : typeof data.raw),
+          timestamp: data.timestamp || Date.now(),
+          raw: data.raw,
+          text: data.text ?? null
+        };
+        this.handleMessage(message, message.timestamp);
+      } else if (event.data.type === 'bridge-ready') {
+        console.log('[PO] [WS] Main World Bridge Connected');
+      }
     });
   }
 
@@ -113,24 +133,20 @@ class WebSocketInterceptor {
   }
 
   private handleMessage(data: WebSocketMessage, timestamp: number): void {
-    // [DEBUG] 모든 원본 메시지 로깅 (Raw Data Inspection)
-    if (data.rawType === 'string' && data.parsed) {
-        console.log('[PO] [WS-RAW] Payload:', JSON.stringify(data.parsed).substring(0, 500));
-    } else {
-        console.log('[PO] [WS-RAW] Non-JSON Data:', data.rawType);
+    const parsedMessage = data.parsed ? data.parsed : this.parser.parse(data.text ?? data.raw)
+
+    const enriched: WebSocketMessage = { ...data, parsed: parsedMessage }
+    this.messageCallbacks.forEach(cb => cb(enriched))
+
+    if (parsedMessage && parsedMessage.type === 'candle_history' && Array.isArray(parsedMessage.data)) {
+      const candles = parsedMessage.data as CandleData[]
+      if (candles.length > 0) {
+        console.log(`[PO] [WS] History Captured: ${candles.length} candles for ${candles[0].symbol}`)
+        this.historyCallbacks.forEach(cb => cb(candles))
+      }
     }
 
-    this.messageCallbacks.forEach(cb => cb(data))
-
-    if (data.parsed && data.parsed.type === 'candle_history' && Array.isArray(data.parsed.data)) {
-        const candles = data.parsed.data as CandleData[]
-        if (candles.length > 0) {
-            console.log(`[PO] [WS] History Captured: ${candles.length} candles for ${candles[0].symbol}`)
-            this.historyCallbacks.forEach(cb => cb(candles))
-        }
-    }
-
-    const priceUpdate = this.parser.extractPrice(data.parsed)
+    const priceUpdate = parsedMessage ? this.parser.extractPrice(parsedMessage.raw ?? parsedMessage) : null
     if (priceUpdate) {
       this.priceUpdateCallbacks.forEach(cb => cb({ ...priceUpdate, timestamp: priceUpdate.timestamp || timestamp }))
     }

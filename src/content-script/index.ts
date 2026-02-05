@@ -87,6 +87,7 @@ function setupCandleHandler(): void {
   candleCollector.onCandle((ticker: string, candle: Candle) => {
     const signal = signalGenerator!.addCandle(ticker, candle)
     if (signal) { console.log(`[PO] 🎯 Signal: ${signal.direction} (${signal.strategy})`); handleNewSignal(signal); }
+    DataSender.sendCandle({ ...candle, ticker })
   })
 }
 
@@ -103,7 +104,7 @@ function setupPayoutHandler(): void {
 function setupIndicatorHandler(): void {
   if (!indicatorReader) return
   indicatorReader.onUpdate((values: IndicatorValues) => {
-    if (values.rsi !== undefined) console.log(`[PO] 📊 Page RSI: ${values.rsi.toFixed(1)}`);
+    // if (values.rsi !== undefined) console.log(`[PO] 📊 Page RSI: ${values.rsi.toFixed(1)}`);
     try { chrome.runtime.sendMessage({ type: 'INDICATOR_UPDATE', payload: values }).catch(() => {}) } catch {}
   })
 }
@@ -120,7 +121,7 @@ function setupSignalHandler(): void {
 function setupWebSocketHandler(): void {
   if (!wsInterceptor || !candleCollector) return
   wsInterceptor.onPriceUpdate((update: PriceUpdate) => {
-    console.log(`[PO] 🔌 WS Price: ${update.symbol} = ${update.price}`);
+    // console.log(`[PO] 🔌 WS Price: ${update.symbol} = ${update.price}`);
     try { chrome.runtime.sendMessage({ type: 'WS_PRICE_UPDATE', payload: update }).catch(() => {}) } catch {}
     if (candleCollector) candleCollector.addTickFromWebSocket(update.symbol, update.price, update.timestamp);
   })
@@ -128,7 +129,7 @@ function setupWebSocketHandler(): void {
       if (!candles || candles.length === 0) return
       console.log(`[PO] 📜 History Captured: ${candles.length} candles from ${candles[0].symbol}`);
       const payload = candles.map(c => ({ ...c, ticker: c.symbol }));
-      DataSender.sendHistory(payload);
+      DataSender.sendHistory(payload).catch(err => console.error('[PO] History send failed:', err));
   })
   wsInterceptor.onMessage((message: WebSocketMessage) => {
     if (wsInterceptor?.getStatus().analysisMode) {
