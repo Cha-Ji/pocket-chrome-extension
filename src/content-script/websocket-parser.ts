@@ -262,104 +262,121 @@ export class WebSocketParser {
       },
     })
 
+    const parseSocketIOArray = (parsed: any, raw: any): ParsedMessage => {
+      if (Array.isArray(parsed) && parsed.length >= 2) {
+        const eventName = parsed[0];
+        const payload = parsed[1];
+
+        if (eventName === 'updateHistoryNewFast' && payload?.data) {
+          let history = payload.data;
+          if (typeof history === 'string') history = JSON.parse(history);
+          if (Array.isArray(history)) {
+            return {
+              type: 'candle_history',
+              data: history.map((c: any) => {
+                if (Array.isArray(c)) {
+                  return {
+                    symbol: 'CURRENT',
+                    timestamp: c[0],
+                    open: c[1],
+                    close: c[2],
+                    high: c[3],
+                    low: c[4],
+                    volume: 0
+                  } as CandleData;
+                }
+                return {
+                  symbol: c.symbol || 'CURRENT',
+                  timestamp: c.timestamp || c.time || Date.now(),
+                  open: c.open,
+                  high: c.high,
+                  low: c.low,
+                  close: c.close,
+                  volume: c.volume || 0
+                } as CandleData;
+              }),
+              raw,
+              confidence: 0.95
+            }
+          }
+        }
+
+        if (eventName === 'updateStream') {
+          if (Array.isArray(payload)) {
+            const item = payload[0];
+            if (Array.isArray(item) && item.length >= 3) {
+              return {
+                type: 'price_update',
+                data: {
+                  symbol: item[0],
+                  timestamp: item[1],
+                  price: item[2],
+                  source: 'websocket'
+                },
+                raw,
+                confidence: 0.99
+              }
+            }
+          }
+        }
+
+        if (eventName === 'signals/stats') {
+          if (Array.isArray(payload)) {
+            return {
+              type: 'candle_history',
+              data: payload.flatMap((group: any) => {
+                const timestamp = group[0];
+                const stats = group[1];
+                if (Array.isArray(stats)) {
+                  return stats.map((item: any) => ({
+                    symbol: item[0].replace('#', '').replace('_otc', '-OTC').toUpperCase(),
+                    timestamp: timestamp * 1000,
+                    open: 0, high: 0, low: 0, close: item[1],
+                    volume: 0
+                  } as CandleData));
+                }
+                return [];
+              }),
+              raw,
+              confidence: 0.90
+            }
+          }
+        }
+      }
+
+      return {
+        type: 'unknown',
+        data: null,
+        raw,
+        confidence: 0,
+      }
+    }
+
     // 패턴 8: Socket.IO 메시지 (Legacy Migration)
+    this.patterns.push({
+      name: 'socketio_event_array',
+      detect: (data) => Array.isArray(data) && typeof data[0] === 'string',
+      parse: (data) => parseSocketIOArray(data, data)
+    })
+
     this.patterns.push({
       name: 'socketio_message',
       detect: (data) => {
-        // Socket.IO 메시지는 "42[...]" 형태의 문자열임
         if (typeof data !== 'string') return false;
-        // 42 또는 2 + JSON 배열 시작([...]) 체크
-        return /^\d+(\{.*\}|\[.*\])$/.test(data);
+        return /^\d+-?(\{.*\}|\[.*\])$/s.test(data);
       },
       parse: (data) => {
         try {
-          // 접두어(숫자) 제거하고 JSON 파싱
-          const jsonStr = data.replace(/^\d+/, '');
-          const parsed = JSON.parse(jsonStr); // ["eventName", payload]
-
-          // 배열이고, 두 번째 요소가 데이터인 경우
-          if (Array.isArray(parsed) && parsed.length >= 2) {
-            const eventName = parsed[0];
-            const payload = parsed[1];
-
-            // 1. 히스토리 데이터 (updateHistoryNewFast)
-            if (eventName === 'updateHistoryNewFast' && payload.data) {
-                // payload.data는 문자열일 수 있음 (이중 JSON)
-                let history = payload.data;
-                if (typeof history === 'string') history = JSON.parse(history);
-                
-                // history는 [[time, open, close, high, low], ...] 형식일 가능성 높음
-                // 하지만 여기서는 CandleData 형식으로 변환해야 함
-                // 일단 raw 데이터로 넘기고, 인터셉터에서 처리하도록 유도하거나 여기서 변환
-                
-                // Pocket Option History Format: [time, open, close, high, low, ???] (추정)
-                // 정확한 매핑 필요. 일단 Unknown으로 넘기지 말고 candle_history로 식별
-                
-                // 만약 history가 배열이라면
-                if (Array.isArray(history)) {
-                    return {
-                        type: 'candle_history',
-                        data: history.map((c: any) => {
-                            // 배열 인덱스 기반 매핑 (추정)
-                            // [timestamp, open, close, high, low]
-                            if (Array.isArray(c)) {
-                                return {
-                                    symbol: 'CURRENT', // 컨텍스트에서 채워야 함
-                                    timestamp: c[0],
-                                    open: c[1],
-                                    close: c[2],
-                                    high: c[3],
-                                    low: c[4],
-                                    volume: 0
-                                } as CandleData;
-                            }
-                            // 객체 기반 매핑
-                            return {
-                                symbol: c.symbol || 'CURRENT',
-                                timestamp: c.timestamp || c.time || Date.now(),
-                                open: c.open,
-                                high: c.high,
-                                low: c.low,
-                                close: c.close,
-                                volume: c.volume || 0
-                            } as CandleData;
-                        }),
-                        raw: data,
-                        confidence: 0.95
-                    }
-                }
-            }
-
-            // 2. 실시간 스트림 (updateStream)
-            if (eventName === 'updateStream') {
-                // payload: [["BTCUSD_otc", 1738..., 1.234]]
-                if (Array.isArray(payload)) {
-                    const item = payload[0]; // 첫 번째 업데이트
-                    if (Array.isArray(item) && item.length >= 3) {
-                        return {
-                            type: 'price_update',
-                            data: {
-                                symbol: item[0],
-                                timestamp: item[1],
-                                price: item[2],
-                                source: 'websocket'
-                            },
-                            raw: data,
-                            confidence: 0.99
-                        }
-                    }
-                }
-            }
-          }
+          const jsonStr = data.replace(/^\d+-?/, '');
+          const parsed = JSON.parse(jsonStr);
+          return parseSocketIOArray(parsed, data);
         } catch (e) {
-            // console.warn('Socket.IO parsing failed', e);
-        }
-
-        return {
-          type: 'unknown',
-          data: null,
-          raw: data,
-          confidence: 0,
+          return {
+            type: 'unknown',
+            data: null,
+            raw: data,
+            confidence: 0,
+          }
         }
       }
     })
@@ -371,7 +388,7 @@ export class WebSocketParser {
   registerPattern(pattern: MessagePattern): void {
     // 기존 패턴 앞에 추가 (우선순위 높음)
     this.patterns.unshift(pattern)
-    console.log(`[WS Parser] Registered pattern: ${pattern.name}`)
+    // console.log(`[WS Parser] Registered pattern: ${pattern.name}`)
   }
 
   // ============================================================
@@ -492,7 +509,7 @@ export class WebSocketParser {
     const typeKey = this.getMessageTypeKey(data)
     if (typeKey && !this.unknownMessageTypes.has(typeKey)) {
       this.unknownMessageTypes.add(typeKey)
-      console.log(`[WS Parser] New unknown message type: ${typeKey}`, data)
+      // console.log(`[WS Parser] New unknown message type: ${typeKey}`, data)
     }
   }
 
