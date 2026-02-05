@@ -112,7 +112,7 @@ export interface Strategy {
   name: string
   description: string
   params: Record<string, { default: number; min: number; max: number; step: number }>
-  
+
   /**
    * Generate signal based on candle data
    * @param candles Historical candles (oldest first)
@@ -120,4 +120,60 @@ export interface Strategy {
    * @returns Signal or null if not enough data
    */
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null
+}
+
+// ============================================================
+// Advanced Analytics Types
+// ============================================================
+
+/** Monthly breakdown statistics */
+export interface MonthlyBreakdown {
+  year: number
+  month: number // 1-12
+  trades: number
+  wins: number
+  losses: number
+  winRate: number
+  profit: number
+  avgProfit: number
+}
+
+/** Day of week statistics */
+export interface DayOfWeekStats {
+  day: number // 0 = Sunday, 6 = Saturday
+  dayName: string
+  trades: number
+  wins: number
+  losses: number
+  winRate: number
+  profit: number
+  avgProfit: number
+}
+
+/** Hourly statistics */
+export interface HourlyStats {
+  hour: number // 0-23
+  trades: number
+  wins: number
+  losses: number
+  winRate: number
+  profit: number
+  avgProfit: number
+}
+
+/** Trade distribution data */
+export interface DistributionData {
+  profitRanges: { min: number; max: number; count: number; percentage: number }[]
+  lossRanges: { min: number; max: number; count: number; percentage: number }[]
+  profitPercentile: { p10: number; p25: number; p50: number; p75: number; p90: number }
+  holdingTimeDistribution: { range: string; count: number; percentage: number }[]
+}
+
+/** Streak analysis result */
+export interface StreakAnalysis {
+  maxWinStreak: number
+  maxLoseStreak: number
+  avgWinStreak: number
+  avgLoseStreak: number
+  currentStreak: { type: 'win' | 'loss' | 'none'; count: number }
 }
