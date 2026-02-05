@@ -1,4 +1,7 @@
 import { forceClick } from '../lib/dom-utils'
+import { loggers } from '../lib/logger'
+
+const log = loggers.monitor
 
 export interface AssetPayout { name: string; payout: number; isOTC: boolean; lastUpdated: number; }
 export interface PayoutFilter { minPayout: number; onlyOTC: boolean; }
@@ -28,7 +31,7 @@ export class PayoutMonitor {
 
   async start(pollIntervalMs = 30000): Promise<void> {
     if (this._isMonitoring) return
-    console.log('[PO] [Monitor] Starting...')
+    log.info(' Starting...')
     this._isMonitoring = true
     await this.fetchPayouts()
     this.pollInterval = setInterval(async () => { await this.fetchPayouts() }, pollIntervalMs)
@@ -37,7 +40,7 @@ export class PayoutMonitor {
   stop(): void {
     if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
     this._isMonitoring = false
-    console.log('[PO] [Monitor] Stopped')
+    log.info(' Stopped')
   }
 
   subscribe(callback: (assets: AssetPayout[]) => void): () => void {
@@ -84,10 +87,10 @@ export class PayoutMonitor {
     if (existing) {
       existing.retryCount++
       existing.failedAt = Date.now()
-      console.warn(`[PO] [Monitor] Asset ${assetName} failed again (retry ${existing.retryCount}/${MAX_RETRY_COUNT})`)
+      log.warn(` Asset ${assetName} failed again (retry ${existing.retryCount}/${MAX_RETRY_COUNT})`)
     } else {
       this.unavailableAssets.set(assetName, { name: assetName, failedAt: Date.now(), retryCount: 1 })
-      console.warn(`[PO] [Monitor] Asset ${assetName} marked as unavailable (retry 1/${MAX_RETRY_COUNT})`)
+      log.warn(` Asset ${assetName} marked as unavailable (retry 1/${MAX_RETRY_COUNT})`)
     }
   }
 
@@ -123,7 +126,7 @@ export class PayoutMonitor {
 
     // Check if asset is in cooldown
     if (this.isAssetInCooldown(assetName)) {
-      console.warn(`[PO] [Monitor] ⏳ Asset ${assetName} is in cooldown, skipping...`)
+      log.warn(` ⏳ Asset ${assetName} is in cooldown, skipping...`)
       return false
     }
 
@@ -159,7 +162,7 @@ export class PayoutMonitor {
       const isSwitched = afterEl?.textContent?.toLowerCase().includes(normalizedTarget);
       
       if (!isSwitched) {
-         console.warn(`[PO] [Monitor] ❌ Switch failed (UI didn't update).`);
+         log.warn(` ❌ Switch failed (UI didn't update).`);
          this.markAssetUnavailable(assetName);
          await this.closeAssetPicker();
          return false;
@@ -170,7 +173,7 @@ export class PayoutMonitor {
 
       // Enhanced unavailable asset detection
       if (this.detectAssetUnavailable()) {
-         console.warn(`[PO] [Monitor] ⚠️ Asset ${assetName} is confirmed unavailable.`);
+         log.warn(` ⚠️ Asset ${assetName} is confirmed unavailable.`);
          this.markAssetUnavailable(assetName);
          return false;
       }
@@ -179,7 +182,7 @@ export class PayoutMonitor {
       return true
     }
 
-    console.warn(`[PO] [Monitor] ❌ Asset not found in list: ${assetName}`)
+    log.warn(` ❌ Asset not found in list: ${assetName}`)
     this.markAssetUnavailable(assetName);
     await this.closeAssetPicker()
     return false
@@ -189,7 +192,7 @@ export class PayoutMonitor {
     try {
       let payouts = this.scrapePayoutsFromDOM()
       if (payouts.length < 5) {
-        console.log('[PO] [Monitor] Payouts empty, opening picker...');
+        log.info(' Payouts empty, opening picker...');
         await this.openAssetPicker()
         for (let i = 0; i < 3; i++) {
             await this.wait(500); payouts = this.scrapePayoutsFromDOM();
@@ -202,7 +205,7 @@ export class PayoutMonitor {
         payouts.forEach(p => { this.assets.set(p.name, { ...p, lastUpdated: now }) })
       }
       this.notifyObservers()
-    } catch (error) { console.error('[PO] [Monitor] Error:', error) }
+    } catch (error) { log.error(' Error:', error) }
   }
 
   private scrapePayoutsFromDOM(): AssetPayout[] {
@@ -232,7 +235,7 @@ export class PayoutMonitor {
   private async openAssetPicker(): Promise<void> {
     const list = document.querySelector(SELECTORS.assetList) as HTMLElement
     if (list && list.getBoundingClientRect().height > 0) return
-    console.log('[PO] [Monitor] Opening picker...')
+    log.info(' Opening picker...')
     const trigger = (document.querySelector('.pair-number-wrap') || document.querySelector(SELECTORS.pairTrigger)) as HTMLElement
     if (trigger) await forceClick(trigger)
   }
@@ -240,7 +243,7 @@ export class PayoutMonitor {
   private async closeAssetPicker(): Promise<void> {
     const list = document.querySelector(SELECTORS.assetList)
     if (!list || list.getBoundingClientRect().height === 0) return
-    console.log('[PO] [Monitor] Closing picker...')
+    log.info(' Closing picker...')
 
     // [PO-17] ESC 키 시뮬레이션 추가
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

@@ -4,6 +4,9 @@
 // 역할: 수집된 캔들을 로컬 서버로 전송
 // ============================================================
 
+import { loggers } from './logger'
+
+const log = loggers.dataSender
 const SERVER_URL = 'http://localhost:3001'
 
 export const DataSender = {
@@ -37,7 +40,7 @@ export const DataSender = {
         source: 'realtime'
       }
 
-      console.log(`[DataSender] Sending candle: ${payload.symbol} @ ${payload.timestamp}`);
+      log.debug(`Sending candle: ${payload.symbol} @ ${payload.timestamp}`)
 
       // 2. 전송 (비동기, 결과 기다리지 않음)
       const response = await fetch(`${SERVER_URL}/api/candle`, {
@@ -45,14 +48,14 @@ export const DataSender = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`[DataSender] Server error (${response.status}):`, errorText);
+        log.error(`Server error (${response.status}): ${errorText}`)
       }
 
     } catch (error: any) {
-      console.error('[DataSender] Network error or fetch failed:', error.message);
+      log.error(`Network error: ${error.message}`)
     }
   },
 
@@ -65,8 +68,8 @@ export const DataSender = {
     try {
       const firstCandle = candles[0];
       const symbol = firstCandle.symbol || firstCandle.ticker || 'UNKNOWN';
-      console.log(`[DataSender] 📦 Attempting bulk send: ${candles.length} candles for ${symbol}`);
-      
+      log.data(`Attempting bulk send: ${candles.length} candles for ${symbol}`)
+
       const payload = {
         candles: candles.map(c => ({
           symbol: (c.symbol || c.ticker || symbol).toUpperCase().replace(/\s+/g, '-'), // 서버 표준 포맷 강제
@@ -86,16 +89,16 @@ export const DataSender = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       })
-      
+
       if (response.ok) {
         const result = await response.json();
-        console.log(`[DataSender] ✅ Successfully saved ${result.count || candles.length} history candles`);
+        log.success(`Saved ${result.count || candles.length} history candles`)
       } else {
         const errorText = await response.text();
-        console.error(`[DataSender] ❌ Bulk send failed (${response.status}):`, errorText);
+        log.fail(`Bulk send failed (${response.status}): ${errorText}`)
       }
     } catch (error: any) {
-      console.error('[DataSender] ❌ Bulk send network error:', error.message);
+      log.fail(`Bulk send network error: ${error.message}`)
     }
   }
 }

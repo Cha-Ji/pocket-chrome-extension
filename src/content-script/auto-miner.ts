@@ -1,6 +1,9 @@
 import { PayoutMonitor } from './payout-monitor'
 import { DataSender } from '../lib/data-sender'
 import { getWebSocketInterceptor } from './websocket-interceptor'
+import { loggers } from '../lib/logger'
+
+const log = loggers.miner
 
 interface MiningState {
   isActive: boolean
@@ -27,18 +30,18 @@ let payoutMonitorRef: PayoutMonitor | null = null
 export const AutoMiner = {
   init(monitor: PayoutMonitor) {
     payoutMonitorRef = monitor
-    console.log('[PO] [Miner] Initialized')
+    log.info(' Initialized')
   },
 
   start() {
-    console.log('[PO] [Miner] 🚀 Starting WebSocket-Direct mining...')
+    log.info(' 🚀 Starting WebSocket-Direct mining...')
     minerState.isActive = true
     minerState.completedAssets.clear()
     this.scanAndMineNext()
   },
 
   stop() {
-    console.log('[PO] [Miner] ⏹ Stopping mining...')
+    log.info(' ⏹ Stopping mining...')
     minerState.isActive = false
     this.stopRequesting()
     if (rotationTimeout) { clearTimeout(rotationTimeout); rotationTimeout = null; }
@@ -52,7 +55,7 @@ export const AutoMiner = {
     const nextAsset = availableAssets.find(asset => !minerState.completedAssets.has(asset))
     
     if (!nextAsset) {
-      console.log('[PO] [Miner] ✅ All assets mined or none found! Waiting 1 min...')
+      log.info(' ✅ All assets mined or none found! Waiting 1 min...')
       minerState.completedAssets.clear()
       rotationTimeout = setTimeout(() => this.scanAndMineNext(), 1 * 60 * 1000)
       return
@@ -65,7 +68,7 @@ export const AutoMiner = {
   async mineAsset(assetName: string) {
     const switched = await payoutMonitorRef?.switchAsset(assetName)
     if (!switched) {
-      console.warn(`[PO] [Miner] Failed to switch to ${assetName}, skipping...`)
+      log.warn(` Failed to switch to ${assetName}, skipping...`)
       minerState.completedAssets.add(assetName)
       this.scanAndMineNext()
       return
@@ -89,7 +92,7 @@ export const AutoMiner = {
    */
   startRequesting() {
     if (requestInterval) return
-    console.log('[PO] [Miner] Requesting history via WebSocket...');
+    log.info(' Requesting history via WebSocket...');
     
     const interceptor = getWebSocketInterceptor();
     const asset = minerState.currentAsset || '';
