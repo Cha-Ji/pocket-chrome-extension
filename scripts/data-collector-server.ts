@@ -49,11 +49,33 @@ app.use(cors())
 app.use(bodyParser.json({ limit: '10mb' }))
 
 // ============================================================
+// Helpers
+// ============================================================
+
+const REQUIRED_FIELDS = ['symbol', 'interval', 'timestamp', 'open', 'high', 'low', 'close']
+
+function validateCandle(candle: any) {
+  const missingFields = REQUIRED_FIELDS.filter(field => candle[field] === undefined || candle[field] === null || candle[field] === '')
+  if (missingFields.length > 0) {
+    return {
+      isValid: false,
+      message: `Missing required fields: ${missingFields.join(', ')}`
+    }
+  }
+  return { isValid: true }
+}
+
+// ============================================================
 // API Endpoints
 // ============================================================
 
 // 1. 단일 캔들 수집 (실시간)
 app.post('/api/candle', (req, res) => {
+  const validation = validateCandle(req.body)
+  if (!validation.isValid) {
+    return res.status(400).json({ error: validation.message })
+  }
+
   const { symbol, interval, timestamp, open, high, low, close, volume, source } = req.body
 
   try {
@@ -82,14 +104,34 @@ app.post('/api/candles/bulk', (req, res) => {
   const { candles } = req.body // Array of candle objects
 
   if (!Array.isArray(candles)) {
-    return res.status(400).json({ error: 'Invalid data format' })
+    return res.status(400).json({ error: 'Invalid data format: candles must be an array' })
+  }
+
+  if (candles.length === 0) {
+    return res.status(400).json({ error: 'Empty candles array' })
+  }
+
+  for (let i = 0; i < candles.length; i++) {
+    const validation = validateCandle(candles[i])
+    if (!validation.isValid) {
+      return res.status(400).json({ 
+        error: `Validation failed at index ${i}: ${validation.message}`,
+        failedIndex: i,
+        candle: candles[i]
+      })
+    }
   }
 
   try {
     const insert = db.prepare(`
       INSERT INTO candles (symbol, interval, timestamp, open, high, low, close, volume, source)
       VALUES (@symbol, @interval, @timestamp, @open, @high, @low, @close, @volume, @source)
-      ON CONFLICT(symbol, interval, timestamp) DO IGNORE
+      ON CONFLICT(symbol, interval, timestamp) DO UPDATE SET
+        open = excluded.open,
+        high = excluded.high,
+        low = excluded.low,
+        close = excluded.close,
+        volume = excluded.volume
     `)
 
     const insertMany = db.transaction((rows) => {

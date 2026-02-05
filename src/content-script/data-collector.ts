@@ -30,7 +30,7 @@ export class DataCollector {
   start(): void {
     if (this._isCollecting) return
     
-    console.log('[DataCollector] Starting data collection...')
+    console.log('[PO] [DataCollector] Starting data collection...')
     this._isCollecting = true
     
     // TODO: Replace with actual MutationObserver setup
@@ -44,7 +44,7 @@ export class DataCollector {
   stop(): void {
     if (!this._isCollecting) return
     
-    console.log('[DataCollector] Stopping data collection...')
+    console.log('[PO] [DataCollector] Stopping data collection...')
     this.observer?.disconnect()
     this.observer = null
     this._isCollecting = false
