@@ -629,3 +629,188 @@ export const SMMA = {
     return result
   },
 }
+
+// ============================================================
+// ATR (Average True Range)
+// ============================================================
+
+/**
+ * Calculate True Range
+ * TR = max(high - low, |high - prevClose|, |low - prevClose|)
+ */
+export function calculateTrueRange(
+  high: number,
+  low: number,
+  prevClose: number
+): number {
+  return Math.max(
+    high - low,
+    Math.abs(high - prevClose),
+    Math.abs(low - prevClose)
+  )
+}
+
+/**
+ * Calculate ATR (Average True Range)
+ * @param highs - Array of high prices
+ * @param lows - Array of low prices
+ * @param closes - Array of close prices
+ * @param period - Number of periods (typically 14)
+ * @returns ATR value or null if insufficient data
+ */
+export function calculateATR(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  period: number = 14
+): number | null {
+  const minLength = Math.min(highs.length, lows.length, closes.length)
+  if (minLength < period + 1 || period <= 0) return null
+
+  // Calculate True Range for each candle
+  const trValues: number[] = []
+  for (let i = 1; i < minLength; i++) {
+    trValues.push(calculateTrueRange(highs[i], lows[i], closes[i - 1]))
+  }
+
+  if (trValues.length < period) return null
+
+  // First ATR is simple average
+  let atr = trValues.slice(0, period).reduce((a, b) => a + b, 0) / period
+
+  // Subsequent ATRs use smoothing (Wilder's method)
+  for (let i = period; i < trValues.length; i++) {
+    atr = (atr * (period - 1) + trValues[i]) / period
+  }
+
+  return atr
+}
+
+export const ATR = {
+  /**
+   * Calculate ATR for entire series
+   */
+  calculate(highs: number[], lows: number[], closes: number[], period: number = 14): number[] {
+    const results: number[] = []
+    const minLen = Math.min(highs.length, lows.length, closes.length)
+
+    for (let i = period + 1; i <= minLen; i++) {
+      const h = highs.slice(0, i)
+      const l = lows.slice(0, i)
+      const c = closes.slice(0, i)
+      const atr = calculateATR(h, l, c, period)
+      if (atr !== null) results.push(atr)
+    }
+    return results
+  },
+
+  /**
+   * Get latest ATR value
+   */
+  latest(highs: number[], lows: number[], closes: number[], period: number = 14): number | null {
+    return calculateATR(highs, lows, closes, period)
+  },
+}
+
+// ============================================================
+// Stochastic RSI
+// ============================================================
+
+/**
+ * Calculate Stochastic RSI
+ * StochRSI = (RSI - RSI Low) / (RSI High - RSI Low)
+ * @param data - Array of close prices
+ * @param rsiPeriod - RSI period (typically 14)
+ * @param stochPeriod - Stochastic period for RSI (typically 14)
+ * @param kSmooth - %K smoothing period (typically 3)
+ * @param dSmooth - %D smoothing period (typically 3)
+ * @returns { k, d } values (0-100) or null if insufficient data
+ */
+export function calculateStochRSI(
+  data: number[],
+  rsiPeriod: number = 14,
+  stochPeriod: number = 14,
+  kSmooth: number = 3,
+  dSmooth: number = 3
+): { k: number; d: number } | null {
+  // Need enough data for RSI calculation plus stochastic period
+  if (data.length < rsiPeriod + stochPeriod + kSmooth + dSmooth) return null
+
+  // Calculate RSI series
+  const rsiValues: number[] = []
+  for (let i = rsiPeriod + 1; i <= data.length; i++) {
+    const rsi = calculateRSI(data.slice(0, i), rsiPeriod)
+    if (rsi !== null) rsiValues.push(rsi)
+  }
+
+  if (rsiValues.length < stochPeriod + kSmooth + dSmooth - 1) return null
+
+  // Calculate raw Stochastic RSI values
+  const rawStochRSI: number[] = []
+  for (let i = stochPeriod - 1; i < rsiValues.length; i++) {
+    const rsiSlice = rsiValues.slice(i - stochPeriod + 1, i + 1)
+    const rsiHigh = Math.max(...rsiSlice)
+    const rsiLow = Math.min(...rsiSlice)
+    const range = rsiHigh - rsiLow
+
+    if (range === 0) {
+      rawStochRSI.push(50) // Neutral when no range
+    } else {
+      rawStochRSI.push(((rsiValues[i] - rsiLow) / range) * 100)
+    }
+  }
+
+  if (rawStochRSI.length < kSmooth + dSmooth - 1) return null
+
+  // Apply %K smoothing (SMA)
+  const kValues: number[] = []
+  for (let i = kSmooth - 1; i < rawStochRSI.length; i++) {
+    const kSlice = rawStochRSI.slice(i - kSmooth + 1, i + 1)
+    kValues.push(kSlice.reduce((a, b) => a + b, 0) / kSmooth)
+  }
+
+  if (kValues.length < dSmooth) return null
+
+  // Calculate %D (SMA of %K)
+  const dSlice = kValues.slice(-dSmooth)
+  const d = dSlice.reduce((a, b) => a + b, 0) / dSmooth
+  const k = kValues[kValues.length - 1]
+
+  return { k, d }
+}
+
+export const StochRSI = {
+  /**
+   * Calculate Stochastic RSI for entire series
+   */
+  calculate(
+    data: number[],
+    rsiPeriod: number = 14,
+    stochPeriod: number = 14,
+    kSmooth: number = 3,
+    dSmooth: number = 3
+  ): { k: number; d: number }[] {
+    const results: { k: number; d: number }[] = []
+    const minDataNeeded = rsiPeriod + stochPeriod + kSmooth + dSmooth
+
+    for (let i = minDataNeeded; i <= data.length; i++) {
+      const slice = data.slice(0, i)
+      const stochRsi = calculateStochRSI(slice, rsiPeriod, stochPeriod, kSmooth, dSmooth)
+      if (stochRsi !== null) results.push(stochRsi)
+    }
+    return results
+  },
+
+  /**
+   * Get latest Stochastic RSI value
+   */
+  latest(
+    data: number[],
+    rsiPeriod: number = 14,
+    stochPeriod: number = 14,
+    kSmooth: number = 3,
+    dSmooth: number = 3
+  ): { k: number; d: number } | null {
+    return calculateStochRSI(data, rsiPeriod, stochPeriod, kSmooth, dSmooth)
+  },
+}
