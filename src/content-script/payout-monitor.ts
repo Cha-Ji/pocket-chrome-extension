@@ -2,7 +2,10 @@ import { forceClick } from '../lib/dom-utils'
 
 export interface AssetPayout { name: string; payout: number; isOTC: boolean; lastUpdated: number; }
 export interface PayoutFilter { minPayout: number; onlyOTC: boolean; }
+export interface UnavailableAsset { name: string; failedAt: number; retryCount: number; }
 const DEFAULT_FILTER: PayoutFilter = { minPayout: 92, onlyOTC: true, }
+const UNAVAILABLE_COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes cooldown for unavailable assets
+const MAX_RETRY_COUNT = 3 // Max retries before cooldown
 const SELECTORS = {
   assetList: '.assets-block__alist.alist',
   assetItem: '.alist__item',
@@ -14,6 +17,7 @@ const SELECTORS = {
 
 export class PayoutMonitor {
   private assets: Map<string, AssetPayout> = new Map()
+  private unavailableAssets: Map<string, UnavailableAsset> = new Map()
   private filter: PayoutFilter
   private pollInterval: ReturnType<typeof setInterval> | null = null
   private observers: ((assets: AssetPayout[]) => void)[] = []
@@ -54,10 +58,75 @@ export class PayoutMonitor {
     return highPayout.length > 0 ? highPayout[0] : null
   }
 
+  /** Check if an asset is in cooldown after repeated failures */
+  isAssetInCooldown(assetName: string): boolean {
+    const entry = this.unavailableAssets.get(assetName)
+    if (!entry) return false
+    const now = Date.now()
+    if (entry.retryCount >= MAX_RETRY_COUNT && (now - entry.failedAt) < UNAVAILABLE_COOLDOWN_MS) {
+      return true
+    }
+    if ((now - entry.failedAt) >= UNAVAILABLE_COOLDOWN_MS) {
+      this.unavailableAssets.delete(assetName)
+      return false
+    }
+    return false
+  }
+
+  /** Get available assets (excluding those in cooldown) */
+  getAvailableAssets(): AssetPayout[] {
+    return this.getHighPayoutAssets().filter(a => !this.isAssetInCooldown(a.name))
+  }
+
+  /** Mark an asset as unavailable (increments retry count) */
+  private markAssetUnavailable(assetName: string): void {
+    const existing = this.unavailableAssets.get(assetName)
+    if (existing) {
+      existing.retryCount++
+      existing.failedAt = Date.now()
+      console.warn(`[PO] [Monitor] Asset ${assetName} failed again (retry ${existing.retryCount}/${MAX_RETRY_COUNT})`)
+    } else {
+      this.unavailableAssets.set(assetName, { name: assetName, failedAt: Date.now(), retryCount: 1 })
+      console.warn(`[PO] [Monitor] Asset ${assetName} marked as unavailable (retry 1/${MAX_RETRY_COUNT})`)
+    }
+  }
+
+  /** Enhanced detection of unavailable assets */
+  private detectAssetUnavailable(): boolean {
+    // Pattern 1: '.asset-inactive' with Korean text
+    const inactiveEl = document.querySelector('.asset-inactive')
+    if (inactiveEl && (inactiveEl as HTMLElement).offsetParent !== null) {
+      const text = inactiveEl.textContent || ''
+      if (text.includes('불가능') || text.includes('unavailable') || text.toLowerCase().includes('not available')) {
+        return true
+      }
+    }
+    // Pattern 2: Modal or notification with unavailable message
+    const modals = document.querySelectorAll('.modal, .notification, .alert, .toast')
+    for (const modal of modals) {
+      const text = (modal.textContent || '').toLowerCase()
+      if (text.includes('not available') || text.includes('unavailable') || text.includes('이용 불가')) {
+        return true
+      }
+    }
+    // Pattern 3: Check if chart area shows loading/error state
+    const chartError = document.querySelector('.chart-error, .chart-loading-error')
+    if (chartError && (chartError as HTMLElement).offsetParent !== null) {
+      return true
+    }
+    return false
+  }
+
   async switchAsset(assetName: string): Promise<boolean> {
     console.log(`[PO] [Monitor] 🔄 Switching to: ${assetName}`)
     const normalizedTarget = assetName.replace(/\s+/g, ' ').trim().toLowerCase();
-    
+
+    // Check if asset is in cooldown
+    if (this.isAssetInCooldown(assetName)) {
+      console.warn(`[PO] [Monitor] ⏳ Asset ${assetName} is in cooldown, skipping...`)
+      return false
+    }
+
     // 현재 이미 해당 자산인지 확인
     const currentEl = document.querySelector('.current-symbol');
     if (currentEl && currentEl.textContent?.toLowerCase().includes(normalizedTarget)) {
@@ -91,6 +160,7 @@ export class PayoutMonitor {
       
       if (!isSwitched) {
          console.warn(`[PO] [Monitor] ❌ Switch failed (UI didn't update).`);
+         this.markAssetUnavailable(assetName);
          await this.closeAssetPicker();
          return false;
       }
@@ -98,10 +168,10 @@ export class PayoutMonitor {
       await this.closeAssetPicker()
       await this.wait(1000)
 
-      // 이용 불가능 여부 최종 확인
-      const errorMsg = document.querySelector('.asset-inactive');
-      if (errorMsg && errorMsg.textContent?.includes('불가능') && (errorMsg as HTMLElement).offsetParent !== null) {
+      // Enhanced unavailable asset detection
+      if (this.detectAssetUnavailable()) {
          console.warn(`[PO] [Monitor] ⚠️ Asset ${assetName} is confirmed unavailable.`);
+         this.markAssetUnavailable(assetName);
          return false;
       }
 
@@ -110,6 +180,7 @@ export class PayoutMonitor {
     }
 
     console.warn(`[PO] [Monitor] ❌ Asset not found in list: ${assetName}`)
+    this.markAssetUnavailable(assetName);
     await this.closeAssetPicker()
     return false
   }

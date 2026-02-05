@@ -4,6 +4,10 @@ import cors from 'cors'
 import bodyParser from 'body-parser'
 import path from 'path'
 import fs from 'fs'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 // ============================================================
 // Data Collector Server
@@ -12,7 +16,9 @@ import fs from 'fs'
 // ============================================================
 
 const PORT = 3001
-const DB_PATH = '/Users/kong-bee/Documents/pocket-chrome-extension/data/market-data.db'
+// Use environment variable or relative path for portability
+const PROJECT_ROOT = process.env.PROJECT_ROOT || path.resolve(__dirname, '..')
+const DB_PATH = process.env.DB_PATH || path.join(PROJECT_ROOT, 'data', 'market-data.db')
 const DB_DIR = path.dirname(DB_PATH)
 
 // Ensure data directory exists

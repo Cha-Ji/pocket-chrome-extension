@@ -11,7 +11,11 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "lint": "eslint src --ext .ts,.tsx",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "collector": "npx ts-node scripts/data-collector-server.ts",
+    "collector:start": "pm2 start scripts/ecosystem.config.cjs",
+    "collector:stop": "pm2 stop data-collector",
+    "collector:logs": "pm2 logs data-collector"
   },
   "dependencies": {
     "dexie": "^4.0.10",
