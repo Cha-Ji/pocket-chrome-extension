@@ -127,8 +127,32 @@ function setupWebSocketHandler(): void {
   })
   wsInterceptor.onHistoryReceived((candles: CandleData[]) => {
       if (!candles || candles.length === 0) return
-      console.log(`[PO] 📜 History Captured: ${candles.length} candles from ${candles[0].symbol}`);
-      const payload = candles.map(c => ({ ...c, ticker: c.symbol }));
+
+      // Get current asset symbol from various sources
+      let currentSymbol = candles[0].symbol;
+      if (!currentSymbol || currentSymbol === 'CURRENT' || currentSymbol === 'UNKNOWN') {
+        // Try 1: From WebSocket tracked asset ID
+        const wsAssetId = wsInterceptor?.getActiveAssetId();
+        if (wsAssetId) {
+          currentSymbol = wsAssetId.replace(/^#/, '').replace(/_otc$/i, '-OTC').replace(/_/g, '-').toUpperCase();
+        }
+        // Try 2: From DOM
+        if (!currentSymbol || currentSymbol === 'CURRENT') {
+          const symbolEl = document.querySelector('.current-symbol, .pair__title, [data-testid="asset-name"]');
+          if (symbolEl) {
+            currentSymbol = (symbolEl.textContent || '').trim().toUpperCase().replace(/\s+/g, '-');
+          }
+        }
+        // Fallback
+        if (!currentSymbol) currentSymbol = 'UNKNOWN-ASSET';
+      }
+
+      console.log(`[PO] 📜 History Captured: ${candles.length} candles for ${currentSymbol}`);
+      const payload = candles.map(c => ({
+        ...c,
+        symbol: (c.symbol && c.symbol !== 'CURRENT' && c.symbol !== 'UNKNOWN') ? c.symbol : currentSymbol,
+        ticker: (c.symbol && c.symbol !== 'CURRENT' && c.symbol !== 'UNKNOWN') ? c.symbol : currentSymbol
+      }));
       DataSender.sendHistory(payload).catch(err => console.error('[PO] History send failed:', err));
   })
     wsInterceptor.onMessage((message: WebSocketMessage) => {

@@ -4,6 +4,10 @@ import cors from 'cors'
 import bodyParser from 'body-parser'
 import path from 'path'
 import fs from 'fs'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 // ============================================================
 // Data Collector Server
@@ -12,17 +16,22 @@ import fs from 'fs'
 // ============================================================
 
 const PORT = 3001
-const DB_DIR = path.join(process.cwd(), 'data')
-const DB_PATH = path.join(DB_DIR, 'market-data.db')
+// Use environment variable or relative path for portability
+const PROJECT_ROOT = process.env.PROJECT_ROOT || path.resolve(__dirname, '..')
+const DB_PATH = process.env.DB_PATH || path.join(PROJECT_ROOT, 'data', 'market-data.db')
+const DB_DIR = path.dirname(DB_PATH)
 
 // Ensure data directory exists
 if (!fs.existsSync(DB_DIR)) {
-  fs.mkdirSync(DB_DIR)
+  fs.mkdirSync(DB_DIR, { recursive: true })
 }
 
 // Initialize Database
 const db = new Database(DB_PATH)
 db.pragma('journal_mode = WAL')
+db.pragma('synchronous = NORMAL') // [PO-17] 성능 향상
+db.pragma('cache_size = -1000000') // [PO-17] 1GB 캐시 (대용량 대응)
+db.pragma('busy_timeout = 5000') // [PO-17] 잠금 대기 시간 증가
 
 // Create Tables
 db.exec(`
@@ -46,7 +55,7 @@ db.exec(`
 
 const app = express()
 app.use(cors())
-app.use(bodyParser.json({ limit: '10mb' }))
+app.use(bodyParser.json({ limit: '50mb' })) // [PO-17] 벌크 데이터 수집을 위해 용량 대폭 상향
 
 // ============================================================
 // Helpers
@@ -104,6 +113,7 @@ app.post('/api/candles/bulk', (req, res) => {
   const { candles } = req.body // Array of candle objects
 
   if (!Array.isArray(candles)) {
+    console.error('[Bulk] Invalid format: not an array')
     return res.status(400).json({ error: 'Invalid data format: candles must be an array' })
   }
 
@@ -111,9 +121,12 @@ app.post('/api/candles/bulk', (req, res) => {
     return res.status(400).json({ error: 'Empty candles array' })
   }
 
+  console.log(`[Bulk] Received ${candles.length} candles. First: ${JSON.stringify(candles[0])}`)
+
   for (let i = 0; i < candles.length; i++) {
     const validation = validateCandle(candles[i])
     if (!validation.isValid) {
+      console.error(`[Bulk] Validation failed at index ${i}: ${validation.message}. Candle: ${JSON.stringify(candles[i])}`)
       return res.status(400).json({ 
         error: `Validation failed at index ${i}: ${validation.message}`,
         failedIndex: i,
