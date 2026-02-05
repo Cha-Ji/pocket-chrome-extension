@@ -629,3 +629,416 @@ export const SMMA = {
     return result
   },
 }
+
+// ============================================================
+// ATR (Average True Range)
+// ============================================================
+
+/**
+ * Calculate True Range
+ * TR = max(high - low, |high - prevClose|, |low - prevClose|)
+ */
+export function calculateTrueRange(
+  high: number,
+  low: number,
+  prevClose: number
+): number {
+  return Math.max(
+    high - low,
+    Math.abs(high - prevClose),
+    Math.abs(low - prevClose)
+  )
+}
+
+/**
+ * Calculate ATR (Average True Range)
+ * @param highs - Array of high prices
+ * @param lows - Array of low prices
+ * @param closes - Array of close prices
+ * @param period - Number of periods (typically 14)
+ * @returns ATR value or null if insufficient data
+ */
+export function calculateATR(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  period: number = 14
+): number | null {
+  const minLength = Math.min(highs.length, lows.length, closes.length)
+  if (minLength < period + 1 || period <= 0) return null
+
+  // Calculate True Range for each candle
+  const trValues: number[] = []
+  for (let i = 1; i < minLength; i++) {
+    trValues.push(calculateTrueRange(highs[i], lows[i], closes[i - 1]))
+  }
+
+  if (trValues.length < period) return null
+
+  // First ATR is simple average
+  let atr = trValues.slice(0, period).reduce((a, b) => a + b, 0) / period
+
+  // Subsequent ATRs use smoothing (Wilder's method)
+  for (let i = period; i < trValues.length; i++) {
+    atr = (atr * (period - 1) + trValues[i]) / period
+  }
+
+  return atr
+}
+
+export const ATR = {
+  /**
+   * Calculate ATR for entire series
+   */
+  calculate(highs: number[], lows: number[], closes: number[], period: number = 14): number[] {
+    const results: number[] = []
+    const minLen = Math.min(highs.length, lows.length, closes.length)
+
+    for (let i = period + 1; i <= minLen; i++) {
+      const h = highs.slice(0, i)
+      const l = lows.slice(0, i)
+      const c = closes.slice(0, i)
+      const atr = calculateATR(h, l, c, period)
+      if (atr !== null) results.push(atr)
+    }
+    return results
+  },
+
+  /**
+   * Get latest ATR value
+   */
+  latest(highs: number[], lows: number[], closes: number[], period: number = 14): number | null {
+    return calculateATR(highs, lows, closes, period)
+  },
+}
+
+// ============================================================
+// Stochastic RSI
+// ============================================================
+
+/**
+ * Calculate Stochastic RSI
+ * StochRSI = (RSI - RSI Low) / (RSI High - RSI Low)
+ * @param data - Array of close prices
+ * @param rsiPeriod - RSI period (typically 14)
+ * @param stochPeriod - Stochastic period for RSI (typically 14)
+ * @param kSmooth - %K smoothing period (typically 3)
+ * @param dSmooth - %D smoothing period (typically 3)
+ * @returns { k, d } values (0-100) or null if insufficient data
+ */
+export function calculateStochRSI(
+  data: number[],
+  rsiPeriod: number = 14,
+  stochPeriod: number = 14,
+  kSmooth: number = 3,
+  dSmooth: number = 3
+): { k: number; d: number } | null {
+  // Need enough data for RSI calculation plus stochastic period
+  if (data.length < rsiPeriod + stochPeriod + kSmooth + dSmooth) return null
+
+  // Calculate RSI series
+  const rsiValues: number[] = []
+  for (let i = rsiPeriod + 1; i <= data.length; i++) {
+    const rsi = calculateRSI(data.slice(0, i), rsiPeriod)
+    if (rsi !== null) rsiValues.push(rsi)
+  }
+
+  if (rsiValues.length < stochPeriod + kSmooth + dSmooth - 1) return null
+
+  // Calculate raw Stochastic RSI values
+  const rawStochRSI: number[] = []
+  for (let i = stochPeriod - 1; i < rsiValues.length; i++) {
+    const rsiSlice = rsiValues.slice(i - stochPeriod + 1, i + 1)
+    const rsiHigh = Math.max(...rsiSlice)
+    const rsiLow = Math.min(...rsiSlice)
+    const range = rsiHigh - rsiLow
+
+    if (range === 0) {
+      rawStochRSI.push(50) // Neutral when no range
+    } else {
+      rawStochRSI.push(((rsiValues[i] - rsiLow) / range) * 100)
+    }
+  }
+
+  if (rawStochRSI.length < kSmooth + dSmooth - 1) return null
+
+  // Apply %K smoothing (SMA)
+  const kValues: number[] = []
+  for (let i = kSmooth - 1; i < rawStochRSI.length; i++) {
+    const kSlice = rawStochRSI.slice(i - kSmooth + 1, i + 1)
+    kValues.push(kSlice.reduce((a, b) => a + b, 0) / kSmooth)
+  }
+
+  if (kValues.length < dSmooth) return null
+
+  // Calculate %D (SMA of %K)
+  const dSlice = kValues.slice(-dSmooth)
+  const d = dSlice.reduce((a, b) => a + b, 0) / dSmooth
+  const k = kValues[kValues.length - 1]
+
+  return { k, d }
+}
+
+export const StochRSI = {
+  /**
+   * Calculate Stochastic RSI for entire series
+   */
+  calculate(
+    data: number[],
+    rsiPeriod: number = 14,
+    stochPeriod: number = 14,
+    kSmooth: number = 3,
+    dSmooth: number = 3
+  ): { k: number; d: number }[] {
+    const results: { k: number; d: number }[] = []
+    const minDataNeeded = rsiPeriod + stochPeriod + kSmooth + dSmooth
+
+    for (let i = minDataNeeded; i <= data.length; i++) {
+      const slice = data.slice(0, i)
+      const stochRsi = calculateStochRSI(slice, rsiPeriod, stochPeriod, kSmooth, dSmooth)
+      if (stochRsi !== null) results.push(stochRsi)
+    }
+    return results
+  },
+
+  /**
+   * Get latest Stochastic RSI value
+   */
+  latest(
+    data: number[],
+    rsiPeriod: number = 14,
+    stochPeriod: number = 14,
+    kSmooth: number = 3,
+    dSmooth: number = 3
+  ): { k: number; d: number } | null {
+    return calculateStochRSI(data, rsiPeriod, stochPeriod, kSmooth, dSmooth)
+  },
+}
+
+// Alias for compatibility
+export const calculateStochasticRSI = calculateStochRSI
+export const StochasticRSI = StochRSI
+
+// ============================================================
+// ADX (Average Directional Index)
+// ============================================================
+
+/**
+ * Calculate +DI and -DI (internal helper)
+ */
+function calculateDI(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  period: number
+): { plusDI: number; minusDI: number } | null {
+  const minLength = Math.min(highs.length, lows.length, closes.length)
+  if (minLength < period + 1) return null
+
+  const plusDMs: number[] = []
+  const minusDMs: number[] = []
+  const trueRanges: number[] = []
+
+  for (let i = 1; i < minLength; i++) {
+    const upMove = highs[i] - highs[i - 1]
+    const downMove = lows[i - 1] - lows[i]
+
+    if (upMove > downMove && upMove > 0) {
+      plusDMs.push(upMove)
+      minusDMs.push(0)
+    } else if (downMove > upMove && downMove > 0) {
+      plusDMs.push(0)
+      minusDMs.push(downMove)
+    } else {
+      plusDMs.push(0)
+      minusDMs.push(0)
+    }
+
+    trueRanges.push(calculateTrueRange(highs[i], lows[i], closes[i - 1]))
+  }
+
+  if (plusDMs.length < period) return null
+
+  let smoothedPlusDM = plusDMs.slice(0, period).reduce((a, b) => a + b, 0)
+  let smoothedMinusDM = minusDMs.slice(0, period).reduce((a, b) => a + b, 0)
+  let smoothedTR = trueRanges.slice(0, period).reduce((a, b) => a + b, 0)
+
+  for (let i = period; i < plusDMs.length; i++) {
+    smoothedPlusDM = smoothedPlusDM - (smoothedPlusDM / period) + plusDMs[i]
+    smoothedMinusDM = smoothedMinusDM - (smoothedMinusDM / period) + minusDMs[i]
+    smoothedTR = smoothedTR - (smoothedTR / period) + trueRanges[i]
+  }
+
+  const plusDI = smoothedTR === 0 ? 0 : (smoothedPlusDM / smoothedTR) * 100
+  const minusDI = smoothedTR === 0 ? 0 : (smoothedMinusDM / smoothedTR) * 100
+
+  return { plusDI, minusDI }
+}
+
+/**
+ * Calculate ADX (Average Directional Index)
+ * Measures trend strength regardless of direction
+ * @param highs - Array of high prices
+ * @param lows - Array of low prices
+ * @param closes - Array of close prices
+ * @param period - Number of periods (typically 14)
+ * @returns { adx, plusDI, minusDI } or null if insufficient data
+ */
+export function calculateADX(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  period: number = 14
+): { adx: number; plusDI: number; minusDI: number } | null {
+  const minLength = Math.min(highs.length, lows.length, closes.length)
+  if (minLength < period * 2 || period <= 0) return null
+
+  const dxValues: number[] = []
+
+  for (let i = period + 1; i <= minLength; i++) {
+    const h = highs.slice(0, i)
+    const l = lows.slice(0, i)
+    const c = closes.slice(0, i)
+    const di = calculateDI(h, l, c, period)
+
+    if (di) {
+      const diSum = di.plusDI + di.minusDI
+      const dx = diSum === 0 ? 0 : (Math.abs(di.plusDI - di.minusDI) / diSum) * 100
+      dxValues.push(dx)
+    }
+  }
+
+  if (dxValues.length < period) return null
+
+  let adx = dxValues.slice(0, period).reduce((a, b) => a + b, 0) / period
+
+  for (let i = period; i < dxValues.length; i++) {
+    adx = (adx * (period - 1) + dxValues[i]) / period
+  }
+
+  const latestDI = calculateDI(highs, lows, closes, period)
+  if (!latestDI) return null
+
+  return {
+    adx,
+    plusDI: latestDI.plusDI,
+    minusDI: latestDI.minusDI,
+  }
+}
+
+export const ADX = {
+  /**
+   * Calculate ADX for entire series
+   */
+  calculate(highs: number[], lows: number[], closes: number[], period: number = 14): { adx: number; plusDI: number; minusDI: number }[] {
+    const results: { adx: number; plusDI: number; minusDI: number }[] = []
+    const minLen = Math.min(highs.length, lows.length, closes.length)
+
+    for (let i = period * 2; i <= minLen; i++) {
+      const h = highs.slice(0, i)
+      const l = lows.slice(0, i)
+      const c = closes.slice(0, i)
+      const adx = calculateADX(h, l, c, period)
+      if (adx !== null) results.push(adx)
+    }
+    return results
+  },
+
+  /**
+   * Get latest ADX value
+   */
+  latest(highs: number[], lows: number[], closes: number[], period: number = 14): { adx: number; plusDI: number; minusDI: number } | null {
+    return calculateADX(highs, lows, closes, period)
+  },
+}
+
+// ============================================================
+// VWAP (Volume Weighted Average Price)
+// ============================================================
+
+/**
+ * Calculate VWAP (Volume Weighted Average Price)
+ * VWAP = Cumulative(Typical Price * Volume) / Cumulative(Volume)
+ * @param highs - Array of high prices
+ * @param lows - Array of low prices
+ * @param closes - Array of close prices
+ * @param volumes - Array of volumes
+ * @returns VWAP value or null if insufficient data
+ */
+export function calculateVWAP(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  volumes: number[]
+): number | null {
+  const minLength = Math.min(highs.length, lows.length, closes.length, volumes.length)
+  if (minLength === 0) return null
+
+  let cumulativeTPV = 0
+  let cumulativeVolume = 0
+
+  for (let i = 0; i < minLength; i++) {
+    const typicalPrice = (highs[i] + lows[i] + closes[i]) / 3
+    cumulativeTPV += typicalPrice * volumes[i]
+    cumulativeVolume += volumes[i]
+  }
+
+  if (cumulativeVolume === 0) return null
+
+  return cumulativeTPV / cumulativeVolume
+}
+
+/**
+ * Calculate VWAP from candles
+ */
+export function calculateVWAPFromCandles(
+  candles: Array<{ high: number; low: number; close: number; volume?: number }>
+): number | null {
+  if (candles.length === 0) return null
+
+  const highs = candles.map(c => c.high)
+  const lows = candles.map(c => c.low)
+  const closes = candles.map(c => c.close)
+  const volumes = candles.map(c => c.volume ?? 0)
+
+  return calculateVWAP(highs, lows, closes, volumes)
+}
+
+export const VWAP = {
+  /**
+   * Calculate VWAP for entire series (cumulative)
+   */
+  calculate(highs: number[], lows: number[], closes: number[], volumes: number[]): number[] {
+    const results: number[] = []
+    const minLen = Math.min(highs.length, lows.length, closes.length, volumes.length)
+
+    for (let i = 1; i <= minLen; i++) {
+      const h = highs.slice(0, i)
+      const l = lows.slice(0, i)
+      const c = closes.slice(0, i)
+      const v = volumes.slice(0, i)
+      const vwap = calculateVWAP(h, l, c, v)
+      if (vwap !== null) results.push(vwap)
+    }
+    return results
+  },
+
+  /**
+   * Get latest VWAP value
+   */
+  latest(highs: number[], lows: number[], closes: number[], volumes: number[]): number | null {
+    return calculateVWAP(highs, lows, closes, volumes)
+  },
+
+  /**
+   * Calculate from candles
+   */
+  fromCandles(candles: Array<{ high: number; low: number; close: number; volume?: number }>): number | null {
+    return calculateVWAPFromCandles(candles)
+  },
+}
+
+// ============================================================
+// Export Types
+// ============================================================
+export * from './types'
