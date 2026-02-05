@@ -46,9 +46,10 @@ export const AutoMiner = {
 
   scanAndMineNext() {
     if (!minerState.isActive || !payoutMonitorRef) return
-    const highPayoutAssets = payoutMonitorRef.getHighPayoutAssets().filter(asset => asset.payout >= 92).map(asset => asset.name)
-    console.log(`[PO] [Miner] Found ${highPayoutAssets.length} high payout assets. Completed: ${minerState.completedAssets.size}`)
-    const nextAsset = highPayoutAssets.find(asset => !minerState.completedAssets.has(asset))
+    // Use getAvailableAssets() which excludes assets in cooldown
+    const availableAssets = payoutMonitorRef.getAvailableAssets().filter(asset => asset.payout >= 92).map(asset => asset.name)
+    console.log(`[PO] [Miner] Found ${availableAssets.length} available assets. Completed: ${minerState.completedAssets.size}`)
+    const nextAsset = availableAssets.find(asset => !minerState.completedAssets.has(asset))
     
     if (!nextAsset) {
       console.log('[PO] [Miner] ✅ All assets mined or none found! Waiting 1 min...')
