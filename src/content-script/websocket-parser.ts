@@ -267,36 +267,77 @@ export class WebSocketParser {
         const eventName = parsed[0];
         const payload = parsed[1];
 
-        if (eventName === 'updateHistoryNewFast' && payload?.data) {
-          let history = payload.data;
-          if (typeof history === 'string') history = JSON.parse(history);
-          if (Array.isArray(history)) {
+        // [PO-17] 히스토리 관련 이벤트 이름들 (확장)
+        const historyEventNames = [
+          'updateHistoryNewFast',
+          'history',
+          'getHistory',
+          'load_history',
+          'loadHistory',
+          'candles',
+          'historyResult',
+          'candleHistory',
+          'loadHistoryPeriod'
+        ];
+
+        // 히스토리 데이터 파싱 헬퍼 함수
+        const parseHistoryData = (data: any, symbol: string = 'CURRENT'): CandleData[] => {
+          if (!Array.isArray(data)) return [];
+          return data.map((c: any) => {
+            // 형식 1: 배열 [timestamp, open, close, high, low] 또는 [timestamp, open, high, low, close]
+            if (Array.isArray(c)) {
+              return {
+                symbol,
+                timestamp: c[0],
+                open: c[1],
+                close: c[2] ?? c[4],
+                high: c[3] ?? c[2],
+                low: c[4] ?? c[3],
+                volume: c[5] || 0
+              } as CandleData;
+            }
+            // 형식 2: 객체 { timestamp, open, high, low, close, ... }
             return {
-              type: 'candle_history',
-              data: history.map((c: any) => {
-                if (Array.isArray(c)) {
-                  return {
-                    symbol: 'CURRENT',
-                    timestamp: c[0],
-                    open: c[1],
-                    close: c[2],
-                    high: c[3],
-                    low: c[4],
-                    volume: 0
-                  } as CandleData;
-                }
-                return {
-                  symbol: c.symbol || 'CURRENT',
-                  timestamp: c.timestamp || c.time || Date.now(),
-                  open: c.open,
-                  high: c.high,
-                  low: c.low,
-                  close: c.close,
-                  volume: c.volume || 0
-                } as CandleData;
-              }),
-              raw,
-              confidence: 0.95
+              symbol: c.symbol || c.asset || symbol,
+              timestamp: c.timestamp || c.time || c.t || Date.now(),
+              open: c.open ?? c.o ?? 0,
+              high: c.high ?? c.h ?? (c.open ?? 0),
+              low: c.low ?? c.l ?? (c.open ?? 0),
+              close: c.close ?? c.c ?? (c.open ?? 0),
+              volume: c.volume ?? c.v ?? 0
+            } as CandleData;
+          }).filter((c: CandleData) => c.timestamp && (c.open || c.close));
+        };
+
+        // 히스토리 이벤트 처리
+        if (historyEventNames.includes(eventName)) {
+          let historyData: any[] | null = null;
+          let symbolFromPayload: string = 'CURRENT';
+
+          // payload 구조에 따라 데이터 추출
+          if (payload?.data) {
+            historyData = typeof payload.data === 'string' ? JSON.parse(payload.data) : payload.data;
+            symbolFromPayload = payload.symbol || payload.asset || 'CURRENT';
+          } else if (payload?.history) {
+            historyData = payload.history;
+            symbolFromPayload = payload.symbol || payload.asset || 'CURRENT';
+          } else if (payload?.candles) {
+            historyData = payload.candles;
+            symbolFromPayload = payload.symbol || payload.asset || 'CURRENT';
+          } else if (Array.isArray(payload)) {
+            historyData = payload;
+          }
+
+          if (historyData && Array.isArray(historyData) && historyData.length > 0) {
+            const candles = parseHistoryData(historyData, symbolFromPayload);
+            if (candles.length > 0) {
+              console.log(`[WS Parser] ✅ History parsed: ${candles.length} candles from event '${eventName}'`);
+              return {
+                type: 'candle_history',
+                data: candles,
+                raw,
+                confidence: 0.95
+              };
             }
           }
         }
@@ -339,6 +380,24 @@ export class WebSocketParser {
               }),
               raw,
               confidence: 0.90
+            }
+          }
+        }
+
+        // [PO-17] 알 수 없는 이벤트지만 배열 페이로드가 OHLC 데이터 같으면 시도
+        if (Array.isArray(payload) && payload.length > 5) {
+          const first = payload[0];
+          if ((Array.isArray(first) && first.length >= 4) ||
+              (typeof first === 'object' && first !== null && ('open' in first || 'close' in first))) {
+            console.log(`[WS Parser] 🔍 Attempting to parse unknown event '${eventName}' as history`);
+            const candles = parseHistoryData(payload, 'CURRENT');
+            if (candles.length > 0) {
+              return {
+                type: 'candle_history',
+                data: candles,
+                raw,
+                confidence: 0.7
+              };
             }
           }
         }
