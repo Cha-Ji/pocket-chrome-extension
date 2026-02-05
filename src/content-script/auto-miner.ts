@@ -1,18 +1,14 @@
-// ============================================================
-// Auto Miner - Autonomous Asset Rotation & Mining
-// ============================================================
-// 역할: 페이아웃 92%+ 자산을 순회하며 과거 데이터를 자동으로 수집
-// ============================================================
-
 import { PayoutMonitor } from './payout-monitor'
 import { DataSender } from '../lib/data-sender'
+import { getWebSocketInterceptor } from './websocket-interceptor'
 
 interface MiningState {
   isActive: boolean
   currentAsset: string | null
   assetsToMine: string[]
   completedAssets: Set<string>
-  miningDuration: number // ms per asset
+  miningDuration: number
+  lastRequestAt: number
 }
 
 let minerState: MiningState = {
@@ -20,117 +16,105 @@ let minerState: MiningState = {
   currentAsset: null,
   assetsToMine: [],
   completedAssets: new Set(),
-  miningDuration: 30000 // 30초 채굴
+  miningDuration: 10000, // [PO-17] 직접 요청 시 대기 시간 단축
+  lastRequestAt: 0
 }
 
-let scrollInterval: NodeJS.Timeout | null = null
+let requestInterval: NodeJS.Timeout | null = null
 let rotationTimeout: NodeJS.Timeout | null = null
 let payoutMonitorRef: PayoutMonitor | null = null
 
 export const AutoMiner = {
   init(monitor: PayoutMonitor) {
     payoutMonitorRef = monitor
-    console.log('[AutoMiner] Initialized')
+    console.log('[PO] [Miner] Initialized')
   },
 
   start() {
     if (minerState.isActive) return
-    console.log('[AutoMiner] 🚀 Starting autonomous mining...')
-    
+    console.log('[PO] [Miner] 🚀 Starting WebSocket-Direct mining...')
     minerState.isActive = true
     minerState.completedAssets.clear()
-    
     this.scanAndMineNext()
   },
 
   stop() {
-    console.log('[AutoMiner] ⏹ Stopping mining...')
+    console.log('[PO] [Miner] ⏹ Stopping mining...')
     minerState.isActive = false
-    this.stopScrolling()
-    
-    if (rotationTimeout) {
-      clearTimeout(rotationTimeout)
-      rotationTimeout = null
-    }
+    this.stopRequesting()
+    if (rotationTimeout) { clearTimeout(rotationTimeout); rotationTimeout = null; }
   },
 
   scanAndMineNext() {
     if (!minerState.isActive || !payoutMonitorRef) return
-
-    // 1. 고페이아웃 자산 스캔
-    const highPayoutAssets = payoutMonitorRef.getHighPayoutAssets()
-      .filter(asset => asset.payout >= 92)
-      .map(asset => asset.name)
-
-    // 2. 아직 채굴 안 한 자산 찾기
+    const highPayoutAssets = payoutMonitorRef.getHighPayoutAssets().filter(asset => asset.payout >= 92).map(asset => asset.name)
+    console.log(`[PO] [Miner] Found ${highPayoutAssets.length} high payout assets. Completed: ${minerState.completedAssets.size}`)
     const nextAsset = highPayoutAssets.find(asset => !minerState.completedAssets.has(asset))
-
+    
     if (!nextAsset) {
-      console.log('[AutoMiner] ✅ All assets mined! Waiting 5 min before restart...')
+      console.log('[PO] [Miner] ✅ All assets mined! Waiting 5 min...')
       minerState.completedAssets.clear()
       rotationTimeout = setTimeout(() => this.scanAndMineNext(), 5 * 60 * 1000)
       return
     }
 
-    // 3. 자산 전환 및 채굴 시작
-    console.log(`[AutoMiner] ⛏️ Target acquired: ${nextAsset}`)
+    console.log(`[PO] [Miner] ⛏️ Next Target: ${nextAsset}`)
     this.mineAsset(nextAsset)
   },
 
   async mineAsset(assetName: string) {
-    // 자산 전환
     const switched = await payoutMonitorRef?.switchAsset(assetName)
     if (!switched) {
-      console.warn(`[AutoMiner] Failed to switch to ${assetName}, skipping...`)
+      console.warn(`[PO] [Miner] Failed to switch to ${assetName}, skipping...`)
       minerState.completedAssets.add(assetName)
       this.scanAndMineNext()
       return
     }
 
     minerState.currentAsset = assetName
+    await new Promise(r => setTimeout(r, 4000)) // [PO-17] 로딩 대기 시간 충분히 확보 (2s -> 4s)
+
+    this.startRequesting()
     
-    // 차트 로딩 대기 (3초)
-    await new Promise(r => setTimeout(r, 3000))
-
-    // 스크롤 시작
-    this.startScrolling()
-
-    // 채굴 시간 후 종료 및 다음 자산
     rotationTimeout = setTimeout(() => {
-      this.stopScrolling()
+      this.stopRequesting()
       minerState.completedAssets.add(assetName)
-      console.log(`[AutoMiner] ✅ Finished mining ${assetName}`)
+      console.log(`[PO] [Miner] ✅ Finished mining ${assetName}`)
       this.scanAndMineNext()
     }, minerState.miningDuration)
   },
 
-  startScrolling() {
-    if (scrollInterval) return
-    console.log('[AutoMiner] Scrolling chart...')
-
-    const chartContainer = document.querySelector('.chart-container') || document.body
+  /**
+   * [PO-17] WebSocket을 통해 직접 데이터 요청
+   */
+  startRequesting() {
+    if (requestInterval) return
+    console.log('[PO] [Miner] Requesting history via WebSocket...');
     
-    scrollInterval = setInterval(() => {
-      const wheelEvent = new WheelEvent('wheel', {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-        deltaX: -500, // 왼쪽으로 스크롤
-        deltaY: 0,
-      })
+    const interceptor = getWebSocketInterceptor();
+    const asset = minerState.currentAsset || '';
+    
+    requestInterval = setInterval(() => {
+      // 1. 추적된 실제 자산 ID 가져오기 (가장 확실함)
+      const trackedId = interceptor.getActiveAssetId();
       
-      const canvas = document.querySelector('canvas')
-      if (canvas) {
-        canvas.dispatchEvent(wheelEvent)
-      }
-    }, 500)
+      // 2. 만약 추적된 ID가 없으면 UI 이름을 기반으로 변환 (백업)
+      const fallbackId = asset.toUpperCase().replace(/\s+OTC$/i, '_otc').replace(/\s+/g, '_');
+      const finalAssetId = trackedId || (fallbackId.startsWith('#') ? fallbackId : '#' + fallbackId);
+
+      console.log(`[PO] [Miner] 📤 Direct History Request for: ${finalAssetId}`);
+      
+      // 패턴 A: getHistory
+      interceptor.send(`42["getHistory",{"asset":"${finalAssetId}","period":60}]`);
+      
+      // 패턴 B: load_history
+      interceptor.send(`42["load_history",{"symbol":"${finalAssetId}","period":60}]`);
+
+    }, 3000) // 요청 주기 3초로 약간 완화
   },
 
-  stopScrolling() {
-    if (scrollInterval) {
-      clearInterval(scrollInterval)
-      scrollInterval = null
-    }
+  stopRequesting() {
+    if (requestInterval) { clearInterval(requestInterval); requestInterval = null; }
   },
 
   getStatus() {

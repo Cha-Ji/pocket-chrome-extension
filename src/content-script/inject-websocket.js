@@ -1,217 +1,106 @@
-// ============================================================
-// WebSocket Interceptor - Injected Script (Page Context)
-// ============================================================
-// 이 스크립트는 페이지 컨텍스트에서 실행되어 WebSocket을 오버라이드합니다.
-// Content Script는 페이지의 window 객체에 직접 접근할 수 없으므로,
-// CustomEvent를 통해 데이터를 전달합니다.
-// ============================================================
-
 ;(function() {
-  'use strict'
+  'use strict';
 
-  // 이미 인터셉터가 설치되었는지 확인
-  if (window.__pocketQuantWsInterceptor) {
-    console.log('[WS Intercept] Already installed, skipping...')
-    return
+  // [DEBUG] 최상단 로깅: 스크립트 실행 여부 확인
+  console.log('%c[PO-Spy] 🟢 Script Execution Started (Aggressive Mode)', 'color: #00ff00; font-size: 16px; font-weight: bold;');
+
+  // 중복 실행 방지
+  if (window.__pocketQuantWsHook) {
+      console.log('[PO-Spy] ⚠️ Already hooked, skipping...');
+      return;
   }
-  window.__pocketQuantWsInterceptor = true
+  window.__pocketQuantWsHook = true;
 
-  console.log('[WS Intercept] Installing WebSocket interceptor...')
+  // 원본 WebSocket 저장 (없으면 아직 정의되지 않은 것)
+  let OriginalWebSocket = window.WebSocket;
+  const _ws_instances = [];
+  window._ws_instances = _ws_instances;
 
-  // 원본 WebSocket 저장
-  const OriginalWebSocket = window.WebSocket
-
-  // WebSocket 연결 추적
-  const connections = new Map()
-  let connectionIdCounter = 0
-
-  // 가격 관련 URL 패턴 (Pocket Option)
-  const PRICE_URL_PATTERNS = [
-    /wss?:\/\/.*pocketoption/i,
-    /wss?:\/\/.*po\.trade/i,
-    /wss?:\/\/.*po2\.trade/i,
-    /socket/i,
-    /stream/i,
-    /price/i,
-    /quote/i,
-    /tick/i,
-  ]
-
-  // URL이 가격 데이터 관련인지 확인
-  function isPriceRelatedUrl(url) {
-    return PRICE_URL_PATTERNS.some(pattern => pattern.test(url))
-  }
-
-  // CustomEvent 디스패치 (Content Script로 데이터 전달)
-  function dispatchToContentScript(type, data) {
-    window.dispatchEvent(new CustomEvent('pocket-quant-ws', {
-      detail: { type, data, timestamp: Date.now() }
-    }))
-  }
-
-  // 메시지 파싱 시도
-  function tryParseMessage(data) {
-    // 문자열인 경우 JSON 파싱 시도
-    if (typeof data === 'string') {
-      try {
-        return JSON.parse(data)
-      } catch {
-        return { raw: data, type: 'string' }
-      }
-    }
+  // 프록시 WebSocket 클래스 정의
+  const ProxyWebSocket = function(...args) {
+    console.log('%c[PO-Spy] 🔌 WebSocket Constructor Called!', 'color: yellow; font-weight: bold;', args);
     
-    // ArrayBuffer인 경우
-    if (data instanceof ArrayBuffer) {
-      try {
-        const decoder = new TextDecoder('utf-8')
-        const text = decoder.decode(data)
-        try {
-          return JSON.parse(text)
-        } catch {
-          return { raw: text, type: 'binary-text' }
-        }
-      } catch {
-        return { type: 'binary', byteLength: data.byteLength }
-      }
-    }
-    
-    // Blob인 경우 (비동기 처리 필요)
-    if (data instanceof Blob) {
-      return { type: 'blob', size: data.size }
-    }
-    
-    return { type: 'unknown', data }
-  }
+    // OriginalWebSocket이 늦게 로드될 경우를 대비해 호출 시점에 다시 확인
+    if (!OriginalWebSocket) OriginalWebSocket = window.WebSocket;
 
-  // WebSocket 생성자 오버라이드
-  const PatchedWebSocket = function(url, protocols) {
-    const urlString = url.toString()
-    const connectionId = `ws-${++connectionIdCounter}`
-    const isPriceRelated = isPriceRelatedUrl(urlString)
+    const ws = new OriginalWebSocket(...args);
+    _ws_instances.push(ws);
+    const url = ws.url;
 
-    console.log(`[WS Intercept] New connection: ${connectionId}`, {
-      url: urlString,
-      isPriceRelated,
-      protocols
-    })
+    console.log(`[PO-Spy] Target URL: ${url}`);
 
-    // 연결 정보 알림
-    dispatchToContentScript('connection', {
-      id: connectionId,
-      url: urlString,
-      isPriceRelated,
-      protocols
-    })
-
-    // 원본 WebSocket 생성
-    const ws = protocols 
-      ? new OriginalWebSocket(url, protocols)
-      : new OriginalWebSocket(url)
-
-    // 연결 추적
-    connections.set(ws, { url: urlString, id: connectionId })
-
-    // 메시지 이벤트 가로채기
-    const originalAddEventListener = ws.addEventListener.bind(ws)
+    // addEventListener 가로채기
+    const originalAdd = ws.addEventListener.bind(ws);
     ws.addEventListener = function(type, listener, options) {
       if (type === 'message') {
-        const wrappedListener = function(event) {
-          // 가격 관련 연결만 상세 로깅
-          if (isPriceRelated) {
-            const parsed = tryParseMessage(event.data)
-            dispatchToContentScript('message', {
-              connectionId,
-              url: urlString,
-              parsed,
-              rawType: typeof event.data,
-              timestamp: Date.now()
-            })
+        const proxyListener = function(event) {
+          // [DEBUG] Socket.IO 메시지 로깅
+          if (typeof event.data === 'string' && (event.data.startsWith('42') || event.data.startsWith('2'))) {
+               console.log('[PO-Spy] 📨 Socket.IO Message:', event.data.substring(0, 100));
           }
-
-          // 원본 리스너 호출
-          if (typeof listener === 'function') {
-            listener.call(ws, event)
-          } else {
-            listener.handleEvent(event)
-          }
-        }
-        return originalAddEventListener(type, wrappedListener, options)
+          
+          window.postMessage({
+              source: 'pq-bridge',
+              type: 'ws-message',
+              data: {
+                  url: url,
+                  raw: event.data,
+                  timestamp: Date.now()
+              }
+          }, '*');
+          
+          if (typeof listener === 'function') listener.call(ws, event);
+          else listener.handleEvent(event);
+        };
+        return originalAdd(type, proxyListener, options);
       }
-      return originalAddEventListener(type, listener, options)
-    }
+      return originalAdd(type, listener, options);
+    };
 
-    // onmessage 프로퍼티 감시
-    let _onmessage = null
-    Object.defineProperty(ws, 'onmessage', {
-      get: () => _onmessage,
-      set: (handler) => {
-        _onmessage = handler
-        if (handler && isPriceRelated) {
-          const originalHandler = handler
-          ws.addEventListener('message', function(event) {
-            const parsed = tryParseMessage(event.data)
-            dispatchToContentScript('message', {
-              connectionId,
-              url: urlString,
-              parsed,
-              rawType: typeof event.data,
-              timestamp: Date.now()
-            })
-          })
-        }
-      }
-    })
+    return ws;
+  };
 
-    // 연결 상태 이벤트
-    ws.addEventListener('open', () => {
-      console.log(`[WS Intercept] Connection opened: ${connectionId}`)
-      dispatchToContentScript('open', { connectionId, url: urlString })
-    })
-
-    ws.addEventListener('close', (event) => {
-      console.log(`[WS Intercept] Connection closed: ${connectionId}`, event.code, event.reason)
-      dispatchToContentScript('close', { 
-        connectionId, 
-        url: urlString,
-        code: event.code,
-        reason: event.reason 
-      })
-      connections.delete(ws)
-    })
-
-    ws.addEventListener('error', () => {
-      console.log(`[WS Intercept] Connection error: ${connectionId}`)
-      dispatchToContentScript('error', { connectionId, url: urlString })
-    })
-
-    return ws
+  // 정적 속성 복사 함수
+  function copyStaticProperties(Target, Source) {
+      if (!Source) return;
+      Target.CONNECTING = Source.CONNECTING;
+      Target.OPEN = Source.OPEN;
+      Target.CLOSING = Source.CLOSING;
+      Target.CLOSED = Source.CLOSED;
+      Target.prototype = Source.prototype;
   }
 
-  // WebSocket 프로토타입 복사
-  PatchedWebSocket.prototype = OriginalWebSocket.prototype
-  // Static readonly 속성은 Object.defineProperty로 정의
-  Object.defineProperty(PatchedWebSocket, 'CONNECTING', { value: OriginalWebSocket.CONNECTING })
-  Object.defineProperty(PatchedWebSocket, 'OPEN', { value: OriginalWebSocket.OPEN })
-  Object.defineProperty(PatchedWebSocket, 'CLOSING', { value: OriginalWebSocket.CLOSING })
-  Object.defineProperty(PatchedWebSocket, 'CLOSED', { value: OriginalWebSocket.CLOSED })
-
-  // 전역 WebSocket 교체
-  window.WebSocket = PatchedWebSocket
-
-  // 상태 확인 함수 (디버깅용)
-  window.__pocketQuantWsStatus = function() {
-    return {
-      installed: true,
-      activeConnections: connections.size,
-      connections: Array.from(connections.entries()).map(([ws, info]) => ({
-        id: info.id,
-        url: info.url,
-        readyState: ws.readyState,
-        readyStateText: ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][ws.readyState]
-      }))
-    }
+  // 이미 WebSocket이 있다면 즉시 덮어쓰기
+  if (OriginalWebSocket) {
+      copyStaticProperties(ProxyWebSocket, OriginalWebSocket);
+      window.WebSocket = ProxyWebSocket;
+      console.log('[PO-Spy] ✅ WebSocket Overridden Immediately');
   }
 
-  console.log('[WS Intercept] WebSocket interceptor installed successfully')
-  dispatchToContentScript('installed', { timestamp: Date.now() })
-})()
+  // 아직 없다면(또는 덮어써질 것을 대비해) defineProperty로 함정 설치
+  Object.defineProperty(window, 'WebSocket', {
+      get() {
+          return ProxyWebSocket;
+      },
+      set(newValue) {
+          console.log('[PO-Spy] ⚠️ Someone tried to set WebSocket!');
+          OriginalWebSocket = newValue;
+          copyStaticProperties(ProxyWebSocket, newValue);
+      },
+      configurable: true
+  });
+
+  console.log('%c[PO-Spy] 🪝 Hooking Complete (Getter/Setter Trap)', 'color: #00ff00; font-size: 14px;');
+  window.postMessage({ source: 'pq-bridge', type: 'bridge-ready' }, '*');
+
+  // Remote Click Listener
+  window.addEventListener('message', (event) => {
+    if (event.data?.source === 'pq-isolated' && event.data.type === 'remote-click') {
+        const { selector, text } = event.data.payload;
+        console.log(`[PO-Spy] 🎯 Remote Click: ${selector}`);
+        const el = document.querySelector(selector);
+        if (el) el.click();
+    }
+  });
+
+})();

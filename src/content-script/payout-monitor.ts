@@ -1,34 +1,15 @@
-// ============================================================
-// Payout Monitor - Real-time asset payout tracking
-// ============================================================
-// Monitors all available assets and their payouts
-// Filters for high-payout assets (92%+) for optimal trading
-// ============================================================
+import { forceClick } from '../lib/dom-utils'
 
-export interface AssetPayout {
-  name: string
-  payout: number // percentage, e.g., 92
-  isOTC: boolean
-  lastUpdated: number
-}
-
-export interface PayoutFilter {
-  minPayout: number // minimum payout percentage
-  onlyOTC: boolean
-}
-
-const DEFAULT_FILTER: PayoutFilter = {
-  minPayout: 92,
-  onlyOTC: true,
-}
-
-// DOM Selectors for asset list
+export interface AssetPayout { name: string; payout: number; isOTC: boolean; lastUpdated: number; }
+export interface PayoutFilter { minPayout: number; onlyOTC: boolean; }
+const DEFAULT_FILTER: PayoutFilter = { minPayout: 92, onlyOTC: true, }
 const SELECTORS = {
   assetList: '.assets-block__alist.alist',
   assetItem: '.alist__item',
   assetLabel: '.alist__label',
-  assetProfit: '.alist__profit',
-  pairTrigger: '.pair-number-wrap, .pair',
+  assetProfit: '.alist__payout',
+  pairTrigger: '.current-symbol',
+  overlay: '.modal-overlay',
 }
 
 export class PayoutMonitor {
@@ -38,65 +19,29 @@ export class PayoutMonitor {
   private observers: ((assets: AssetPayout[]) => void)[] = []
   private _isMonitoring = false
 
-  constructor(filter: PayoutFilter = DEFAULT_FILTER) {
-    this.filter = filter
-  }
+  constructor(filter: PayoutFilter = DEFAULT_FILTER) { this.filter = filter }
+  get isMonitoring(): boolean { return this._isMonitoring }
 
-  get isMonitoring(): boolean {
-    return this._isMonitoring
-  }
-
-  /**
-   * Start monitoring payouts
-   * Opens asset list and polls for updates
-   */
   async start(pollIntervalMs = 30000): Promise<void> {
     if (this._isMonitoring) return
-
-    console.log('[PayoutMonitor] Starting payout monitoring...')
+    console.log('[PO] [Monitor] Starting...')
     this._isMonitoring = true
-
-    // Initial fetch
     await this.fetchPayouts()
-
-    // Poll periodically
-    this.pollInterval = setInterval(async () => {
-      await this.fetchPayouts()
-    }, pollIntervalMs)
+    this.pollInterval = setInterval(async () => { await this.fetchPayouts() }, pollIntervalMs)
   }
 
-  /**
-   * Stop monitoring
-   */
   stop(): void {
-    if (this.pollInterval) {
-      clearInterval(this.pollInterval)
-      this.pollInterval = null
-    }
+    if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
     this._isMonitoring = false
-    console.log('[PayoutMonitor] Stopped payout monitoring')
+    console.log('[PO] [Monitor] Stopped')
   }
 
-  /**
-   * Subscribe to payout updates
-   */
   subscribe(callback: (assets: AssetPayout[]) => void): () => void {
     this.observers.push(callback)
-    return () => {
-      this.observers = this.observers.filter(cb => cb !== callback)
-    }
+    return () => { this.observers = this.observers.filter(cb => cb !== callback) }
   }
 
-  /**
-   * Get all assets
-   */
-  getAllAssets(): AssetPayout[] {
-    return Array.from(this.assets.values())
-  }
-
-  /**
-   * Get filtered assets (high payout)
-   */
+  getAllAssets(): AssetPayout[] { return Array.from(this.assets.values()) }
   getHighPayoutAssets(): AssetPayout[] {
     return this.getAllAssets()
       .filter(a => a.payout >= this.filter.minPayout)
@@ -104,178 +49,155 @@ export class PayoutMonitor {
       .sort((a, b) => b.payout - a.payout)
   }
 
-  /**
-   * Get best asset for trading
-   */
   getBestAsset(): AssetPayout | null {
     const highPayout = this.getHighPayoutAssets()
     return highPayout.length > 0 ? highPayout[0] : null
   }
 
-  /**
-   * Switch to a specific asset
-   */
   async switchAsset(assetName: string): Promise<boolean> {
-    console.log(`[PayoutMonitor] Attempting to switch to: ${assetName}`)
+    console.log(`[PO] [Monitor] 🔄 Switching to: ${assetName}`)
+    const normalizedTarget = assetName.replace(/\s+/g, ' ').trim().toLowerCase();
+    
+    // 현재 이미 해당 자산인지 확인
+    const currentEl = document.querySelector('.current-symbol');
+    if (currentEl && currentEl.textContent?.toLowerCase().includes(normalizedTarget)) {
+       console.log(`[PO] [Monitor] Already on ${assetName}`);
+       return true;
+    }
 
-    // 1. Open picker
     await this.openAssetPicker()
-    await this.wait(500) // Wait for animation
+    await this.wait(1500)
 
-    // 2. Find asset element
-    const assetItems = document.querySelectorAll(SELECTORS.assetItem)
     let targetElement: HTMLElement | null = null
-
+    const assetItems = document.querySelectorAll(SELECTORS.assetItem)
     for (const item of assetItems) {
       const labelEl = item.querySelector(SELECTORS.assetLabel)
-      if (labelEl && labelEl.textContent?.trim() === assetName) {
-        targetElement = item as HTMLElement
+      const rawLabel = labelEl?.textContent || ''
+      const normalizedLabel = rawLabel.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+      if (normalizedLabel === normalizedTarget) {
+        targetElement = (item.querySelector('.alist__link') as HTMLElement) || (item as HTMLElement)
+        console.log(`[PO] [Monitor] 🎯 Found match: ${rawLabel.trim()}`)
         break
       }
     }
 
-    // 3. Click if found
     if (targetElement) {
-      targetElement.click()
-      console.log(`[PayoutMonitor] Clicked asset: ${assetName}`)
+      await forceClick(targetElement)
+      await this.wait(2000) // 전환 대기 시간 증가
       
-      // Wait for switch
-      await this.wait(500)
-      return true
-    } else {
-      console.warn(`[PayoutMonitor] Asset not found in list: ${assetName}`)
-      await this.closeAssetPicker()
-      return false
-    }
-  }
-
-  /**
-   * Update filter settings
-   */
-  setFilter(filter: Partial<PayoutFilter>): void {
-    this.filter = { ...this.filter, ...filter }
-  }
-
-  /**
-   * Fetch current payouts from DOM
-   */
-  private async fetchPayouts(): Promise<void> {
-    try {
-      // Try to get payouts from already visible list
-      let payouts = this.scrapePayoutsFromDOM()
-
-      // If not enough, try opening the asset picker
-      if (payouts.length < 5) {
-        await this.openAssetPicker()
-        await this.wait(500)
-        payouts = this.scrapePayoutsFromDOM()
-        await this.closeAssetPicker()
+      // 전환 성공 여부 확인
+      const afterEl = document.querySelector('.current-symbol');
+      const isSwitched = afterEl?.textContent?.toLowerCase().includes(normalizedTarget);
+      
+      if (!isSwitched) {
+         console.warn(`[PO] [Monitor] ❌ Switch failed (UI didn't update).`);
+         await this.closeAssetPicker();
+         return false;
       }
 
-      // Update internal state
-      const now = Date.now()
-      payouts.forEach(p => {
-        this.assets.set(p.name, { ...p, lastUpdated: now })
-      })
+      await this.closeAssetPicker()
+      await this.wait(1000)
 
-      // Notify observers
-      this.notifyObservers()
+      // 이용 불가능 여부 최종 확인
+      const errorMsg = document.querySelector('.asset-inactive');
+      if (errorMsg && errorMsg.textContent?.includes('불가능') && (errorMsg as HTMLElement).offsetParent !== null) {
+         console.warn(`[PO] [Monitor] ⚠️ Asset ${assetName} is confirmed unavailable.`);
+         return false;
+      }
 
-      console.log(`[PayoutMonitor] Updated ${payouts.length} assets. High payout: ${this.getHighPayoutAssets().length}`)
-    } catch (error) {
-      console.error('[PayoutMonitor] Error fetching payouts:', error)
+      console.log(`[PO] [Monitor] ✅ Switch finished: ${assetName}`)
+      return true
     }
+
+    console.warn(`[PO] [Monitor] ❌ Asset not found in list: ${assetName}`)
+    await this.closeAssetPicker()
+    return false
   }
 
-  /**
-   * Scrape payouts from visible DOM
-   */
+  private async fetchPayouts(): Promise<void> {
+    try {
+      let payouts = this.scrapePayoutsFromDOM()
+      if (payouts.length < 5) {
+        console.log('[PO] [Monitor] Payouts empty, opening picker...');
+        await this.openAssetPicker()
+        for (let i = 0; i < 3; i++) {
+            await this.wait(500); payouts = this.scrapePayoutsFromDOM();
+            if (payouts.length >= 5) break;
+        }
+        if (payouts.length < 5) await this.closeAssetPicker()
+      }
+      if (payouts.length > 0) {
+        const now = Date.now()
+        payouts.forEach(p => { this.assets.set(p.name, { ...p, lastUpdated: now }) })
+      }
+      this.notifyObservers()
+    } catch (error) { console.error('[PO] [Monitor] Error:', error) }
+  }
+
   private scrapePayoutsFromDOM(): AssetPayout[] {
     const payouts: AssetPayout[] = []
-
-    // Try asset list
     const assetItems = document.querySelectorAll(SELECTORS.assetItem)
-
-    assetItems.forEach(item => {
+    assetItems.forEach((item) => {
       const labelEl = item.querySelector(SELECTORS.assetLabel)
       const profitEl = item.querySelector(SELECTORS.assetProfit)
-
       if (labelEl && profitEl) {
-        const name = labelEl.textContent?.trim() || ''
+        const name = (labelEl.textContent || (labelEl as HTMLElement).innerText || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
         const profitText = profitEl.textContent?.trim() || ''
         const payout = this.parsePayoutPercent(profitText)
-
         if (name && payout > 0) {
-          payouts.push({
-            name,
-            payout,
-            isOTC: name.includes('OTC'),
-            lastUpdated: Date.now(),
-          })
+          payouts.push({ name, payout, isOTC: name.toUpperCase().includes('OTC'), lastUpdated: Date.now(), })
         }
       }
     })
-
     return payouts
   }
 
-  /**
-   * Parse payout percentage from text like "+92%"
-   */
   private parsePayoutPercent(text: string): number {
-    const match = text.match(/\+?(\d+)%?/)
-    return match ? parseInt(match[1], 10) : 0
+    const cleaned = text.replace(/[^0-9]/g, '');
+    const payout = parseInt(cleaned, 10);
+    return isNaN(payout) ? 0 : payout;
   }
 
-  /**
-   * Open asset picker dropdown
-   */
   private async openAssetPicker(): Promise<void> {
-    const trigger = document.querySelector(SELECTORS.pairTrigger) as HTMLElement
-    if (trigger) {
-      trigger.click()
+    const list = document.querySelector(SELECTORS.assetList) as HTMLElement
+    if (list && list.getBoundingClientRect().height > 0) return
+    console.log('[PO] [Monitor] Opening picker...')
+    const trigger = (document.querySelector('.pair-number-wrap') || document.querySelector(SELECTORS.pairTrigger)) as HTMLElement
+    if (trigger) await forceClick(trigger)
+  }
+
+  private async closeAssetPicker(): Promise<void> {
+    const list = document.querySelector(SELECTORS.assetList)
+    if (!list || list.getBoundingClientRect().height === 0) return
+    console.log('[PO] [Monitor] Closing picker...')
+
+    // [PO-17] ESC 키 시뮬레이션 추가
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await this.wait(200);
+
+    const overlay = document.querySelector(SELECTORS.overlay) as HTMLElement
+    if (overlay) { await forceClick(overlay); await this.wait(300); }
+    
+    // 여전히 열려있다면 다시 시도
+    const listAfter = document.querySelector(SELECTORS.assetList)
+    if (listAfter && listAfter.getBoundingClientRect().height > 0) {
+      const trigger = (document.querySelector('.pair-number-wrap') || document.querySelector(SELECTORS.pairTrigger)) as HTMLElement
+      if (trigger) await forceClick(trigger)
     }
   }
 
-  /**
-   * Close asset picker
-   */
-  private async closeAssetPicker(): Promise<void> {
-    // Click elsewhere to close
-    document.body.click()
-  }
-
-  /**
-   * Wait helper
-   */
-  private wait(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms))
-  }
-
-  /**
-   * Notify all observers
-   */
+  private wait(ms: number): Promise<void> { return new Promise(resolve => setTimeout(resolve, ms)) }
   private notifyObservers(): void {
     const assets = this.getHighPayoutAssets()
     this.observers.forEach(cb => cb(assets))
-
-    // Also send to background
-    chrome.runtime.sendMessage({
-      type: 'PAYOUT_UPDATE',
-      payload: { 
-        highPayoutAssets: assets,
-        totalAssets: this.assets.size,
-      },
-    }).catch(() => {})
+    try {
+        chrome.runtime.sendMessage({ type: 'PAYOUT_UPDATE', payload: { highPayoutAssets: assets, totalAssets: this.assets.size, } }).catch(() => {})
+    } catch {}
   }
 }
 
-// Singleton instance
 let payoutMonitorInstance: PayoutMonitor | null = null
-
 export function getPayoutMonitor(): PayoutMonitor {
-  if (!payoutMonitorInstance) {
-    payoutMonitorInstance = new PayoutMonitor()
-  }
+  if (!payoutMonitorInstance) payoutMonitorInstance = new PayoutMonitor()
   return payoutMonitorInstance
 }

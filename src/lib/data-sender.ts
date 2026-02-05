@@ -26,7 +26,7 @@ export const DataSender = {
     try {
       // 1. 필요한 필드만 추출 및 변환
       const payload = {
-        symbol: candle.ticker,
+        symbol: candle.symbol || candle.ticker || 'UNKNOWN',
         interval: '1m', // 일단 1분봉 고정 (추후 동적 처리)
         timestamp: candle.timestamp,
         open: candle.open,
@@ -37,15 +37,22 @@ export const DataSender = {
         source: 'realtime'
       }
 
+      console.log(`[DataSender] Sending candle: ${payload.symbol} @ ${payload.timestamp}`);
+
       // 2. 전송 (비동기, 결과 기다리지 않음)
-      fetch(`${SERVER_URL}/api/candle`, {
+      const response = await fetch(`${SERVER_URL}/api/candle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
-      }).catch(err => console.error('Failed to send candle:', err))
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[DataSender] Server error (${response.status}):`, errorText);
+      }
 
-    } catch (error) {
-      console.error('DataSender error:', error)
+    } catch (error: any) {
+      console.error('[DataSender] Network error or fetch failed:', error.message);
     }
   },
 
@@ -56,9 +63,13 @@ export const DataSender = {
     if (candles.length === 0) return
 
     try {
+      const firstCandle = candles[0];
+      const symbol = firstCandle.symbol || firstCandle.ticker || 'UNKNOWN';
+      console.log(`[DataSender] Attempting bulk send: ${candles.length} candles from ${symbol}`);
+      
       const payload = {
         candles: candles.map(c => ({
-          symbol: c.ticker,
+          symbol: c.symbol || c.ticker || 'UNKNOWN',
           interval: '1m',
           timestamp: c.timestamp,
           open: c.open,
@@ -70,15 +81,22 @@ export const DataSender = {
         }))
       }
 
-      await fetch(`${SERVER_URL}/api/candles/bulk`, {
+      console.log(`[DataSender] Bulk payload sample:`, JSON.stringify(payload.candles[0]));
+
+      const response = await fetch(`${SERVER_URL}/api/candles/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       })
       
-      console.log(`Sent ${candles.length} history candles to collector`)
-    } catch (error) {
-      console.error('Failed to send history:', error)
+      if (response.ok) {
+        console.log(`[DataSender] Successfully sent ${candles.length} history candles`);
+      } else {
+        const errorText = await response.text();
+        console.error(`[DataSender] Bulk send failed (${response.status}):`, errorText);
+      }
+    } catch (error: any) {
+      console.error('[DataSender] Bulk send network error:', error.message);
     }
   }
 }
