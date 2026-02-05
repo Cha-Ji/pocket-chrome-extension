@@ -30,18 +30,18 @@ let payoutMonitorRef: PayoutMonitor | null = null
 export const AutoMiner = {
   init(monitor: PayoutMonitor) {
     payoutMonitorRef = monitor
-    log.info(' Initialized')
+    log.info('Initialized')
   },
 
   start() {
-    log.info(' 🚀 Starting WebSocket-Direct mining...')
+    log.info('🚀 Starting WebSocket-Direct mining...')
     minerState.isActive = true
     minerState.completedAssets.clear()
     this.scanAndMineNext()
   },
 
   stop() {
-    log.info(' ⏹ Stopping mining...')
+    log.info('⏹ Stopping mining...')
     minerState.isActive = false
     this.stopRequesting()
     if (rotationTimeout) { clearTimeout(rotationTimeout); rotationTimeout = null; }
@@ -51,24 +51,24 @@ export const AutoMiner = {
     if (!minerState.isActive || !payoutMonitorRef) return
     // Use getAvailableAssets() which excludes assets in cooldown
     const availableAssets = payoutMonitorRef.getAvailableAssets().filter(asset => asset.payout >= 92).map(asset => asset.name)
-    console.log(`[PO] [Miner] Found ${availableAssets.length} available assets. Completed: ${minerState.completedAssets.size}`)
+    log.info(`Found ${availableAssets.length} available assets. Completed: ${minerState.completedAssets.size}`)
     const nextAsset = availableAssets.find(asset => !minerState.completedAssets.has(asset))
     
     if (!nextAsset) {
-      log.info(' ✅ All assets mined or none found! Waiting 1 min...')
+      log.info('✅ All assets mined or none found! Waiting 1 min...')
       minerState.completedAssets.clear()
       rotationTimeout = setTimeout(() => this.scanAndMineNext(), 1 * 60 * 1000)
       return
     }
 
-    console.log(`[PO] [Miner] ⛏️ Next Target: ${nextAsset}`)
+    log.info(`⛏️ Next Target: ${nextAsset}`)
     this.mineAsset(nextAsset)
   },
 
   async mineAsset(assetName: string) {
     const switched = await payoutMonitorRef?.switchAsset(assetName)
     if (!switched) {
-      log.warn(` Failed to switch to ${assetName}, skipping...`)
+      log.warn(`Failed to switch to ${assetName}, skipping...`)
       minerState.completedAssets.add(assetName)
       this.scanAndMineNext()
       return
@@ -82,7 +82,7 @@ export const AutoMiner = {
     rotationTimeout = setTimeout(() => {
       this.stopRequesting()
       minerState.completedAssets.add(assetName)
-      console.log(`[PO] [Miner] ✅ Finished mining ${assetName}`)
+      log.info(`✅ Finished mining ${assetName}`)
       this.scanAndMineNext()
     }, minerState.miningDuration)
   },
@@ -92,7 +92,7 @@ export const AutoMiner = {
    */
   startRequesting() {
     if (requestInterval) return
-    log.info(' Requesting history via WebSocket...');
+    log.info('Requesting history via WebSocket...');
     
     const interceptor = getWebSocketInterceptor();
     const asset = minerState.currentAsset || '';
@@ -108,7 +108,7 @@ export const AutoMiner = {
       const now = Math.floor(Date.now() / 1000);
       const index = now * 100 + Math.floor(Math.random() * 100);
 
-      console.log(`[PO] [Miner] 📤 Requesting loadHistoryPeriod for: ${finalAssetId}`);
+      log.info(`📤 Requesting loadHistoryPeriod for: ${finalAssetId}`);
       
       // [PO-17] 사용자가 직접 확인한 고성능 패킷 포맷 적용
       interceptor.send(`42["loadHistoryPeriod",{"asset":"${finalAssetId}","index":${index},"time":${now},"offset":9000,"period":60}]`);
