@@ -21,7 +21,7 @@ export async function runFullVerification() {
   };
 
   // 1. Selector Verification
-  console.log('[Step 1] Verifying DOM Selectors...');
+  console.log('[PO] [Step 1] Verifying DOM Selectors...');
   for (const [key, selector] of Object.entries(SELECTORS)) {
     const el = document.querySelector(selector);
     const count = document.querySelectorAll(selector).length;
@@ -35,7 +35,7 @@ export async function runFullVerification() {
   }
 
   // 2. React Internal Props Verification
-  console.log('[Step 2] Verifying React Event Handlers...');
+  console.log('[PO] [Step 2] Verifying React Event Handlers...');
   const trigger = document.querySelector(SELECTORS.pairWrap) as HTMLElement;
   if (trigger) {
     const props = Object.keys(trigger).filter(k => k.startsWith('__reactProps'));
@@ -57,7 +57,7 @@ export async function runFullVerification() {
   }
 
   // 3. Data Integrity Verification
-  console.log('[Step 3] Verifying Data Scraping Logic...');
+  console.log('[PO] [Step 3] Verifying Data Scraping Logic...');
   const items = document.querySelectorAll(SELECTORS.assetItem);
   if (items.length > 0) {
     const samples = Array.from(items).slice(0, 3).map(item => {

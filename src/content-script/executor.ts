@@ -53,7 +53,7 @@ export class TradeExecutor {
    */
   disableLiveTrading(): void {
     this._allowLiveTrading = false
-    console.log('[TradeExecutor] Live trading disabled - Demo only mode')
+    console.log('[PO] [TradeExecutor] Live trading disabled - Demo only mode')
   }
 
   /**
@@ -80,7 +80,7 @@ export class TradeExecutor {
       }
     }
 
-    console.log('[TradeExecutor] Starting auto-trading (Demo mode verified)...')
+    console.log('[PO] [TradeExecutor] Starting auto-trading (Demo mode verified)...')
     this._isTrading = true
 
     return { success: true, message: 'Auto-trading started (Demo mode)' }
@@ -94,7 +94,7 @@ export class TradeExecutor {
       return { success: false, message: 'Not trading' }
     }
 
-    console.log('[TradeExecutor] Stopping auto-trading...')
+    console.log('[PO] [TradeExecutor] Stopping auto-trading...')
     
     if (this.tradingLoop) {
       clearInterval(this.tradingLoop)

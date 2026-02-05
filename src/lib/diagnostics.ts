@@ -34,7 +34,7 @@ export function diagnoseElement(element: HTMLElement) {
   }
   
   element.addEventListener('click', clickHandler, { capture: true })
-  console.log('[Diagnostics] Click listener attached for monitoring.')
+  console.log('[PO] [Diagnostics] Click listener attached for monitoring.')
 
   console.groupEnd()
 

@@ -262,50 +262,104 @@ export class WebSocketParser {
       },
     })
 
-    // 패턴 7: 캔들 히스토리 배열 (General)
+    // 패턴 8: Socket.IO 메시지 (Legacy Migration)
     this.patterns.push({
-      name: 'candle_history_array',
+      name: 'socketio_message',
       detect: (data) => {
-        // 1. 직접 배열인 경우
-        if (Array.isArray(data) && data.length > 2) { 
-          const first = data[0]
-          return typeof first === 'object' && first !== null && 
-                 ('open' in first || 'close' in first || 'rate' in first) &&
-                 ('time' in first || 'timestamp' in first || 't' in first)
-        }
-        
-        // 2. data/payload 필드가 배열인 경우
-        const payload = data?.data || data?.payload || data?.result || data?.history
-        if (Array.isArray(payload) && payload.length > 2) {
-          const first = payload[0]
-          return typeof first === 'object' && first !== null && 
-                 ('open' in first || 'close' in first || 'rate' in first) &&
-                 ('time' in first || 'timestamp' in first || 't' in first)
-        }
-
-        return false
+        // Socket.IO 메시지는 "42[...]" 형태의 문자열임
+        if (typeof data !== 'string') return false;
+        // 42 또는 2 + JSON 배열 시작([...]) 체크
+        return /^\d+(\{.*\}|\[.*\])$/.test(data);
       },
       parse: (data) => {
-        let rawList = Array.isArray(data) ? data : (data.data || data.payload || data.result || data.history)
-        
-        // 심볼 추출 시도
-        const symbol = data.symbol || data.asset || data.pair || 'CURRENT'
+        try {
+          // 접두어(숫자) 제거하고 JSON 파싱
+          const jsonStr = data.replace(/^\d+/, '');
+          const parsed = JSON.parse(jsonStr); // ["eventName", payload]
 
-        const candles: CandleData[] = rawList.map((item: any) => ({
-          symbol: item.symbol || symbol,
-          timestamp: item.timestamp || item.time || item.t || Date.now(),
-          open: item.open ?? item.o ?? item.rate ?? 0,
-          high: item.high ?? item.h ?? item.max ?? (item.open ?? 0),
-          low: item.low ?? item.l ?? item.min ?? (item.open ?? 0),
-          close: item.close ?? item.c ?? item.rate ?? (item.open ?? 0),
-          volume: item.volume ?? item.v ?? 0
-        }))
+          // 배열이고, 두 번째 요소가 데이터인 경우
+          if (Array.isArray(parsed) && parsed.length >= 2) {
+            const eventName = parsed[0];
+            const payload = parsed[1];
+
+            // 1. 히스토리 데이터 (updateHistoryNewFast)
+            if (eventName === 'updateHistoryNewFast' && payload.data) {
+                // payload.data는 문자열일 수 있음 (이중 JSON)
+                let history = payload.data;
+                if (typeof history === 'string') history = JSON.parse(history);
+                
+                // history는 [[time, open, close, high, low], ...] 형식일 가능성 높음
+                // 하지만 여기서는 CandleData 형식으로 변환해야 함
+                // 일단 raw 데이터로 넘기고, 인터셉터에서 처리하도록 유도하거나 여기서 변환
+                
+                // Pocket Option History Format: [time, open, close, high, low, ???] (추정)
+                // 정확한 매핑 필요. 일단 Unknown으로 넘기지 말고 candle_history로 식별
+                
+                // 만약 history가 배열이라면
+                if (Array.isArray(history)) {
+                    return {
+                        type: 'candle_history',
+                        data: history.map((c: any) => {
+                            // 배열 인덱스 기반 매핑 (추정)
+                            // [timestamp, open, close, high, low]
+                            if (Array.isArray(c)) {
+                                return {
+                                    symbol: 'CURRENT', // 컨텍스트에서 채워야 함
+                                    timestamp: c[0],
+                                    open: c[1],
+                                    close: c[2],
+                                    high: c[3],
+                                    low: c[4],
+                                    volume: 0
+                                } as CandleData;
+                            }
+                            // 객체 기반 매핑
+                            return {
+                                symbol: c.symbol || 'CURRENT',
+                                timestamp: c.timestamp || c.time || Date.now(),
+                                open: c.open,
+                                high: c.high,
+                                low: c.low,
+                                close: c.close,
+                                volume: c.volume || 0
+                            } as CandleData;
+                        }),
+                        raw: data,
+                        confidence: 0.95
+                    }
+                }
+            }
+
+            // 2. 실시간 스트림 (updateStream)
+            if (eventName === 'updateStream') {
+                // payload: [["BTCUSD_otc", 1738..., 1.234]]
+                if (Array.isArray(payload)) {
+                    const item = payload[0]; // 첫 번째 업데이트
+                    if (Array.isArray(item) && item.length >= 3) {
+                        return {
+                            type: 'price_update',
+                            data: {
+                                symbol: item[0],
+                                timestamp: item[1],
+                                price: item[2],
+                                source: 'websocket'
+                            },
+                            raw: data,
+                            confidence: 0.99
+                        }
+                    }
+                }
+            }
+          }
+        } catch (e) {
+            // console.warn('Socket.IO parsing failed', e);
+        }
 
         return {
-          type: 'candle_history',
-          data: candles,
+          type: 'unknown',
+          data: null,
           raw: data,
-          confidence: 0.95
+          confidence: 0,
         }
       }
     })
