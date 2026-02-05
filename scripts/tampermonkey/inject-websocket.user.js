@@ -51,18 +51,32 @@
         return null;
     };
 
+    let lastMessageInfo = null;
+
     const handleMessage = async ({ data, url }) => {
         const decoded = await decodeData(data);
-        const payload = extractPayload(decoded.text);
+        let payload = extractPayload(decoded.text);
 
-        let logData = data;
-        if (decoded.text) logData = previewText(decoded.text);
-        else if (data instanceof ArrayBuffer) logData = `ArrayBuffer(${data.byteLength})`;
-        else if (data instanceof Blob) logData = `Blob(${data.size})`;        /*
-        if (payload) {
-            console.log(`${LOG_PREFIX} ✅ PARSED:`, LOG_STYLE, payload);
+        // [PO-17] Socket.IO Binary Placeholder 처리
+        // 예: 451-["updateStream",{"_placeholder":true,"num":0}]
+        if (payload && Array.isArray(payload) && payload[1]?._placeholder) {
+            lastMessageInfo = { eventName: payload[0], url };
+            return; // 실제 데이터는 다음 바이너리 프레임에 있음
         }
-        */
+
+        // 이전 프레임이 플레이스홀더였고 현재 프레임이 바이너리인 경우 데이터 결합
+        if (lastMessageInfo && decoded.type !== 'string') {
+            // 바이너리 데이터를 객체로 변환 시도 (메시지 타입에 따라 다름)
+            // 일단 원본 데이터를 payload로 보냄
+            payload = { 
+                type: 'binary_payload', 
+                event: lastMessageInfo.eventName, 
+                data: data // ArrayBuffer 또는 Blob
+            };
+            lastMessageInfo = null;
+        } else {
+            lastMessageInfo = null;
+        }
 
         window.postMessage({
             source: 'pq-bridge',
@@ -70,7 +84,7 @@
             data: {
                 url,
                 raw: data,
-                text: decoded.text || null,
+                text: typeof data === 'string' ? data : null,
                 payload: payload || null,
                 dataType: decoded.type,
                 timestamp: Date.now()
