@@ -139,6 +139,9 @@ export type MessageType =
   | 'MINING_STOPPED'
   // Telegram
   | 'RELOAD_TELEGRAM_CONFIG'
+  // Error Handling
+  | 'GET_ERROR_STATS'
+  | 'GET_ERROR_HISTORY'
 
 export interface ExtensionMessage<T = unknown> {
   type: MessageType
