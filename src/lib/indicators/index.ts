@@ -423,6 +423,138 @@ export const Stochastic = {
 }
 
 // ============================================================
+// CCI (Commodity Channel Index)
+// ============================================================
+
+/**
+ * Calculate CCI (Commodity Channel Index)
+ * CCI = (Typical Price - SMA of TP) / (0.015 * Mean Deviation)
+ * @param highs - Array of high prices
+ * @param lows - Array of low prices
+ * @param closes - Array of close prices
+ * @param period - Number of periods (typically 20)
+ * @returns CCI value or null if insufficient data
+ */
+export function calculateCCI(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  period: number = 20
+): number | null {
+  const minLength = Math.min(highs.length, lows.length, closes.length)
+  if (minLength < period || period <= 0) return null
+
+  // Calculate Typical Prices for the period
+  const typicalPrices: number[] = []
+  for (let i = minLength - period; i < minLength; i++) {
+    typicalPrices.push((highs[i] + lows[i] + closes[i]) / 3)
+  }
+
+  // Calculate SMA of Typical Prices
+  const smaTP = typicalPrices.reduce((sum, tp) => sum + tp, 0) / period
+
+  // Calculate Mean Deviation
+  const meanDeviation = typicalPrices.reduce((sum, tp) => sum + Math.abs(tp - smaTP), 0) / period
+
+  // Current Typical Price
+  const currentTP = typicalPrices[typicalPrices.length - 1]
+
+  // Avoid division by zero
+  if (meanDeviation === 0) return 0
+
+  // CCI = (TP - SMA(TP)) / (0.015 * Mean Deviation)
+  return (currentTP - smaTP) / (0.015 * meanDeviation)
+}
+
+export const CCI = {
+  /**
+   * Calculate CCI for entire series
+   */
+  calculate(highs: number[], lows: number[], closes: number[], period: number = 20): number[] {
+    const results: number[] = []
+    const minLen = Math.min(highs.length, lows.length, closes.length)
+
+    for (let i = period; i <= minLen; i++) {
+      const h = highs.slice(0, i)
+      const l = lows.slice(0, i)
+      const c = closes.slice(0, i)
+      const cci = calculateCCI(h, l, c, period)
+      if (cci !== null) results.push(cci)
+    }
+    return results
+  },
+
+  /**
+   * Get latest CCI value
+   */
+  latest(highs: number[], lows: number[], closes: number[], period: number = 20): number | null {
+    return calculateCCI(highs, lows, closes, period)
+  },
+}
+
+// ============================================================
+// Williams %R
+// ============================================================
+
+/**
+ * Calculate Williams %R
+ * %R = (Highest High - Close) / (Highest High - Lowest Low) * -100
+ * @param highs - Array of high prices
+ * @param lows - Array of low prices
+ * @param closes - Array of close prices
+ * @param period - Number of periods (typically 14)
+ * @returns Williams %R value (-100 to 0) or null if insufficient data
+ */
+export function calculateWilliamsR(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  period: number = 14
+): number | null {
+  const minLength = Math.min(highs.length, lows.length, closes.length)
+  if (minLength < period || period <= 0) return null
+
+  const highSlice = highs.slice(-period)
+  const lowSlice = lows.slice(-period)
+  const currentClose = closes[closes.length - 1]
+
+  const highestHigh = Math.max(...highSlice)
+  const lowestLow = Math.min(...lowSlice)
+
+  const range = highestHigh - lowestLow
+  if (range === 0) return -50 // Neutral when no range
+
+  // Williams %R = (Highest High - Close) / (Highest High - Lowest Low) * -100
+  return ((highestHigh - currentClose) / range) * -100
+}
+
+export const WilliamsR = {
+  /**
+   * Calculate Williams %R for entire series
+   */
+  calculate(highs: number[], lows: number[], closes: number[], period: number = 14): number[] {
+    const results: number[] = []
+    const minLen = Math.min(highs.length, lows.length, closes.length)
+
+    for (let i = period; i <= minLen; i++) {
+      const h = highs.slice(0, i)
+      const l = lows.slice(0, i)
+      const c = closes.slice(0, i)
+      const wr = calculateWilliamsR(h, l, c, period)
+      if (wr !== null) results.push(wr)
+    }
+    return results
+  },
+
+  /**
+   * Get latest Williams %R value
+   */
+  latest(highs: number[], lows: number[], closes: number[], period: number = 14): number | null {
+    return calculateWilliamsR(highs, lows, closes, period)
+  },
+}
+
+// ============================================================
 // SMMA (Smoothed Moving Average)
 // Used in 비트신옵션 SMMA+Stochastic strategy
 // ============================================================
