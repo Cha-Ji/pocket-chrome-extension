@@ -5,49 +5,16 @@
 // 분석 모드에서 발견된 패턴을 기반으로 파서를 확장할 수 있습니다.
 // ============================================================
 
-import { PriceUpdate } from './websocket-interceptor'
+import type {
+  PriceUpdate,
+  CandleData,
+  OrderBookData,
+  TradeData,
+  MessageType,
+  ParsedMessage,
+} from './websocket-types'
 
-// 메시지 타입 정의
-export type MessageType = 
-  | 'price_update'
-  | 'candle_data'
-  | 'candle_history' // Array of candles
-  | 'orderbook'
-  | 'trade'
-  | 'heartbeat'
-  | 'unknown'
-
-export interface ParsedMessage {
-  type: MessageType
-  data: PriceUpdate | CandleData | CandleData[] | OrderBookData | TradeData | null
-  raw: any
-  confidence: number // 0-1, 파싱 확신도
-}
-
-export interface CandleData {
-  symbol: string
-  timestamp: number
-  open: number
-  high: number
-  low: number
-  close: number
-  volume?: number
-}
-
-export interface OrderBookData {
-  symbol: string
-  bid: number
-  ask: number
-  timestamp: number
-}
-
-export interface TradeData {
-  symbol: string
-  price: number
-  quantity: number
-  side: 'buy' | 'sell'
-  timestamp: number
-}
+export type { PriceUpdate, CandleData, OrderBookData, TradeData, MessageType, ParsedMessage } from './websocket-types'
 
 // 알려진 Pocket Option 메시지 패턴
 // 분석 모드에서 발견되면 여기에 추가
@@ -191,7 +158,7 @@ export class WebSocketParser {
       },
       parse: (data) => {
         const action = data.action || data.cmd || data.type
-        
+
         // 가격 관련 액션인지 확인
         const priceActions = ['tick', 'price', 'quote', 'candle', 'rate', 'update', 'stream', 'history', 'load']
         const isPriceAction = priceActions.some(a => action.toLowerCase().includes(a))
@@ -224,7 +191,7 @@ export class WebSocketParser {
 
           // Case 2: Single Price
           const price = this.extractPriceFromPayload(payload)
-          
+
           if (price) {
             return {
               type: 'price_update',
@@ -239,7 +206,7 @@ export class WebSocketParser {
             }
           }
         }
-        
+
         // Heartbeat 메시지
         if (action.toLowerCase().includes('ping') || action.toLowerCase().includes('heartbeat')) {
           return {
@@ -249,7 +216,7 @@ export class WebSocketParser {
             confidence: 1.0,
           }
         }
-        
+
         return {
           type: 'unknown',
           data: null,
@@ -499,7 +466,9 @@ export class WebSocketParser {
         if (pattern.detect(data)) {
           const result = pattern.parse(data)
           if (result.confidence > 0) {
-            return result
+            // 파싱 결과 필드 검증
+            const validated = this.validateParsedMessage(result)
+            if (validated) return validated
           }
         }
       } catch (e) {
@@ -522,11 +491,11 @@ export class WebSocketParser {
    */
   extractPrice(data: any): PriceUpdate | null {
     const parsed = this.parse(data)
-    
+
     if (parsed.type === 'price_update' && parsed.data) {
       return parsed.data as PriceUpdate
     }
-    
+
     // orderbook 데이터에서 mid price 계산
     if (parsed.type === 'orderbook' && parsed.data) {
       const ob = parsed.data as OrderBookData
@@ -537,7 +506,7 @@ export class WebSocketParser {
         source: 'websocket',
       }
     }
-    
+
     // candle 데이터에서 close price 추출
     if (parsed.type === 'candle_data' && parsed.data) {
       const candle = parsed.data as CandleData
@@ -548,8 +517,51 @@ export class WebSocketParser {
         source: 'websocket',
       }
     }
-    
+
     return null
+  }
+
+  // ============================================================
+  // Validation
+  // ============================================================
+
+  /**
+   * 파싱 결과의 필수 필드를 검증
+   * 검증 실패 시 null 반환 (silent drop)
+   */
+  private validateParsedMessage(msg: ParsedMessage): ParsedMessage | null {
+    if (!msg.data) return msg // data가 null인 경우(heartbeat 등)는 그대로 통과
+
+    switch (msg.type) {
+      case 'price_update': {
+        const d = msg.data as PriceUpdate
+        if (typeof d.symbol !== 'string' || typeof d.price !== 'number') return null
+        return msg
+      }
+      case 'candle_data': {
+        const d = msg.data as CandleData
+        if (
+          typeof d.open !== 'number' ||
+          typeof d.high !== 'number' ||
+          typeof d.low !== 'number' ||
+          typeof d.close !== 'number'
+        ) return null
+        if (d.volume !== undefined && typeof d.volume !== 'number') return null
+        return msg
+      }
+      case 'orderbook': {
+        const d = msg.data as OrderBookData
+        if (typeof d.bid !== 'number' || typeof d.ask !== 'number') return null
+        return msg
+      }
+      case 'trade': {
+        const d = msg.data as TradeData
+        if (typeof d.price !== 'number' || typeof d.quantity !== 'number') return null
+        return msg
+      }
+      default:
+        return msg
+    }
   }
 
   // ============================================================
@@ -561,7 +573,7 @@ export class WebSocketParser {
    */
   private extractPriceFromPayload(payload: any): number | null {
     if (typeof payload !== 'object' || payload === null) return null
-    
+
     // 직접 가격 필드
     const priceFields = ['price', 'value', 'rate', 'close', 'last', 'bid', 'ask']
     for (const field of priceFields) {
@@ -569,7 +581,7 @@ export class WebSocketParser {
         return payload[field]
       }
     }
-    
+
     // 중첩 구조에서 재귀 탐색
     for (const key of Object.keys(payload)) {
       const value = payload[key]
@@ -578,7 +590,7 @@ export class WebSocketParser {
         if (price) return price
       }
     }
-    
+
     return null
   }
 
@@ -600,7 +612,7 @@ export class WebSocketParser {
     if (typeof data !== 'object' || data === null) {
       return `primitive:${typeof data}`
     }
-    
+
     // 타입 힌트가 있는 필드 확인
     const typeFields = ['type', 'action', 'cmd', 'event', 'method']
     for (const field of typeFields) {
@@ -608,7 +620,7 @@ export class WebSocketParser {
         return `${field}:${data[field]}`
       }
     }
-    
+
     // 주요 필드로 구분
     const keys = Object.keys(data).sort().slice(0, 5).join(',')
     return `keys:${keys}`
@@ -663,7 +675,7 @@ export function registerPocketOptionPattern(
   extractPrice: (data: any) => { symbol: string; price: number; timestamp: number } | null
 ): void {
   const parser = getWebSocketParser()
-  
+
   parser.registerPattern({
     name: `pocket_option_${name}`,
     detect,
