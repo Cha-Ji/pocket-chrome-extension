@@ -309,7 +309,11 @@ export class WebSocketParser {
               };
             }
             return candle;
-          }).filter((c: CandleData) => c.timestamp && c.open && c.close); // 필수 필드 존재 여부 재검증
+          }).filter((c: CandleData) =>
+            c.timestamp != null && !isNaN(c.timestamp) && c.timestamp > 0 &&
+            c.open != null && !isNaN(c.open) &&
+            c.close != null && !isNaN(c.close)
+          ); // 필수 필드: NaN/null/undefined 제거 (0 값은 허용)
         };
 
         // 히스토리 이벤트 처리
