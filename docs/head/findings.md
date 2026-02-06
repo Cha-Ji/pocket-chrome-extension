@@ -151,6 +151,36 @@
 - TelegramConfig의 botToken/chatId도 plain `string` → branded type으로 검증 가능
 - TradingConfig의 enabled가 boolean → state machine enum이 더 안전
 
+## 병렬 작업 실행 계획 (2026-02-06)
+
+파일 충돌 분석 기반으로 4단계 배치 실행 계획 수립.
+
+### Batch 1 — 병렬 5세션 (즉시)
+| 세션 | 항목 | 수정 파일 |
+|------|------|-----------|
+| A | #3 테스트 추가 | NEW test files only |
+| B | #6+#13+#16 WebSocket 정비 | ws-interceptor, ws-parser, NEW ws-types |
+| C | #14+#18 리소스 라이프사이클 | payout-monitor, candle-collector |
+| D | #5+#15 설정/보안 | NEW lib/config/, SettingsPanel, telegram |
+| E | #17+#9+#10 빌드+정리 | tsconfig, package.json, vite.config, manifest, barrel, file moves |
+
+### Batch 2 — 2세션 동시 (Batch 1 merge 후)
+| 세션 | 항목 | 수정 파일 |
+|------|------|-----------|
+| F | #1+#11+#19 타입 시스템 | types/index.ts 전면, background handler, content-script handler |
+| G | #2 DOM 셀렉터 통합 | NEW dom-selectors.ts, selector-resolver, payout-monitor |
+
+### Batch 3 — 2세션 동시 (Batch 2 merge 후)
+| 세션 | 항목 | 수정 파일 |
+|------|------|-----------|
+| H | #4+#8 에러/로깅 통일 | errors/, executor, data-collector 외 8+파일 |
+| I | #12+#16 상태 동기화 | NEW lib/state/, background, content-script, useTradingStatus |
+
+### Batch 4 — 단독 (전체 merge 후 마지막)
+| 세션 | 항목 | 수정 파일 |
+|------|------|-----------|
+| J | #7 Import alias 통일 | 전체 .ts/.tsx (103건 교체) |
+
 ## 코드 스니펫
 
 ````text
