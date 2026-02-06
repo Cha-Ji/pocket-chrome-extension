@@ -6,38 +6,14 @@
 // ============================================================
 
 import { getWebSocketParser, WebSocketParser } from './websocket-parser'
+import type {
+  PriceUpdate,
+  WebSocketConnection,
+  WebSocketMessage,
+  WebSocketEvent,
+} from './websocket-types'
 
-export interface WebSocketConnection {
-  id: string
-  url: string
-  isPriceRelated: boolean
-  readyState: 'connecting' | 'open' | 'closing' | 'closed'
-  messageCount: number
-  lastMessageAt: number | null
-}
-
-export interface WebSocketMessage {
-  connectionId: string
-  url: string
-  parsed: any
-  rawType: string
-  timestamp: number
-}
-
-export interface PriceUpdate {
-  symbol: string
-  price: number
-  timestamp: number
-  source: 'websocket'
-}
-
-export type WebSocketEventType = 'installed' | 'connection' | 'open' | 'close' | 'error' | 'message'
-
-export interface WebSocketEvent {
-  type: WebSocketEventType
-  data: any
-  timestamp: number
-}
+export type { PriceUpdate, WebSocketConnection, WebSocketMessage, WebSocketEvent } from './websocket-types'
 
 type PriceUpdateCallback = (update: PriceUpdate) => void
 type MessageCallback = (message: WebSocketMessage) => void
@@ -51,7 +27,8 @@ class WebSocketInterceptor {
   private isListening = false
   private analysisMode = true // 분석 모드: 모든 메시지 로깅
   private parser: WebSocketParser
-  
+  private boundHandler: EventListener
+
   // 콜백 핸들러
   private priceUpdateCallbacks: PriceUpdateCallback[] = []
   private messageCallbacks: MessageCallback[] = []
@@ -69,6 +46,7 @@ class WebSocketInterceptor {
 
   private constructor() {
     this.parser = getWebSocketParser()
+    this.boundHandler = this.handleEvent.bind(this) as EventListener
   }
 
   // ============================================================
@@ -102,7 +80,7 @@ class WebSocketInterceptor {
   stop(): void {
     if (!this.isListening) return
 
-    window.removeEventListener('pocket-quant-ws', this.handleEvent as EventListener)
+    window.removeEventListener('pocket-quant-ws', this.boundHandler)
     this.isListening = false
     console.log('[WS Interceptor] Stopped')
   }
@@ -143,10 +121,10 @@ class WebSocketInterceptor {
   // ============================================================
 
   private setupEventListener(): void {
-    window.addEventListener('pocket-quant-ws', this.handleEvent as EventListener)
+    window.addEventListener('pocket-quant-ws', this.boundHandler)
   }
 
-  private handleEvent = (event: CustomEvent<WebSocketEvent>): void => {
+  private handleEvent(event: CustomEvent<WebSocketEvent>): void {
     const { type, data, timestamp } = event.detail
 
     switch (type) {
