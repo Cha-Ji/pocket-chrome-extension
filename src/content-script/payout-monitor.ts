@@ -25,6 +25,10 @@ export class PayoutMonitor {
   private pollInterval: ReturnType<typeof setInterval> | null = null
   private observers: ((assets: AssetPayout[]) => void)[] = []
   private _isMonitoring = false
+  private consecutiveErrors = 0
+  private static readonly MAX_CONSECUTIVE_ERRORS = 3
+  private static readonly RESTART_DELAY_MS = 5000
+  private pollIntervalMs = 30000
 
   constructor(filter: PayoutFilter = DEFAULT_FILTER) { this.filter = filter }
   get isMonitoring(): boolean { return this._isMonitoring }
@@ -33,8 +37,26 @@ export class PayoutMonitor {
     if (this._isMonitoring) return
     log.info('Starting...')
     this._isMonitoring = true
+    this.pollIntervalMs = pollIntervalMs
+    this.consecutiveErrors = 0
     await this.fetchPayouts()
-    this.pollInterval = setInterval(async () => { await this.fetchPayouts() }, pollIntervalMs)
+    this.pollInterval = setInterval(async () => {
+      try {
+        await this.fetchPayouts()
+        this.consecutiveErrors = 0
+      } catch (error) {
+        this.consecutiveErrors++
+        log.error(`Interval error (${this.consecutiveErrors}/${PayoutMonitor.MAX_CONSECUTIVE_ERRORS}):`, error)
+        if (this.consecutiveErrors >= PayoutMonitor.MAX_CONSECUTIVE_ERRORS) {
+          log.warn('연속 에러 한도 초과, interval 중지 후 재시작 예약')
+          this.stop()
+          setTimeout(() => {
+            log.info('자동 재시작 시도...')
+            this.start(this.pollIntervalMs)
+          }, PayoutMonitor.RESTART_DELAY_MS)
+        }
+      }
+    }, pollIntervalMs)
   }
 
   stop(): void {
