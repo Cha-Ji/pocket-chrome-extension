@@ -1,6 +1,7 @@
 
 import React, { useMemo } from 'react'
 import { TradingStatus, Trade } from '../../lib/types'
+import { formatMoney, formatPercent, formatNumber } from '../utils/format'
 
 interface DashboardProps {
   status: TradingStatus
@@ -24,12 +25,12 @@ export function Dashboard({ status, trades }: DashboardProps) {
       <div className="grid grid-cols-2 gap-3">
         <StatCard 
           label="Total Profit" 
-          value={`$${stats.totalProfit.toFixed(2)}`} 
+          value={`$${formatMoney(stats.totalProfit)}`} 
           valueClass={stats.totalProfit >= 0 ? 'text-pocket-green' : 'text-red-400'}
         />
         <StatCard 
           label="Win Rate" 
-          value={`${stats.winRate.toFixed(1)}%`} 
+          value={`${formatPercent(stats.winRate)}%`} 
           valueClass="text-white"
         />
         <StatCard 
@@ -81,7 +82,7 @@ function AssetStatRow({ name, wins, losses }: { name: string, wins: number, loss
       <div className="flex gap-3">
         <span className="text-pocket-green">{wins}W</span>
         <span className="text-red-400">{losses}L</span>
-        <span className="text-white font-mono">{rate.toFixed(0)}%</span>
+        <span className="text-white font-mono">{formatNumber(rate)}%</span>
       </div>
     </div>
   )

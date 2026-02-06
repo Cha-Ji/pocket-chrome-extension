@@ -81,7 +81,7 @@ export class CandleCollector {
   start(): void {
     if (this._isCollecting) return
     
-    console.log('[CandleCollector] Starting candle collection...')
+    console.log('[PO] [CandleCollector] Starting candle collection...')
     this._isCollecting = true
     
     // 방법 1: MutationObserver로 가격 변화 감지
@@ -90,7 +90,7 @@ export class CandleCollector {
     // 방법 2: 폴링 백업 (500ms마다)
     this.startPricePolling()
     
-    console.log('[CandleCollector] Collection started')
+    console.log('[PO] [CandleCollector] Collection started')
   }
 
   /**
@@ -99,7 +99,7 @@ export class CandleCollector {
   stop(): void {
     if (!this._isCollecting) return
     
-    console.log('[CandleCollector] Stopping candle collection...')
+    console.log('[PO] [CandleCollector] Stopping candle collection...')
     
     this.observer?.disconnect()
     this.observer = null
@@ -110,7 +110,7 @@ export class CandleCollector {
     }
     
     this._isCollecting = false
-    console.log('[CandleCollector] Collection stopped')
+    console.log('[PO] [CandleCollector] Collection stopped')
   }
 
   /**
@@ -188,6 +188,27 @@ export class CandleCollector {
       console.error('[CandleCollector] Import error:', e)
     }
     return 0
+  }
+
+  /**
+   * Add tick data from WebSocket (external source)
+   * WebSocket interceptor에서 가격 데이터를 받아 캔들 버퍼에 추가
+   */
+  addTickFromWebSocket(symbol: string, price: number, timestamp: number): void {
+    const tick: TickData = {
+      price,
+      timestamp,
+      ticker: symbol.toUpperCase()
+    }
+    
+    // 틱 기록
+    this.recordTick(tick)
+    
+    // 캔들 업데이트
+    this.updateCandleBuffer(tick)
+    
+    // Background에 알림
+    this.notifyBackground(tick)
   }
 
   // ============================================================
