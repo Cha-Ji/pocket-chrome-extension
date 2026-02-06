@@ -70,32 +70,50 @@ export const DataSender = {
       const symbol = firstCandle.symbol || firstCandle.ticker || 'UNKNOWN';
       log.data(`Attempting bulk send: ${candles.length} candles for ${symbol}`)
 
-      const payload = {
-        candles: candles.map(c => ({
-          symbol: (c.symbol || c.ticker || symbol).toUpperCase().replace(/\s+/g, '-'), // 서버 표준 포맷 강제
-          interval: '1m',
-          timestamp: Number(c.timestamp),
-          open: Number(c.open),
-          high: Number(c.high),
-          low: Number(c.low),
-          close: Number(c.close),
-          volume: Number(c.volume || 0),
-          source: 'history'
-        })).filter(c => c.symbol && c.timestamp && c.open && c.close)
+      const mapped = candles.map(c => ({
+        symbol: (c.symbol || c.ticker || symbol).toUpperCase().replace(/\s+/g, '-'), // 서버 표준 포맷 강제
+        interval: '1m',
+        timestamp: Number(c.timestamp),
+        open: Number(c.open),
+        high: Number(c.high),
+        low: Number(c.low),
+        close: Number(c.close),
+        volume: Number(c.volume || 0),
+        source: 'history'
+      })).filter(c =>
+        c.symbol && c.symbol !== 'UNKNOWN' &&
+        !isNaN(c.timestamp) && c.timestamp > 0 &&
+        !isNaN(c.open) &&
+        !isNaN(c.high) &&
+        !isNaN(c.low) &&
+        !isNaN(c.close)
+      )
+
+      if (mapped.length === 0) {
+        log.fail(`All ${candles.length} candles filtered out during validation. Sample: ${JSON.stringify(candles[0])}`)
+        return
       }
+
+      if (mapped.length !== candles.length) {
+        log.data(`Filtered: ${candles.length} → ${mapped.length} candles (${candles.length - mapped.length} invalid)`)
+      }
+
+      const payload = { candles: mapped }
+      const bodyStr = JSON.stringify(payload)
+      log.data(`Sending ${mapped.length} candles (${(bodyStr.length / 1024).toFixed(1)}KB) to ${SERVER_URL}/api/candles/bulk`)
 
       const response = await fetch(`${SERVER_URL}/api/candles/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: bodyStr
       })
 
       if (response.ok) {
         const result = await response.json();
-        log.success(`Saved ${result.count || candles.length} history candles`)
+        log.success(`Bulk saved: ${result.count} candles (symbol: ${mapped[0].symbol})`)
       } else {
         const errorText = await response.text();
-        log.fail(`Bulk send failed (${response.status}): ${errorText}`)
+        log.fail(`Bulk send failed (HTTP ${response.status}): ${errorText}`)
       }
     } catch (error: any) {
       log.fail(`Bulk send network error: ${error.message}`)
