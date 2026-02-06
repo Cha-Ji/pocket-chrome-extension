@@ -102,7 +102,7 @@ export class IndicatorReader {
   start(): void {
     if (this._isReading) return
 
-    console.log('[IndicatorReader] Starting indicator reading...')
+    console.log('[PO] [IndicatorReader] Starting indicator reading...')
     this._isReading = true
 
     // MutationObserver로 인디케이터 변화 감지
@@ -111,7 +111,7 @@ export class IndicatorReader {
     // 폴링 백업 (1초마다)
     this.startPolling()
 
-    console.log('[IndicatorReader] Reading started')
+    console.log('[PO] [IndicatorReader] Reading started')
   }
 
   /**
@@ -120,7 +120,7 @@ export class IndicatorReader {
   stop(): void {
     if (!this._isReading) return
 
-    console.log('[IndicatorReader] Stopping indicator reading...')
+    console.log('[PO] [IndicatorReader] Stopping indicator reading...')
 
     this.observer?.disconnect()
     this.observer = null
@@ -131,7 +131,7 @@ export class IndicatorReader {
     }
 
     this._isReading = false
-    console.log('[IndicatorReader] Reading stopped')
+    console.log('[PO] [IndicatorReader] Reading stopped')
   }
 
   /**
