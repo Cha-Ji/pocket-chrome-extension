@@ -14,6 +14,10 @@ import { useLogs } from './hooks/useLogs'
 import { useTrades } from './hooks/useTrades'
 import { Signal } from '../lib/signals/types'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { Leaderboard } from './components/Leaderboard'
+import type { LeaderboardEntry, LeaderboardProgress } from '../lib/backtest/leaderboard-types'
+import { runLeaderboard, initializeBacktest } from '../lib/backtest'
+import { CandleRepository, LeaderboardRepository } from '../lib/db'
 
 export default function App() {
   return (
@@ -27,11 +31,71 @@ function AppContent() {
   const { status, startTrading, stopTrading, isLoading } = useTradingStatus()
   const { logs, addLog, clearLogs } = useLogs()
   const { trades } = useTrades()
-  const [activeTab, setActiveTab] = useState<'signals' | 'auto' | 'status' | 'logs' | 'settings'>('signals')
+  const [activeTab, setActiveTab] = useState<'signals' | 'auto' | 'status' | 'logs' | 'leaderboard' | 'settings'>('signals')
+  const [lbEntries, setLbEntries] = useState<LeaderboardEntry[]>([])
+  const [lbRunning, setLbRunning] = useState(false)
+  const [lbProgress, setLbProgress] = useState<LeaderboardProgress | undefined>()
 
   useEffect(() => {
     addLog('info', 'Side panel initialized')
+    // 저장된 리더보드 데이터 로드
+    LeaderboardRepository.getAll().then(entries => {
+      if (entries.length > 0) setLbEntries(entries)
+    }).catch(() => {})
   }, [])
+
+  const handleRunLeaderboard = async () => {
+    try {
+      setLbRunning(true)
+      addLog('info', 'Starting leaderboard backtest...')
+
+      initializeBacktest()
+
+      // DB에서 캔들 데이터 조회
+      const tickers = await CandleRepository.getTickers()
+      if (tickers.length === 0) {
+        addLog('error', 'No candle data. Mine history data first.')
+        setLbRunning(false)
+        return
+      }
+
+      const ticker = tickers[0]
+      const candles = await CandleRepository.getByTicker(ticker, 5, 10000)
+      if (candles.length < 100) {
+        addLog('error', `Not enough candles (${candles.length}). Need at least 100.`)
+        setLbRunning(false)
+        return
+      }
+
+      const config = {
+        symbol: ticker,
+        startTime: candles[0].timestamp,
+        endTime: candles[candles.length - 1].timestamp,
+        initialBalance: 10000,
+        betAmount: 1,
+        betType: 'fixed' as const,
+        payout: 92,
+        expirySeconds: 300,
+        volumeMultiplier: 100,
+        minTrades: 10,
+      }
+
+      const result = runLeaderboard(
+        candles.map(c => ({ timestamp: c.timestamp, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume })),
+        config,
+        (progress) => setLbProgress(progress)
+      )
+
+      setLbEntries(result.entries)
+      await LeaderboardRepository.saveResults(result.entries)
+      addLog('success', `Leaderboard complete: ${result.entries.length} strategies ranked (${result.executionTimeMs}ms)`)
+    } catch (err: any) {
+      addLog('error', `Leaderboard error: ${err.message}`)
+    } finally {
+      setLbRunning(false)
+      setLbProgress(undefined)
+    }
+  }
 
   const handleSignal = (signal: Signal) => {
     // entryPrice can be undefined in some cases
@@ -118,6 +182,16 @@ function AppContent() {
           📜 Logs
         </button>
         <button
+          onClick={() => setActiveTab('leaderboard')}
+          className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
+            activeTab === 'leaderboard'
+              ? 'bg-pocket-green text-white'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          LB
+        </button>
+        <button
           onClick={() => setActiveTab('settings')}
           className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
             activeTab === 'settings'
@@ -159,6 +233,15 @@ function AppContent() {
 
       {activeTab === 'logs' && (
         <LogViewer logs={logs} onClear={clearLogs} />
+      )}
+
+      {activeTab === 'leaderboard' && (
+        <Leaderboard
+          entries={lbEntries}
+          isRunning={lbRunning}
+          progress={lbProgress ? { completed: lbProgress.completed, total: lbProgress.total, currentStrategy: lbProgress.currentStrategy } : undefined}
+          onRun={handleRunLeaderboard}
+        />
       )}
 
       {activeTab === 'settings' && (
