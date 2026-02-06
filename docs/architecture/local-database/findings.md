@@ -11,7 +11,7 @@
 - (2026-01-26) 틱 데이터는 대용량이므로 주기적 정리/압축 필요
 - (2026-02-06) Background의 `cleanup` 알람이 7일 초과 Tick 자동 삭제
 - (2026-02-06) IndexedDB 용량 제한은 브라우저별 다름 (Chrome: origin당 ~60% 디스크)
-- (2026-02-06) `src/database/index.ts`는 레거시 — 현재 `src/lib/db/index.ts`가 활성 모듈
+- (2026-02-06) DB 활성 모듈: `src/lib/db/index.ts` (레거시 `src/database/` 삭제 완료)
 
 ## 핵심 정보
 

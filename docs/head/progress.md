@@ -1,6 +1,16 @@
 # Pocket Quant Trader - Progress
 
-**최종 업데이트:** 2026-02-01 19:00 KST
+**최종 업데이트:** 2026-02-06 KST
+
+## (2026-02-06) 레거시 모듈 삭제 + 아키텍처 리뷰
+
+- `src/sidepanel/`, `src/content/`, `src/database/` 3개 레거시 디렉토리 삭제
+  - manifest.json에서 참조 없음 확인, 다른 모듈에서 import 없음 확인
+- CLAUDE.md에서 레거시 모듈 섹션 제거
+- 코드 리뷰 기반 아키텍처 개선 과제 10건 도출 → `docs/head/findings.md` 기록
+  - P0: any 타입 제거, 셀렉터 중복 제거, 핵심 모듈 테스트
+  - P1: 에러 핸들링 일관성, Config 통합, WS 순환 의존, import alias 통일
+  - P2: 로깅 마이그레이션, barrel export, 레이어 경계 정리
 
 ## 📊 전체 진행률
 
