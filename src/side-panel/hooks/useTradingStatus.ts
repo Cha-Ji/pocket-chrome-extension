@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { TradingStatus, ExtensionMessage } from '../../lib/types'
-import { reportError, toErrorMessage } from '../../lib/errors'
+import { errorHandler, tryCatchAsync } from '../../lib/errors'
 
 const initialStatus: TradingStatus = {
   isRunning: false,
@@ -22,10 +22,7 @@ export function useTradingStatus() {
         }
       })
       .catch((error) => {
-        void reportError(error, {
-          context: { module: 'side-panel', action: 'load-initial-status' },
-          severity: 'warning',
-        })
+        console.warn('[side-panel] Failed to load initial status:', error)
       })
   }, [])
 
@@ -47,10 +44,9 @@ export function useTradingStatus() {
       const response = await chrome.runtime.sendMessage({ type: 'START_TRADING' })
       return response || { success: false, error: 'No response' }
     } catch (error) {
-      void reportError(error, {
-        context: { module: 'side-panel', action: 'start-trading' },
-      })
-      return { success: false, error: toErrorMessage(error) }
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      console.error('[side-panel] Start trading error:', error)
+      return { success: false, error: message }
     } finally {
       setIsLoading(false)
     }
@@ -62,10 +58,9 @@ export function useTradingStatus() {
       const response = await chrome.runtime.sendMessage({ type: 'STOP_TRADING' })
       return response || { success: false, error: 'No response' }
     } catch (error) {
-      void reportError(error, {
-        context: { module: 'side-panel', action: 'stop-trading' },
-      })
-      return { success: false, error: toErrorMessage(error) }
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      console.error('[side-panel] Stop trading error:', error)
+      return { success: false, error: message }
     } finally {
       setIsLoading(false)
     }

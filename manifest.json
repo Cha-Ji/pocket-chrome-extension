@@ -23,6 +23,12 @@
     "service_worker": "src/background/index.ts",
     "type": "module"
   },
+  "web_accessible_resources": [
+    {
+      "resources": ["inject-websocket.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "content_scripts": [
     {
       "matches": [
@@ -34,7 +40,7 @@
         "https://*.po2.trade/*"
       ],
       "js": ["src/content-script/index.ts"],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ],
   "side_panel": {

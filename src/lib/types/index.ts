@@ -130,8 +130,28 @@ export type MessageType =
   | 'READ_INDICATORS_NOW'
   | 'INDICATOR_UPDATE'
   | 'INDICATOR_VALUES'
+  // WebSocket Interceptor API
+  | 'GET_WS_STATUS'
+  | 'GET_WS_CONNECTIONS'
+  | 'GET_WS_MESSAGES'
+  | 'SET_WS_ANALYSIS_MODE'
+  | 'CLEAR_WS_MESSAGES'
+  | 'WS_PRICE_UPDATE'
+  | 'WS_MESSAGE'
+  | 'WS_CONNECTION'
+  // Auto Miner
+  | 'START_AUTO_MINER'
+  | 'STOP_AUTO_MINER'
+  | 'GET_MINER_STATUS'
+  // Mining Status
+  | 'TOGGLE_MINING'
+  | 'MINING_STATS'
+  | 'MINING_STOPPED'
   // Telegram
   | 'RELOAD_TELEGRAM_CONFIG'
+  // Error Handling
+  | 'GET_ERROR_STATS'
+  | 'GET_ERROR_HISTORY'
 
 export interface ExtensionMessage<T = unknown> {
   type: MessageType

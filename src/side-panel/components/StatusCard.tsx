@@ -1,5 +1,6 @@
 import React from 'react'
 import { TradingStatus } from '../../lib/types'
+import { formatMoney } from '../utils/format'
 
 interface StatusCardProps {
   status: TradingStatus
@@ -19,7 +20,7 @@ export function StatusCard({ status }: StatusCardProps) {
         />
         <StatItem 
           label="Balance" 
-          value={status.balance ? `$${status.balance.toFixed(2)}` : '-'} 
+          value={status.balance ? `$${formatMoney(status.balance)}` : '-'} 
         />
         <StatItem 
           label="Session" 
