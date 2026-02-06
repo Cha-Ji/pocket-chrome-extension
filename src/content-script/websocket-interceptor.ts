@@ -51,7 +51,7 @@ class WebSocketInterceptor {
   private historyCallbacks: HistoryCallback[] = []
   private messageCallbacks: MessageCallback[] = []
   private connectionCallbacks: ConnectionCallback[] = []
-  
+
   // [PO-17] 실시간 자산 코드 추적
   private lastAssetId: string | null = null;
 
@@ -68,7 +68,6 @@ class WebSocketInterceptor {
 
   start(): void {
     if (this.isListening) return
-    // console.log('[PO] [WS] Starting Interceptor...');
     this.setupEventListener()
     this.injectScript()
     this.isListening = true
@@ -82,25 +81,18 @@ class WebSocketInterceptor {
 
   private injectScript(): void {
     // [PO-16] Tampermonkey 사용 시 Extension 자체 주입은 비활성화
-    // Tampermonkey가 이미 'window.__pocketQuantWsHook'을 설정하므로 충돌 방지됨.
-    // 하지만 안전을 위해 아예 주입 시도를 막아둡니다.
-    // console.log('[PO] [WS] Skipping Extension Injection (Using Tampermonkey)');
     return;
 
     /*
     try {
       if (document.querySelector('script[data-pocket-quant-ws]')) return
-
-      // Use script src method which is allowed by PO's CSP
       const script = document.createElement('script')
       script.src = chrome.runtime.getURL('inject-websocket.js')
       script.setAttribute('data-pocket-quant-ws', 'true')
-      
       script.onload = () => {
         console.log('[PO] [WS] Spy Script Injected');
         script.remove()
       }
-      
       const target = document.head || document.documentElement
       target.appendChild(script)
     } catch (error) {

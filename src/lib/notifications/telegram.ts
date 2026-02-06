@@ -117,9 +117,23 @@ let telegramInstance: TelegramService | null = null
 
 export async function getTelegramService(): Promise<TelegramService> {
   if (!telegramInstance) {
-    // Load config from storage
-    const stored = await chrome.storage.local.get('telegramConfig')
-    const config = stored.telegramConfig || DEFAULT_TELEGRAM_CONFIG
+    // 설정 로드: botToken은 session storage, 나머지는 local storage
+    const [localResult, sessionResult] = await Promise.all([
+      chrome.storage.local.get('appConfig'),
+      chrome.storage.session.get('telegramSecure'),
+    ])
+
+    const appConfig = localResult.appConfig || {}
+    const telegramLocal = appConfig.telegram || {}
+    const secureData = sessionResult.telegramSecure || {}
+
+    const config: TelegramConfig = {
+      ...DEFAULT_TELEGRAM_CONFIG,
+      ...telegramLocal,
+      // session storage에서 botToken 복원
+      botToken: secureData.botToken || '',
+    }
+
     telegramInstance = new TelegramService(config)
   }
   return telegramInstance
