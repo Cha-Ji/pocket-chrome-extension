@@ -127,6 +127,88 @@ if (!isDemoMode(selectors)) {
 
 ---
 
+## 필수 워크플로우 (반드시 준수)
+
+이 프로젝트는 **Jira 이슈 주도 개발**과 **3-file-pattern 문서화**를 필수로 따릅니다.
+
+### 1. Jira 이슈 주도 개발
+
+모든 개발 작업은 Jira 이슈를 기반으로 진행합니다.
+
+**Jira 프로젝트 정보**:
+- URL: https://REMOVED/jira/software/projects/PO/boards/2
+- 프로젝트 키: `PO` (PO-CHROME)
+
+**개발 단계별 Jira 관리**:
+
+| 단계 | Jira 작업 | CLI 명령어 |
+|------|-----------|------------|
+| 시작 전 | 이슈 생성 또는 기존 이슈 확인 | `node scripts/jira-cli.cjs create --summary="작업 내용"` |
+| 시작 | 상태를 "In Progress"로 변경 | `node scripts/jira-cli.cjs update SCRUM-XX --status="In Progress"` |
+| 진행 중 | 진행 상황 댓글로 기록 | `node scripts/jira-cli.cjs comment SCRUM-XX --body="진행 내용"` |
+| 완료 | 상태를 "Done"으로 변경 | `node scripts/jira-cli.cjs update SCRUM-XX --status="Done"` |
+
+**Git 브랜치 네이밍 규칙**:
+```bash
+# 형식: jira/<이슈키>
+git checkout -b jira/PO-123
+
+# 예시
+git checkout -b jira/PO-10   # 실시간 가격 데이터 수집
+git checkout -b jira/PO-11   # 인디케이터 값 읽기
+```
+
+**커밋 메시지 규칙**:
+```bash
+# Conventional Commits + 이슈 키
+git commit -m "feat(panel): add performance dashboard
+
+SCRUM-17"
+```
+
+### 2. 3-file-pattern 문서화
+
+모든 작업은 해당 폴더에 3개 파일로 문서화합니다.
+
+| 파일 | 목적 | 업데이트 시점 |
+|------|------|---------------|
+| `task_plan.md` | 체크리스트 | 작업 항목 완료 시 체크 |
+| `findings.md` | 결정/제약/핵심 정보 | 중요 발견 즉시 기록 |
+| `progress.md` | 진행 로그 (최신이 위) | 매 작업 세션마다 |
+
+**워크플로우 예시**:
+```bash
+# 1. Jira 이슈 확인/생성
+node scripts/jira-cli.cjs get PO-10
+
+# 2. 브랜치 생성
+git checkout -b jira/PO-10
+
+# 3. 상태 변경
+node scripts/jira-cli.cjs update PO-10 --status="In Progress"
+
+# 4. 작업 수행 + 3-file 문서화
+# - docs/features/xxx/task_plan.md 체크박스 업데이트
+# - docs/features/xxx/findings.md에 발견사항 기록
+# - docs/features/xxx/progress.md에 진행 로그 추가
+
+# 5. 커밋
+git add .
+git commit -m "feat(xxx): implement feature
+
+PO-10"
+
+# 6. 완료 처리
+node scripts/jira-cli.cjs update PO-10 --status="Done"
+```
+
+**Jira CLI 도움말**:
+```bash
+node scripts/jira-cli.cjs help
+```
+
+---
+
 ## 빠른 시작 가이드
 
 **자주 하는 작업별 진입점**:

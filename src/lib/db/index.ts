@@ -150,8 +150,8 @@ export const SessionRepository = {
     const session = await db.sessions.get(id)
     if (!session) return
 
-    const winRate = session.totalTrades > 0 
-      ? (session.wins / session.totalTrades) * 100 
+    const winRate = session.totalTrades > 0
+      ? (session.wins / session.totalTrades) * 100
       : 0
 
     await db.sessions.update(id, {
@@ -229,7 +229,7 @@ export const CandleRepository = {
       ...c,
       createdAt: Date.now()
     }))
-    
+
     let added = 0
     for (const candle of withCreatedAt) {
       // 중복 체크
@@ -237,7 +237,7 @@ export const CandleRepository = {
         .where('[ticker+interval+timestamp]')
         .equals([candle.ticker, candle.interval, candle.timestamp])
         .first()
-      
+
       if (!existing) {
         await db.candles.add(candle)
         added++
@@ -250,8 +250,8 @@ export const CandleRepository = {
    * 티커의 캔들 조회
    */
   async getByTicker(
-    ticker: string, 
-    interval: number, 
+    ticker: string,
+    interval: number,
     limit = 500
   ): Promise<StoredCandle[]> {
     return await db.candles
@@ -320,7 +320,7 @@ export const CandleRepository = {
       .where('[ticker+interval+timestamp]')
       .below([ticker, interval, timestamp])
       .primaryKeys()
-    
+
     await db.candles.bulkDelete(toDelete)
     return toDelete.length
   },
@@ -333,7 +333,7 @@ export const CandleRepository = {
       .where('ticker')
       .equals(ticker)
       .primaryKeys()
-    
+
     await db.candles.bulkDelete(toDelete)
     return toDelete.length
   },
@@ -356,12 +356,12 @@ export const CandleRepository = {
     newestTimestamp: number | null
   }> {
     const candles = await db.candles.toArray()
-    
+
     // 티커별 카운트
     const tickerMap = new Map<string, { interval: number; count: number }>()
     let oldest: number | null = null
     let newest: number | null = null
-    
+
     for (const c of candles) {
       const key = `${c.ticker}-${c.interval}`
       const existing = tickerMap.get(key)
@@ -370,17 +370,17 @@ export const CandleRepository = {
       } else {
         tickerMap.set(key, { interval: c.interval, count: 1 })
       }
-      
+
       if (!oldest || c.timestamp < oldest) oldest = c.timestamp
       if (!newest || c.timestamp > newest) newest = c.timestamp
     }
-    
+
     const tickers = Array.from(tickerMap.entries()).map(([key, val]) => ({
       ticker: key.split('-')[0],
       interval: val.interval,
       count: val.count
     }))
-    
+
     return {
       totalCandles: candles.length,
       tickers,
@@ -419,7 +419,7 @@ export const CandleRepository = {
     if (!data.ticker || !data.interval || !Array.isArray(data.candles)) {
       throw new Error('Invalid candle data format')
     }
-    
+
     const candles = data.candles.map((c: any) => ({
       ticker: data.ticker,
       interval: data.interval,
@@ -430,7 +430,7 @@ export const CandleRepository = {
       close: c.c,
       volume: c.v
     }))
-    
+
     return await this.bulkAdd(candles)
   }
 }
