@@ -5,48 +5,16 @@
 // 분석 모드에서 발견된 패턴을 기반으로 파서를 확장할 수 있습니다.
 // ============================================================
 
-import { PriceUpdate } from './websocket-interceptor'
+import type {
+  PriceUpdate,
+  CandleData,
+  OrderBookData,
+  TradeData,
+  MessageType,
+  ParsedMessage,
+} from './websocket-types'
 
-// 메시지 타입 정의
-export type MessageType = 
-  | 'price_update'
-  | 'candle_data'
-  | 'orderbook'
-  | 'trade'
-  | 'heartbeat'
-  | 'unknown'
-
-export interface ParsedMessage {
-  type: MessageType
-  data: PriceUpdate | CandleData | OrderBookData | TradeData | null
-  raw: any
-  confidence: number // 0-1, 파싱 확신도
-}
-
-export interface CandleData {
-  symbol: string
-  timestamp: number
-  open: number
-  high: number
-  low: number
-  close: number
-  volume?: number
-}
-
-export interface OrderBookData {
-  symbol: string
-  bid: number
-  ask: number
-  timestamp: number
-}
-
-export interface TradeData {
-  symbol: string
-  price: number
-  quantity: number
-  side: 'buy' | 'sell'
-  timestamp: number
-}
+export type { PriceUpdate, CandleData, OrderBookData, TradeData, MessageType, ParsedMessage } from './websocket-types'
 
 // 알려진 Pocket Option 메시지 패턴
 // 분석 모드에서 발견되면 여기에 추가
@@ -272,7 +240,9 @@ export class WebSocketParser {
         if (pattern.detect(data)) {
           const result = pattern.parse(data)
           if (result.confidence > 0) {
-            return result
+            // 파싱 결과 필드 검증
+            const validated = this.validateParsedMessage(result)
+            if (validated) return validated
           }
         }
       } catch (e) {
@@ -323,6 +293,49 @@ export class WebSocketParser {
     }
     
     return null
+  }
+
+  // ============================================================
+  // Validation
+  // ============================================================
+
+  /**
+   * 파싱 결과의 필수 필드를 검증
+   * 검증 실패 시 null 반환 (silent drop)
+   */
+  private validateParsedMessage(msg: ParsedMessage): ParsedMessage | null {
+    if (!msg.data) return msg // data가 null인 경우(heartbeat 등)는 그대로 통과
+
+    switch (msg.type) {
+      case 'price_update': {
+        const d = msg.data as PriceUpdate
+        if (typeof d.symbol !== 'string' || typeof d.price !== 'number') return null
+        return msg
+      }
+      case 'candle_data': {
+        const d = msg.data as CandleData
+        if (
+          typeof d.open !== 'number' ||
+          typeof d.high !== 'number' ||
+          typeof d.low !== 'number' ||
+          typeof d.close !== 'number'
+        ) return null
+        if (d.volume !== undefined && typeof d.volume !== 'number') return null
+        return msg
+      }
+      case 'orderbook': {
+        const d = msg.data as OrderBookData
+        if (typeof d.bid !== 'number' || typeof d.ask !== 'number') return null
+        return msg
+      }
+      case 'trade': {
+        const d = msg.data as TradeData
+        if (typeof d.price !== 'number' || typeof d.quantity !== 'number') return null
+        return msg
+      }
+      default:
+        return msg
+    }
   }
 
   // ============================================================
