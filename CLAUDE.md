@@ -121,14 +121,6 @@ LLM이 바이브코딩으로 효과적으로 개발할 수 있도록 작성된 �
 | `content-script/auto-miner.ts` | 자동 데이터 채굴 — 고페이아웃 자산 순회, WebSocket으로 히스토리 요청, 로컬 서버 전송 |
 | `content-script/selector-resolver.ts` | 다단계 DOM 셀렉터 폴백 시스템 — primary → fallback 셀렉터 자동 시도, 결과 캐싱 |
 
-### 레거시/미사용 모듈 (⚠️ manifest.json 미참조)
-
-| 모듈 | 경로 | 설명 |
-|------|------|------|
-| sidepanel (구) | `src/sidepanel/` | 초기 버전의 간단한 Side Panel — Status/Controls/Logs 3개 컴포넌트만 존재 |
-| content (구) | `src/content/` | 초기 버전의 Content Script — observers/price.ts, ui/controller.ts |
-| database (구) | `src/database/index.ts` | 독립 DB 타입 정의 — `src/lib/db/`로 대체됨 |
-
 ---
 
 ## 안전 규칙 (필수)

@@ -38,11 +38,6 @@
 - `runLeaderboard()` 호출 시 `CandleRepository`에서 캔들 로드 → `initializeBacktest()` → 전략 순위 계산
 - 결과를 `LeaderboardRepository`에 저장하여 영구 보존
 
-### 레거시 Side Panel (`src/sidepanel/`)
-- 초기 버전의 간단한 UI (Status/Controls/Logs 3개 컴포넌트만 존재)
-- **manifest.json에서 참조하지 않으므로 미사용**
-- `GET_STATE`, `PAUSE_TRADING` 등 현재 Background가 처리하지 않는 메시지 타입 사용
-
 ## 코드 스니펫
 
 ```typescript
