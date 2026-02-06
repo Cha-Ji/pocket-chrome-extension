@@ -2,6 +2,16 @@
 
 **최종 업데이트:** 2026-02-06 KST
 
+## (2026-02-06) 심층 아키텍처 분석 (2차)
+
+- 6개 영역 26건 추가 분석 → findings.md에 S0~S2 (항목 11~19) 기록
+- CRITICAL 발견:
+  - ExtensionMessage가 discriminated union이 아님 → 모든 핸들러에서 unsafe cast
+  - Background↔Content Script 상태 동기화 메커니즘 없음 → 레이스 컨디션
+- HIGH 발견:
+  - websocket-interceptor의 이벤트 리스너가 실제로 제거되지 않는 버그
+  - 텔레그램 봇 토큰 평문 저장, WS 데이터 무검증 전달
+
 ## (2026-02-06) 레거시 모듈 삭제 + 아키텍처 리뷰
 
 - `src/sidepanel/`, `src/content/`, `src/database/` 3개 레거시 디렉토리 삭제
