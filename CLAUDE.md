@@ -49,38 +49,85 @@ LLM이 바이브코딩으로 효과적으로 개발할 수 있도록 작성된 �
 - `src/side-panel/`: 사용자 인터페이스 (상태 표시, 제어)
 - `src/lib/`: 공유 라이브러리 (DB, 지표, 백테스트, 타입)
 
-**데이터 흐름**:
-1. Content Script가 DOM에서 가격 캡처 (MutationObserver)
+**데이터 흐름** (2가지 경로):
+
+경로 A — DOM 파싱:
+1. Content Script의 DataCollector가 MutationObserver로 가격 변화 감지
 2. `chrome.runtime.sendMessage`로 Background에 Tick 전송
 3. Background가 IndexedDB에 저장
-4. Side Panel이 상태 조회 및 표시
+
+경로 B — WebSocket 인터셉트 (주력):
+1. Tampermonkey 브릿지가 WebSocket 메시지를 `window.postMessage`로 전달
+2. WebSocketInterceptor가 수신 → WebSocketParser가 파싱
+3. 캔들 히스토리/가격 업데이트를 콜백으로 분배
+4. AutoMiner가 자산별 히스토리를 DataSender로 로컬 서버에 전송
+
+**신호 → 거래 흐름**:
+1. SignalGeneratorV2가 캔들 버퍼에서 시장 레짐 감지 (ADX 기반)
+2. 레짐별 최적 전략으로 CALL/PUT 신호 생성
+3. AutoTrader가 리스크 체크 (일일 한도, 드로다운, 연속손실) 통과 시 실행
+4. TradeExecutor가 데모 모드 확인 후 DOM 클릭 시뮬레이션
 
 **메시지 통신 패턴**:
-- Content Script ↔ Background: `chrome.runtime.sendMessage`
-- Background → Content Script: `chrome.tabs.sendMessage`
-- Side Panel ↔ Background: `chrome.runtime.sendMessage`
+- Content Script → Background: `chrome.runtime.sendMessage` (TICK_DATA, TRADE_EXECUTED)
+- Background → Content Script: `chrome.tabs.sendMessage` (START_TRADING, STOP_TRADING)
+- Side Panel ↔ Background: `chrome.runtime.sendMessage` (GET_STATUS, STATUS_UPDATE)
+- Tampermonkey ↔ Content Script: `window.postMessage` (pq-bridge ↔ pq-content)
 
 ---
 
 ## 모듈 상세
 
+### 핵심 모듈 (manifest.json 진입점)
+
 | 모듈 | 진입점 | 핵심 책임 |
 |------|--------|-----------|
-| background | `src/background/index.ts` | 메시지 핸들러, 상태 관리, 알람 |
-| content-script | `src/content-script/index.ts` | 데이터 수집, 거래 실행 |
-| side-panel | `src/side-panel/App.tsx` | UI 렌더링, 사용자 입력 |
-| lib/db | `src/lib/db/index.ts` | IndexedDB CRUD (Tick, Trade, Session, Strategy) |
-| lib/indicators | `src/lib/indicators/index.ts` | 기술적 지표 계산 (SMA, EMA, RSI, MACD 등) |
-| lib/backtest | `src/lib/backtest/engine.ts` | 백테스트 실행 엔진 |
-| lib/types | `src/lib/types/index.ts` | TypeScript 타입 정의, DOM 셀렉터 |
+| background | `src/background/index.ts` | 중앙 메시지 라우터, 거래 상태 관리, Tick 저장, 에러→텔레그램 알림, 주기적 데이터 정리(알람) |
+| content-script | `src/content-script/index.ts` | DOM 가격 추출, WebSocket 인터셉트, 거래 실행, 신호 생성, 자동 채굴 |
+| side-panel | `src/side-panel/App.tsx` | 탭 기반 UI (신호, 자동매매, 상태, 로그, 리더보드, 설정) |
 
-**주요 파일별 기능**:
-- `content-script/data-collector.ts`: MutationObserver로 가격 변화 감지, Tick 생성
-- `content-script/executor.ts`: CALL/PUT 버튼 클릭, 거래 실행
-- `content-script/payout-monitor.ts`: 페이아웃 비율 모니터링
-- `lib/backtest/strategies/`: 전략 구현체 (RSI, SMMA+Stochastic)
-- `lib/backtest/optimizer.ts`: 파라미터 최적화
-- `lib/backtest/statistics.ts`: 백테스트 통계 계산
+### 공유 라이브러리 (`src/lib/`)
+
+| 모듈 | 진입점 | 핵심 책임 |
+|------|--------|-----------|
+| lib/db | `src/lib/db/index.ts` | IndexedDB CRUD — ticks, trades, sessions, strategies, candles, leaderboard (Dexie v3 스키마) |
+| lib/types | `src/lib/types/index.ts` | TypeScript 타입, DOM 셀렉터, `isDemoMode()` 안전 함수, `getAccountType()` |
+| lib/indicators | `src/lib/indicators/index.ts` | 기술적 지표 계산 (SMA, EMA, RSI, MACD, Stochastic, Bollinger, ATR, Williams %R, CCI) |
+| lib/backtest | `src/lib/backtest/engine.ts` | 백테스트 엔진, 10+ 전략 구현체, 파라미터 최적화, 리더보드, 통계 리포트 |
+| lib/signals | `src/lib/signals/signal-generator.ts` | 실시간 신호 생성 시스템 — 시장 레짐(ADX) 감지 → 레짐별 최적 전략 선택 → CALL/PUT 신호 |
+| lib/signals (v2) | `src/lib/signals/signal-generator-v2.ts` | 고승률 최적화 신호 생성기 — 투표 전략, RSI+BB 바운스, 추세 필터링, 신뢰도 기반 필터 |
+| lib/trading | `src/lib/trading/auto-trader.ts` | 자동매매 실행 루프 — 포지션 사이징(고정/%), 리스크 관리(일일 한도, 드로다운, 연속손실), 쿨다운 |
+| lib/errors | `src/lib/errors/index.ts` | POError 커스텀 에러 체계, ErrorCode enum, Result<T> 타입, 중앙 에러 핸들러, retry/timeout 유틸 |
+| lib/notifications | `src/lib/notifications/telegram.ts` | 텔레그램 Bot API 연동 — 신호/거래/에러/상태 알림 전송 |
+| lib/strategy-rag | `src/lib/strategy-rag/index.ts` | 전략 지식 저장소 — YouTube 트랜스크립트/문서에서 전략 조건 추출, 키워드 검색 |
+| lib/logger | `src/lib/logger/index.ts` | 모듈별 컬러 로깅 시스템 — 로그 레벨 제어, 모듈 필터링, `window.pqLog` 개발 도구 |
+| lib/dom-utils | `src/lib/dom-utils.ts` | DOM 헬퍼 — `forceClick()` (React 이벤트 우회 클릭) |
+| lib/data-sender | `src/lib/data-sender.ts` | 수집 캔들을 로컬 서버(`localhost:3001`)로 HTTP POST 전송 (실시간/벌크) |
+| lib/diagnostics | `src/lib/diagnostics.ts` | DOM 요소 진단 도구 — React 내부 프로퍼티 검사, 이벤트 리스너 모니터링 |
+| lib/deep-analyzer | `src/lib/deep-analyzer.ts` | DOM 이벤트 심층 분석 스크립트 — 자산 목록 클릭 이벤트 캡처/버블 추적 |
+| lib/verification | `src/lib/verification.ts` | Auto Miner 종합 검증 도구 — 셀렉터/React 핸들러/자산 전환 동작 검증 |
+
+### Content Script 하위 모듈
+
+| 파일 | 핵심 책임 |
+|------|-----------|
+| `content-script/data-collector.ts` | MutationObserver로 DOM 가격 변화 감지 → Tick 생성 → Background로 전송 |
+| `content-script/executor.ts` | CALL/PUT 버튼 클릭 시뮬레이션, 데모 모드 3중 체크, 금액 설정 |
+| `content-script/candle-collector.ts` | DOM에서 OHLCV 캔들 데이터 수집, 틱→캔들 변환, IndexedDB 저장 |
+| `content-script/payout-monitor.ts` | 자산 목록 DOM 파싱, 페이아웃 비율 추적, 고페이아웃(≥92%) 자산 필터링, 자산 전환 |
+| `content-script/indicator-reader.ts` | PO 페이지 DOM에서 RSI/Stochastic/MACD/BB 인디케이터 값 직접 읽기 |
+| `content-script/websocket-interceptor.ts` | WebSocket 메시지 가로채기 — Tampermonkey 브릿지 경유, 가격/캔들 히스토리 콜백, 직접 메시지 전송 |
+| `content-script/websocket-parser.ts` | WebSocket 메시지 파싱 — price_update/candle_data/candle_history/heartbeat 타입 분류 |
+| `content-script/auto-miner.ts` | 자동 데이터 채굴 — 고페이아웃 자산 순회, WebSocket으로 히스토리 요청, 로컬 서버 전송 |
+| `content-script/selector-resolver.ts` | 다단계 DOM 셀렉터 폴백 시스템 — primary → fallback 셀렉터 자동 시도, 결과 캐싱 |
+
+### 레거시/미사용 모듈 (⚠️ manifest.json 미참조)
+
+| 모듈 | 경로 | 설명 |
+|------|------|------|
+| sidepanel (구) | `src/sidepanel/` | 초기 버전의 간단한 Side Panel — Status/Controls/Logs 3개 컴포넌트만 존재 |
+| content (구) | `src/content/` | 초기 버전의 Content Script — observers/price.ts, ui/controller.ts |
+| database (구) | `src/database/index.ts` | 독립 DB 타입 정의 — `src/lib/db/`로 대체됨 |
 
 ---
 
@@ -134,12 +181,19 @@ if (!isDemoMode(selectors)) {
 | 작업 | 파일 경로 |
 |------|-----------|
 | 새 기술적 지표 추가 | `src/lib/indicators/index.ts` |
-| 새 전략 추가 | `src/lib/backtest/strategies/` (새 파일 생성) |
+| 새 백테스트 전략 추가 | `src/lib/backtest/strategies/` (새 파일 생성) |
+| 새 신호 전략 추가 | `src/lib/signals/strategies.ts` 또는 `strategies-v2.ts` |
 | UI 컴포넌트 수정 | `src/side-panel/components/` |
-| DOM 셀렉터 수정 | `src/lib/types/index.ts` (DOMSelectors 인터페이스) |
-| DB 스키마 수정 | `src/lib/db/index.ts` |
-| 메시지 타입 추가 | `src/lib/types/index.ts` |
+| DOM 셀렉터 수정 | `src/lib/types/index.ts` + `content-script/selector-resolver.ts` |
+| DB 스키마 수정 | `src/lib/db/index.ts` (version 번호 올려서 마이그레이션) |
+| 메시지 타입 추가 | `src/lib/types/index.ts` (ExtensionMessage) |
 | 백테스트 로직 수정 | `src/lib/backtest/engine.ts` |
+| 리스크 관리 설정 변경 | `src/lib/trading/auto-trader.ts` (AutoTraderConfig) |
+| 텔레그램 알림 수정 | `src/lib/notifications/telegram.ts` |
+| 에러 코드 추가 | `src/lib/errors/error-codes.ts` |
+| WebSocket 파싱 수정 | `content-script/websocket-parser.ts` |
+| 자동 채굴 로직 수정 | `content-script/auto-miner.ts` |
+| 전략 지식 추가 | `src/lib/strategy-rag/index.ts` |
 
 **개발 명령어**:
 ```bash
