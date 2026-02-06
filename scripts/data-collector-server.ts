@@ -110,29 +110,46 @@ app.post('/api/candle', (req, res) => {
 
 // 2. 다중 캔들 수집 (과거 데이터 Bulk)
 app.post('/api/candles/bulk', (req, res) => {
+  const bodySize = req.headers['content-length'] || 'unknown'
+  console.log(`[Bulk] Request received (${bodySize} bytes)`)
+
+  if (!req.body || typeof req.body !== 'object') {
+    console.error(`[Bulk] Empty or invalid body. Content-Type: ${req.headers['content-type']}, body type: ${typeof req.body}`)
+    return res.status(400).json({ error: 'Empty or invalid request body' })
+  }
+
   const { candles } = req.body // Array of candle objects
 
   if (!Array.isArray(candles)) {
-    console.error('[Bulk] Invalid format: not an array')
+    console.error(`[Bulk] Invalid format: candles is ${typeof candles}, keys: ${Object.keys(req.body).join(',')}`)
     return res.status(400).json({ error: 'Invalid data format: candles must be an array' })
   }
 
   if (candles.length === 0) {
+    console.error('[Bulk] Empty candles array received')
     return res.status(400).json({ error: 'Empty candles array' })
   }
 
   console.log(`[Bulk] Received ${candles.length} candles. First: ${JSON.stringify(candles[0])}`)
 
+  // Validate all candles, collect failures instead of failing on first
+  const failures: { index: number; message: string }[] = []
   for (let i = 0; i < candles.length; i++) {
     const validation = validateCandle(candles[i])
     if (!validation.isValid) {
-      console.error(`[Bulk] Validation failed at index ${i}: ${validation.message}. Candle: ${JSON.stringify(candles[i])}`)
-      return res.status(400).json({ 
-        error: `Validation failed at index ${i}: ${validation.message}`,
-        failedIndex: i,
-        candle: candles[i]
-      })
+      failures.push({ index: i, message: validation.message! })
+      if (failures.length >= 5) break // Log first 5 failures max
     }
+  }
+
+  if (failures.length > 0) {
+    console.error(`[Bulk] Validation failed for ${failures.length}+ candles. First failure: index ${failures[0].index} - ${failures[0].message}. Candle: ${JSON.stringify(candles[failures[0].index])}`)
+    return res.status(400).json({
+      error: `Validation failed at index ${failures[0].index}: ${failures[0].message}`,
+      failedIndex: failures[0].index,
+      failureCount: failures.length,
+      candle: candles[failures[0].index]
+    })
   }
 
   try {
@@ -147,17 +164,16 @@ app.post('/api/candles/bulk', (req, res) => {
         volume = excluded.volume
     `)
 
-    const insertMany = db.transaction((rows) => {
-      let count = 0
+    const insertMany = db.transaction((rows: any[]) => {
       for (const row of rows) insert.run(row)
       return rows.length
     })
 
     const count = insertMany(candles)
-    console.log(`[${new Date().toLocaleTimeString()}] Bulk saved: ${count} candles`)
+    console.log(`[${new Date().toLocaleTimeString()}] Bulk saved: ${count} candles (symbol: ${candles[0].symbol})`)
     res.json({ success: true, count })
   } catch (error: any) {
-    console.error('Error bulk saving:', error.message)
+    console.error(`[Bulk] DB error: ${error.message}. First candle: ${JSON.stringify(candles[0])}`)
     res.status(500).json({ error: error.message })
   }
 })
