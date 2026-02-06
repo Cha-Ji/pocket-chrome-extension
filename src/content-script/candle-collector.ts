@@ -61,6 +61,7 @@ export class CandleCollector {
   private listeners: ((ticker: string, candle: Candle) => void)[] = []
   private tickHistory: TickData[] = []
   private maxTickHistory = 10000
+  private static readonly MAX_LISTENERS_WARNING = 10
 
   constructor(candleIntervalSeconds: number = 60, maxCandles: number = 500) {
     this.candleInterval = candleIntervalSeconds * 1000
@@ -149,9 +150,27 @@ export class CandleCollector {
 
   /**
    * Subscribe to new candles
+   * 중복 등록 방지 및 max listener 경고 포함
    */
   onCandle(callback: (ticker: string, candle: Candle) => void): () => void {
+    // 중복 등록 방지: 같은 함수 참조가 이미 등록되어 있으면 기존 unsubscribe 반환
+    if (this.listeners.includes(callback)) {
+      console.warn('[CandleCollector] 이미 등록된 리스너입니다. 중복 등록을 건너뜁니다.')
+      return () => {
+        this.listeners = this.listeners.filter(l => l !== callback)
+      }
+    }
+
     this.listeners.push(callback)
+
+    // max listener 경고
+    if (this.listeners.length > CandleCollector.MAX_LISTENERS_WARNING) {
+      console.warn(
+        `[CandleCollector] 리스너가 ${this.listeners.length}개로 ${CandleCollector.MAX_LISTENERS_WARNING}개를 초과했습니다. ` +
+        'unsubscribe 누락이 없는지 확인하세요.'
+      )
+    }
+
     return () => {
       this.listeners = this.listeners.filter(l => l !== callback)
     }
