@@ -52,6 +52,8 @@ export interface WebSocketMessage {
   parsed: any
   rawType: string
   timestamp: number
+  raw?: any
+  text?: string | null
 }
 
 export type WebSocketEventType = 'installed' | 'connection' | 'open' | 'close' | 'error' | 'message'
@@ -66,6 +68,7 @@ export interface WebSocketEvent {
 export type MessageType =
   | 'price_update'
   | 'candle_data'
+  | 'candle_history' // Array of candles
   | 'orderbook'
   | 'trade'
   | 'heartbeat'
@@ -73,7 +76,7 @@ export type MessageType =
 
 export interface ParsedMessage {
   type: MessageType
-  data: PriceUpdate | CandleData | OrderBookData | TradeData | null
+  data: PriceUpdate | CandleData | CandleData[] | OrderBookData | TradeData | null
   raw: any
   confidence: number // 0-1, 파싱 확신도
 }

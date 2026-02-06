@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { AutoTraderConfig, AutoTraderStats, TradeExecution, getAutoTrader } from '../../lib/trading/auto-trader'
+import { formatMoney, formatPercent, formatNumber } from '../utils/format'
 
 export function AutoTradePanel() {
   const [trader] = useState(() => getAutoTrader({ demoMode: true }))
@@ -62,7 +63,7 @@ export function AutoTradePanel() {
   }
 
   const winRate = stats.todayTrades > 0 
-    ? ((stats.todayWins / stats.todayTrades) * 100).toFixed(1) 
+    ? formatPercent((stats.todayWins / stats.todayTrades) * 100)
     : '0.0'
 
   return (
@@ -100,7 +101,7 @@ export function AutoTradePanel() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-2">
         <div className="bg-pocket-darker rounded-lg p-2 text-center">
-          <div className="text-lg font-bold text-white">${stats.currentBalance.toFixed(0)}</div>
+          <div className="text-lg font-bold text-white">${formatNumber(stats.currentBalance)}</div>
           <div className="text-xs text-gray-400">Balance</div>
         </div>
         <div className="bg-pocket-darker rounded-lg p-2 text-center">
@@ -111,7 +112,7 @@ export function AutoTradePanel() {
         </div>
         <div className="bg-pocket-darker rounded-lg p-2 text-center">
           <div className={`text-lg font-bold ${stats.currentDrawdown > 10 ? 'text-red-400' : 'text-yellow-400'}`}>
-            {stats.currentDrawdown.toFixed(1)}%
+            {formatPercent(stats.currentDrawdown)}%
           </div>
           <div className="text-xs text-gray-400">Drawdown</div>
         </div>
@@ -132,7 +133,7 @@ export function AutoTradePanel() {
         </div>
         <div className="bg-pocket-darker rounded-lg p-2 text-center">
           <div className={`text-sm font-bold ${stats.todayProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-            ${stats.todayProfit.toFixed(0)}
+            ${formatNumber(stats.todayProfit)}
           </div>
           <div className="text-xs text-gray-400">P/L</div>
         </div>
@@ -178,7 +179,7 @@ export function AutoTradePanel() {
           {/* Position size preview */}
           <div className="bg-pocket-darker/50 rounded p-2 text-xs text-gray-400 text-center">
             Position size: <span className="text-white font-medium">
-              ${((config.initialBalance * config.riskPerTrade) / 100).toFixed(2)}
+              ${formatMoney((config.initialBalance * config.riskPerTrade) / 100)}
             </span> per trade ({config.riskPerTrade}% of ${config.initialBalance})
           </div>
           
@@ -266,13 +267,13 @@ export function AutoTradePanel() {
                     {exec.direction}
                   </span>
                   <span className="text-xs text-gray-400">
-                    ${exec.entryPrice.toFixed(2)}
+                    ${formatMoney(exec.entryPrice)}
                   </span>
                 </div>
                 <div className="text-right">
                   {exec.result ? (
                     <span className={exec.result === 'WIN' ? 'text-green-400' : 'text-red-400'}>
-                      {exec.result} ${exec.profit?.toFixed(2)}
+                      {exec.result} ${formatMoney(exec.profit)}
                     </span>
                   ) : (
                     <span className="text-yellow-400">Pending...</span>

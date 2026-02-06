@@ -1,6 +1,5 @@
-# 진행 로그
+# Progress - Data Collector
 
-## 2026-01-26
-
-- (최신) data-collector 문서를 초기화함
-- 다음 행동: 수집 대상과 주기 정의
+## 2026-02-02
+- 작업 시작: 데이터 수집 서버 구축 및 과거 데이터 수집 전략 수립
+- 3-file pattern 문서 생성 (`docs/features/data-collector/`)

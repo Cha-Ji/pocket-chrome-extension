@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
-import type { Tick, Strategy, Session, Trade, ErrorLog } from '../types'
+import type { Tick, Strategy, Session, Trade } from '../types'
+import type { LeaderboardEntry } from '../backtest/leaderboard-types'
 
 // ============================================================
 // Candle Type (IndexedDB 저장용)
@@ -28,7 +29,7 @@ export class PocketDB extends Dexie {
   sessions!: EntityTable<Session, 'id'>
   trades!: EntityTable<Trade, 'id'>
   candles!: EntityTable<StoredCandle, 'id'>
-  logs!: EntityTable<ErrorLog, 'id'>
+  leaderboardEntries!: EntityTable<LeaderboardEntry, 'id'>
 
   constructor() {
     super('PocketQuantTrader')
@@ -50,14 +51,14 @@ export class PocketDB extends Dexie {
       candles: '++id, ticker, interval, timestamp, [ticker+interval], [ticker+interval+timestamp]',
     })
 
-    // Version 3: 로그 테이블 추가
+    // Version 3: 리더보드 테이블 추가
     this.version(3).stores({
       ticks: '++id, ticker, timestamp, [ticker+timestamp]',
       strategies: '++id, name, createdAt',
       sessions: '++id, type, strategyId, startTime',
       trades: '++id, sessionId, ticker, entryTime, result',
       candles: '++id, ticker, interval, timestamp, [ticker+interval], [ticker+interval+timestamp]',
-      logs: '++id, timestamp, severity, module, [module+timestamp], [severity+timestamp]',
+      leaderboardEntries: '++id, strategyId, compositeScore, winRate, rank, createdAt',
     })
   }
 }
@@ -435,46 +436,58 @@ export const CandleRepository = {
 }
 
 // ============================================================
-// Log Repository
+// Leaderboard Repository - 리더보드 결과 저장/조회
 // ============================================================
 
-export const LogRepository = {
-  async add(log: Omit<ErrorLog, 'id'>): Promise<number | undefined> {
-    return await db.logs.add(log)
+export const LeaderboardRepository = {
+  /**
+   * 리더보드 엔트리 일괄 저장 (기존 데이터 교체)
+   */
+  async saveResults(entries: LeaderboardEntry[]): Promise<void> {
+    await db.leaderboardEntries.clear()
+    await db.leaderboardEntries.bulkAdd(entries)
   },
 
-  async query(options: {
-    startTime?: number,
-    endTime?: number,
-    severity?: ErrorLog['severity'],
-    module?: string,
-    limit?: number
-  } = {}): Promise<ErrorLog[]> {
-    let collection = db.logs.orderBy('timestamp').reverse()
-
-    if (options.startTime) {
-      collection = collection.filter(log => log.timestamp >= options.startTime!)
-    }
-    if (options.endTime) {
-      collection = collection.filter(log => log.timestamp <= options.endTime!)
-    }
-    if (options.severity) {
-      collection = collection.filter(log => log.severity === options.severity)
-    }
-    if (options.module) {
-      collection = collection.filter(log => log.module === options.module)
-    }
-
-    if (options.limit) {
-      collection = collection.limit(options.limit)
-    }
-
-    return await collection.toArray()
+  /**
+   * 전체 리더보드 조회 (순위순)
+   */
+  async getAll(): Promise<LeaderboardEntry[]> {
+    return await db.leaderboardEntries
+      .orderBy('rank')
+      .toArray()
   },
 
-  async clearOlderThan(timestamp: number): Promise<number> {
-    const toDelete = await db.logs.where('timestamp').below(timestamp).primaryKeys()
-    await db.logs.bulkDelete(toDelete)
-    return toDelete.length
+  /**
+   * 상위 N개 엔트리 조회
+   */
+  async getTop(limit: number): Promise<LeaderboardEntry[]> {
+    return await db.leaderboardEntries
+      .orderBy('rank')
+      .limit(limit)
+      .toArray()
+  },
+
+  /**
+   * 특정 전략의 리더보드 엔트리 조회
+   */
+  async getByStrategy(strategyId: string): Promise<LeaderboardEntry | undefined> {
+    return await db.leaderboardEntries
+      .where('strategyId')
+      .equals(strategyId)
+      .first()
+  },
+
+  /**
+   * 리더보드 데이터 삭제
+   */
+  async clear(): Promise<void> {
+    await db.leaderboardEntries.clear()
+  },
+
+  /**
+   * 리더보드 엔트리 개수
+   */
+  async count(): Promise<number> {
+    return await db.leaderboardEntries.count()
   },
 }

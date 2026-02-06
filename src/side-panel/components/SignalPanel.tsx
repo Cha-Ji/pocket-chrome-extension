@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Signal, MarketRegime } from '../../lib/signals/types'
+import { formatMoney, formatPercent, formatNumber } from '../utils/format'
 
 interface SignalPanelProps {
   onSignal?: (signal: Signal) => void
@@ -172,7 +173,7 @@ export function SignalPanel({ onSignal }: SignalPanelProps) {
           <div className="rounded p-2 bg-blue-500/10">
             <div className="text-xs text-gray-400">Win Rate</div>
             <div className="text-sm font-bold text-white">
-              {status.signals?.winRate.toFixed(1) || 0}%
+              {formatPercent(status.signals?.winRate)}%
             </div>
           </div>
         </div>
@@ -305,7 +306,7 @@ function SignalCard({ signal }: { signal: Signal }) {
         </div>
         <div className="text-right">
           <div className="text-sm text-white font-mono">
-            ${signal.entryPrice.toFixed(2)}
+            ${formatMoney(signal.entryPrice)}
           </div>
           <div className="text-xs text-gray-400">
             {new Date(signal.timestamp).toLocaleTimeString()}
@@ -321,7 +322,7 @@ function SignalCard({ signal }: { signal: Signal }) {
         }`}>
           {signal.regime.replace('_', ' ')}
         </span>
-        <span>Conf: {(signal.confidence * 100).toFixed(0)}%</span>
+        <span>Conf: {formatNumber(signal.confidence * 100)}%</span>
         <span className={`px-2 py-0.5 rounded ${
           signal.status === 'win' ? 'bg-green-500/20 text-green-400' :
           signal.status === 'loss' ? 'bg-red-500/20 text-red-400' :

@@ -4,7 +4,16 @@
 // Comprehensive statistics for backtest results
 // ============================================================
 
-import { BacktestTrade, TradeResult, Direction } from './types'
+import {
+  BacktestTrade,
+  TradeResult,
+  Direction,
+  MonthlyBreakdown,
+  DayOfWeekStats,
+  HourlyStats as HourlyStatsType,
+  DistributionData,
+  StreakAnalysis,
+} from './types'
 
 export interface DetailedStatistics {
   // Basic Stats
@@ -50,7 +59,7 @@ export interface DetailedStatistics {
   quietestHour: number
   
   // Hourly Breakdown
-  hourlyStats: HourlyStats[]
+  hourlyStats: HourlyStatsType[]
   
   // Streak Analysis
   currentStreak: { type: 'win' | 'loss' | 'none'; count: number }
@@ -66,14 +75,7 @@ export interface DetailedStatistics {
   lossDistribution: { range: string; count: number }[]
 }
 
-export interface HourlyStats {
-  hour: number
-  trades: number
-  wins: number
-  losses: number
-  winRate: number
-  profit: number
-}
+// Note: HourlyStats is imported from types.ts as HourlyStatsType
 
 export interface StreakInfo {
   type: 'win' | 'loss'
@@ -214,7 +216,7 @@ export function calculateDetailedStatistics(
   }
 }
 
-function calculateHourlyStats(trades: BacktestTrade[]): HourlyStats[] {
+function calculateHourlyStats(trades: BacktestTrade[]): HourlyStatsType[] {
   const hourly = new Array(24).fill(null).map((_, hour) => ({
     hour,
     trades: 0,
@@ -222,6 +224,7 @@ function calculateHourlyStats(trades: BacktestTrade[]): HourlyStats[] {
     losses: 0,
     winRate: 0,
     profit: 0,
+    avgProfit: 0,
   }))
 
   for (const trade of trades) {
@@ -234,6 +237,7 @@ function calculateHourlyStats(trades: BacktestTrade[]): HourlyStats[] {
 
   for (const h of hourly) {
     h.winRate = h.trades > 0 ? (h.wins / h.trades) * 100 : 0
+    h.avgProfit = h.trades > 0 ? h.profit / h.trades : 0
   }
 
   return hourly
@@ -456,3 +460,408 @@ export function formatStatisticsReport(stats: DetailedStatistics): string {
 
   return lines.join('\n')
 }
+
+// ============================================================
+// Advanced Risk Metrics
+// ============================================================
+
+/**
+ * Calculate Sortino Ratio
+ * Measures risk-adjusted return using downside deviation (only negative returns)
+ * Higher is better - focuses on harmful volatility only
+ *
+ * @param trades Array of backtest trades
+ * @param riskFreeRate Annual risk-free rate (default 0.02 = 2%)
+ * @param initialBalance Starting balance for return calculations
+ * @returns Sortino ratio (annualized)
+ */
+export function calculateSortinoRatio(
+  trades: BacktestTrade[],
+  riskFreeRate: number = 0.02,
+  initialBalance: number = 10000
+): number {
+  if (trades.length < 2) return 0
+
+  const returns = trades.map((t) => t.profit / initialBalance)
+  const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length
+
+  // Downside deviation: standard deviation of negative returns only
+  const negativeReturns = returns.filter((r) => r < 0)
+  if (negativeReturns.length < 2) {
+    // No negative returns = infinite Sortino (perfect)
+    return avgReturn > 0 ? Infinity : 0
+  }
+
+  const downsideMean = negativeReturns.reduce((a, b) => a + b, 0) / negativeReturns.length
+  const downsideVariance =
+    negativeReturns.reduce((sum, r) => sum + Math.pow(r - downsideMean, 2), 0) /
+    negativeReturns.length
+  const downsideDeviation = Math.sqrt(downsideVariance)
+
+  if (downsideDeviation === 0) return avgReturn > 0 ? Infinity : 0
+
+  // Annualize (assuming ~6000 trades per year for binary options trading)
+  const annualizationFactor = Math.sqrt(6000)
+  const periodicRiskFreeRate = riskFreeRate / 6000
+
+  return ((avgReturn - periodicRiskFreeRate) / downsideDeviation) * annualizationFactor
+}
+
+/**
+ * Calculate Calmar Ratio
+ * Measures return relative to maximum drawdown risk
+ * Higher is better - shows reward per unit of max drawdown risk
+ *
+ * @param trades Array of backtest trades
+ * @param annualizedReturn Annualized return percentage
+ * @param maxDrawdown Maximum drawdown percentage
+ * @returns Calmar ratio
+ */
+export function calculateCalmarRatio(
+  trades: BacktestTrade[],
+  annualizedReturn: number,
+  maxDrawdown: number
+): number {
+  if (maxDrawdown === 0) {
+    return annualizedReturn > 0 ? Infinity : 0
+  }
+  return annualizedReturn / Math.abs(maxDrawdown)
+}
+
+/**
+ * Calculate Ulcer Index
+ * Measures downside volatility using depth and duration of drawdowns
+ * Lower is better - indicates less painful drawdowns
+ *
+ * @param equityCurve Array of balance points over time
+ * @returns Ulcer Index value
+ */
+export function calculateUlcerIndex(equityCurve: { timestamp: number; balance: number }[]): number {
+  if (equityCurve.length < 2) return 0
+
+  let peak = equityCurve[0].balance
+  const drawdownPercentages: number[] = []
+
+  for (const point of equityCurve) {
+    if (point.balance > peak) {
+      peak = point.balance
+    }
+    const drawdownPercent = ((peak - point.balance) / peak) * 100
+    drawdownPercentages.push(drawdownPercent)
+  }
+
+  // Ulcer Index = sqrt(sum of squared drawdown percentages / n)
+  const sumSquared = drawdownPercentages.reduce((sum, dd) => sum + dd * dd, 0)
+  return Math.sqrt(sumSquared / drawdownPercentages.length)
+}
+
+// ============================================================
+// Time-Based Analysis Functions
+// ============================================================
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+/**
+ * Analyze trades by month
+ * Groups trades by year-month and calculates statistics for each period
+ *
+ * @param trades Array of backtest trades
+ * @returns Array of monthly breakdown statistics
+ */
+export function analyzeByMonth(trades: BacktestTrade[]): MonthlyBreakdown[] {
+  if (trades.length === 0) return []
+
+  const monthlyMap = new Map<string, BacktestTrade[]>()
+
+  for (const trade of trades) {
+    const date = new Date(trade.entryTime)
+    const key = `${date.getFullYear()}-${date.getMonth() + 1}`
+    const existing = monthlyMap.get(key) || []
+    existing.push(trade)
+    monthlyMap.set(key, existing)
+  }
+
+  const results: MonthlyBreakdown[] = []
+
+  for (const [key, monthTrades] of monthlyMap) {
+    const [year, month] = key.split('-').map(Number)
+    const wins = monthTrades.filter((t) => t.result === 'WIN').length
+    const losses = monthTrades.filter((t) => t.result === 'LOSS').length
+    const profit = monthTrades.reduce((sum, t) => sum + t.profit, 0)
+
+    results.push({
+      year,
+      month,
+      trades: monthTrades.length,
+      wins,
+      losses,
+      winRate: monthTrades.length > 0 ? (wins / monthTrades.length) * 100 : 0,
+      profit,
+      avgProfit: monthTrades.length > 0 ? profit / monthTrades.length : 0,
+    })
+  }
+
+  // Sort by year and month
+  return results.sort((a, b) => {
+    if (a.year !== b.year) return a.year - b.year
+    return a.month - b.month
+  })
+}
+
+/**
+ * Analyze trades by day of week
+ * Groups trades by weekday and calculates statistics for each day
+ *
+ * @param trades Array of backtest trades
+ * @returns Array of day-of-week statistics
+ */
+export function analyzeByDayOfWeek(trades: BacktestTrade[]): DayOfWeekStats[] {
+  const dayStats: DayOfWeekStats[] = Array.from({ length: 7 }, (_, day) => ({
+    day,
+    dayName: DAY_NAMES[day],
+    trades: 0,
+    wins: 0,
+    losses: 0,
+    winRate: 0,
+    profit: 0,
+    avgProfit: 0,
+  }))
+
+  for (const trade of trades) {
+    const dayOfWeek = new Date(trade.entryTime).getDay()
+    dayStats[dayOfWeek].trades++
+    dayStats[dayOfWeek].profit += trade.profit
+    if (trade.result === 'WIN') dayStats[dayOfWeek].wins++
+    if (trade.result === 'LOSS') dayStats[dayOfWeek].losses++
+  }
+
+  for (const stat of dayStats) {
+    stat.winRate = stat.trades > 0 ? (stat.wins / stat.trades) * 100 : 0
+    stat.avgProfit = stat.trades > 0 ? stat.profit / stat.trades : 0
+  }
+
+  return dayStats
+}
+
+/**
+ * Analyze trades by hour
+ * Groups trades by hour of day and calculates statistics
+ *
+ * @param trades Array of backtest trades
+ * @returns Array of hourly statistics (0-23)
+ */
+export function analyzeByHour(trades: BacktestTrade[]): HourlyStatsType[] {
+  const hourStats: HourlyStatsType[] = Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    trades: 0,
+    wins: 0,
+    losses: 0,
+    winRate: 0,
+    profit: 0,
+    avgProfit: 0,
+  }))
+
+  for (const trade of trades) {
+    const hour = new Date(trade.entryTime).getHours()
+    hourStats[hour].trades++
+    hourStats[hour].profit += trade.profit
+    if (trade.result === 'WIN') hourStats[hour].wins++
+    if (trade.result === 'LOSS') hourStats[hour].losses++
+  }
+
+  for (const stat of hourStats) {
+    stat.winRate = stat.trades > 0 ? (stat.wins / stat.trades) * 100 : 0
+    stat.avgProfit = stat.trades > 0 ? stat.profit / stat.trades : 0
+  }
+
+  return hourStats
+}
+
+// ============================================================
+// Trade Pattern Analysis Functions
+// ============================================================
+
+/**
+ * Analyze win/loss streaks
+ * Calculates maximum, average streaks and current streak status
+ *
+ * @param trades Array of backtest trades
+ * @returns Streak analysis with max, avg streaks and current streak
+ */
+export function analyzeStreaks(trades: BacktestTrade[]): StreakAnalysis {
+  if (trades.length === 0) {
+    return {
+      maxWinStreak: 0,
+      maxLoseStreak: 0,
+      avgWinStreak: 0,
+      avgLoseStreak: 0,
+      currentStreak: { type: 'none', count: 0 },
+    }
+  }
+
+  const winStreaks: number[] = []
+  const loseStreaks: number[] = []
+  let currentStreakType: 'win' | 'loss' | null = null
+  let currentStreakCount = 0
+
+  for (const trade of trades) {
+    if (trade.result === 'TIE') continue
+
+    const isWin = trade.result === 'WIN'
+
+    if (currentStreakType === null) {
+      currentStreakType = isWin ? 'win' : 'loss'
+      currentStreakCount = 1
+    } else if ((isWin && currentStreakType === 'win') || (!isWin && currentStreakType === 'loss')) {
+      currentStreakCount++
+    } else {
+      // Streak ended
+      if (currentStreakType === 'win') {
+        winStreaks.push(currentStreakCount)
+      } else {
+        loseStreaks.push(currentStreakCount)
+      }
+      currentStreakType = isWin ? 'win' : 'loss'
+      currentStreakCount = 1
+    }
+  }
+
+  // Don't forget the last streak
+  if (currentStreakType === 'win') {
+    winStreaks.push(currentStreakCount)
+  } else if (currentStreakType === 'loss') {
+    loseStreaks.push(currentStreakCount)
+  }
+
+  const maxWinStreak = winStreaks.length > 0 ? Math.max(...winStreaks) : 0
+  const maxLoseStreak = loseStreaks.length > 0 ? Math.max(...loseStreaks) : 0
+  const avgWinStreak =
+    winStreaks.length > 0 ? winStreaks.reduce((a, b) => a + b, 0) / winStreaks.length : 0
+  const avgLoseStreak =
+    loseStreaks.length > 0 ? loseStreaks.reduce((a, b) => a + b, 0) / loseStreaks.length : 0
+
+  return {
+    maxWinStreak,
+    maxLoseStreak,
+    avgWinStreak,
+    avgLoseStreak,
+    currentStreak: {
+      type: currentStreakType || 'none',
+      count: currentStreakCount,
+    },
+  }
+}
+
+/**
+ * Calculate trade profit/loss distribution
+ * Analyzes the distribution of profits and losses across ranges
+ *
+ * @param trades Array of backtest trades
+ * @returns Distribution data with ranges and percentiles
+ */
+export function calculateTradeDistribution(trades: BacktestTrade[]): DistributionData {
+  if (trades.length === 0) {
+    return {
+      profitRanges: [],
+      lossRanges: [],
+      profitPercentile: { p10: 0, p25: 0, p50: 0, p75: 0, p90: 0 },
+      holdingTimeDistribution: [],
+    }
+  }
+
+  const profits = trades.filter((t) => t.profit > 0).map((t) => t.profit)
+  const losses = trades.filter((t) => t.profit < 0).map((t) => Math.abs(t.profit))
+  const allProfits = trades.map((t) => t.profit).sort((a, b) => a - b)
+
+  // Calculate profit ranges
+  const profitRanges = calculateRanges(profits, 'profit')
+  const lossRanges = calculateRanges(losses, 'loss')
+
+  // Calculate percentiles
+  const profitPercentile = {
+    p10: getPercentile(allProfits, 10),
+    p25: getPercentile(allProfits, 25),
+    p50: getPercentile(allProfits, 50),
+    p75: getPercentile(allProfits, 75),
+    p90: getPercentile(allProfits, 90),
+  }
+
+  // Calculate holding time distribution
+  const holdingTimes = trades.map((t) => t.exitTime - t.entryTime)
+  const holdingTimeDistribution = calculateHoldingTimeDistribution(holdingTimes)
+
+  return {
+    profitRanges,
+    lossRanges,
+    profitPercentile,
+    holdingTimeDistribution,
+  }
+}
+
+function calculateRanges(
+  values: number[],
+  _type: 'profit' | 'loss'
+): { min: number; max: number; count: number; percentage: number }[] {
+  if (values.length === 0) return []
+
+  const max = Math.max(...values)
+  const min = Math.min(...values)
+  const range = max - min
+
+  // Create 5 equal-width ranges
+  const numRanges = 5
+  const rangeWidth = range / numRanges || 1
+
+  const ranges: { min: number; max: number; count: number; percentage: number }[] = []
+
+  for (let i = 0; i < numRanges; i++) {
+    const rangeMin = min + i * rangeWidth
+    const rangeMax = i === numRanges - 1 ? max + 0.01 : min + (i + 1) * rangeWidth
+    const count = values.filter((v) => v >= rangeMin && v < rangeMax).length
+
+    ranges.push({
+      min: rangeMin,
+      max: rangeMax,
+      count,
+      percentage: values.length > 0 ? (count / values.length) * 100 : 0,
+    })
+  }
+
+  return ranges
+}
+
+function getPercentile(sortedValues: number[], percentile: number): number {
+  if (sortedValues.length === 0) return 0
+  const index = Math.ceil((percentile / 100) * sortedValues.length) - 1
+  return sortedValues[Math.max(0, Math.min(index, sortedValues.length - 1))]
+}
+
+function calculateHoldingTimeDistribution(
+  holdingTimes: number[]
+): { range: string; count: number; percentage: number }[] {
+  if (holdingTimes.length === 0) return []
+
+  const ranges = [
+    { label: '< 1 min', max: 60000 },
+    { label: '1-5 min', max: 300000 },
+    { label: '5-15 min', max: 900000 },
+    { label: '15-30 min', max: 1800000 },
+    { label: '30-60 min', max: 3600000 },
+    { label: '> 60 min', max: Infinity },
+  ]
+
+  let prevMax = 0
+  return ranges.map((r) => {
+    const count = holdingTimes.filter((t) => t >= prevMax && t < r.max).length
+    const result = {
+      range: r.label,
+      count,
+      percentage: holdingTimes.length > 0 ? (count / holdingTimes.length) * 100 : 0,
+    }
+    prevMax = r.max
+    return result
+  })
+}
+
+// Re-export types for convenience (HourlyStats is already exported from types.ts via index.ts)
+export type { MonthlyBreakdown, DayOfWeekStats, DistributionData, StreakAnalysis }
