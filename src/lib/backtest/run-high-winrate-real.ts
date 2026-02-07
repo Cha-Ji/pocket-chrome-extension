@@ -132,8 +132,8 @@ async function main() {
     console.log('Trying parameter variations for Triple Confirmation...')
     
     // Quick variation test for Triple
-    for (let rsiP of [7, 14]) {
-      for (let oversold of [20, 25, 30]) {
+    for (const rsiP of [7, 14]) {
+      for (const oversold of [20, 25, 30]) {
         const name = `Triple (RSI ${rsiP}, OS ${oversold})`
         const res = runBacktest(tripleConfirmationStrategy, candles, name, 0.92, 5, {
           rsiPeriod: rsiP,
