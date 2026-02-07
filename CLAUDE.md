@@ -383,6 +383,47 @@ A: 안 됩니다. 1 PR = 1 이슈 원칙. 관련 이슈가 여러 개면 상위 
 
 ---
 
+## Issue Queue (클라우드 LLM → 로컬 이슈 브릿지)
+
+클라우드 LLM 환경에서는 GitHub API 접근이 불가하므로, `docs/issue-queue/`에 이슈를 마크다운으로 모아두고 로컬 LLM이 처리합니다.
+
+**폴더 구조**:
+```
+docs/issue-queue/
+├── README.md                    # 운영 가이드
+├── _templates/                  # 템플릿 (삭제 금지)
+│   ├── bug.md
+│   ├── feature.md
+│   └── refactor.md
+└── p0-bug-example-slug.md       # ← 처리 대상 이슈 파일
+```
+
+**파일 네이밍**: `{priority}-{type}-{slug}.md`
+- priority: `p0` (긴급) ~ `p3` (낮음)
+- type: `bug`, `feature`, `refactor`
+- slug: kebab-case 영문 요약
+
+**Slash Commands**:
+
+| 커맨드 | 환경 | 사용법 |
+|--------|------|--------|
+| `/queue-issue` | 클라우드 | `/queue-issue bug executor에서 금액 검증 누락` |
+| `/process-issues` | 로컬 | `/process-issues` 또는 `/process-issues --dry-run` |
+
+**클라우드 LLM 작업 시**:
+1. `/queue-issue <type> <설명>` 실행 (권장)
+2. 또는 수동으로: `_templates/`에서 복사 → frontmatter 작성 → 저장
+3. 커밋 & 푸시
+
+**로컬 LLM 처리 시**:
+1. `/process-issues` 실행 (권장)
+2. 또는 `scripts/process-issue-queue.sh` 실행
+3. 파일 삭제 후 커밋 & 푸시
+
+상세: `docs/issue-queue/README.md`
+
+---
+
 # 문서화 운영 규칙
 
 이 섹션은 프로젝트 문서화의 기본 규칙을 요약합니다.
