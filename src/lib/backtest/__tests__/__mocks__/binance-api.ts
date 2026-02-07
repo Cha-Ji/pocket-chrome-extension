@@ -79,10 +79,11 @@ export async function fetchBinanceData(symbol: string, interval: string = '1m', 
 }
 
 export async function fetchMultipleSymbols(symbols: string[], interval: string = '1m', limit: number = 100) {
-  const result: Record<string, any[]> = {};
+  const result = new Map<string, any[]>();
 
   for (const symbol of symbols) {
-    result[symbol] = await fetchBinanceData(symbol, interval, limit);
+    const data = await fetchBinanceData(symbol, interval, limit);
+    result.set(symbol, data);
   }
 
   return result;
