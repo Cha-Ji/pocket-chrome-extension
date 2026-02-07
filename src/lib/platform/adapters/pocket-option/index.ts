@@ -145,4 +145,13 @@ export class PocketOptionDetector implements IPlatformDetector {
 export { PocketOptionDataSource } from './data-source'
 export { PocketOptionExecutor } from './executor'
 export { PocketOptionSafetyGuard } from './safety'
-export { PO_DOMAINS } from './selectors'
+export {
+  PO_DOMAINS,
+  PO_DEMO_SELECTORS,
+  PO_REAL_SELECTORS,
+  PO_PAYOUT_SELECTORS,
+  PO_PRICE_SELECTORS,
+  PO_DEMO_DETECTION,
+  PO_REAL_DETECTION,
+  PO_SELECTOR_FALLBACKS,
+} from './selectors'

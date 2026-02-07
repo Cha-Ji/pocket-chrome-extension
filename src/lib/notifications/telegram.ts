@@ -21,6 +21,26 @@ export const DEFAULT_TELEGRAM_CONFIG: TelegramConfig = {
   notifyErrors: true,
 }
 
+/** Shape expected by notifySignal (accepts both Signal and legacy shapes) */
+export interface SignalNotification {
+  direction: string
+  ticker?: string
+  symbol?: string
+  strategy: string
+  price?: number
+  entryPrice?: number
+  timestamp: number
+}
+
+/** Shape expected by notifyTrade */
+export interface TradeNotification {
+  result: string
+  ticker: string
+  profit: number
+  entryPrice: number
+  exitPrice: number
+}
+
 export class TelegramService {
   private config: TelegramConfig
 
@@ -69,22 +89,24 @@ export class TelegramService {
   // Specific Notification Helpers
   // ============================================================
 
-  async notifySignal(signal: any): Promise<void> {
+  async notifySignal(signal: SignalNotification): Promise<void> {
     if (!this.config.notifySignals) return
 
     const emoji = signal.direction === 'CALL' ? '🟢 <b>CALL (Buy)</b>' : '🔴 <b>PUT (Sell)</b>'
+    const ticker = signal.ticker || signal.symbol || 'UNKNOWN'
+    const price = signal.price ?? signal.entryPrice ?? 0
     const message = `
 ${emoji}
-<b>Asset:</b> ${signal.ticker}
+<b>Asset:</b> ${ticker}
 <b>Strategy:</b> ${signal.strategy}
-<b>Price:</b> ${signal.price}
+<b>Price:</b> ${price}
 <b>Time:</b> ${new Date(signal.timestamp).toLocaleTimeString()}
     `.trim()
 
     await this.sendMessage(message)
   }
 
-  async notifyTrade(trade: any): Promise<void> {
+  async notifyTrade(trade: TradeNotification): Promise<void> {
     if (!this.config.notifyTrades) return
 
     const resultEmoji = trade.result === 'WIN' ? '💰 <b>WIN</b>' : '💸 <b>LOSS</b>'

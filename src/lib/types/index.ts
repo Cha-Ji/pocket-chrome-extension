@@ -101,62 +101,72 @@ export interface ErrorLog {
 // Message Types for Extension Communication
 // ============================================================
 
-export type MessageType =
+/** Maps each message type to its payload type. `undefined` = no payload. */
+export interface MessagePayloadMap {
   // Legacy V1
-  | 'START_TRADING'
-  | 'STOP_TRADING'
-  | 'TICK_DATA'
-  | 'TRADE_EXECUTED'
-  | 'STATUS_UPDATE'
-  | 'GET_STATUS'
+  START_TRADING: undefined
+  STOP_TRADING: undefined
+  TICK_DATA: Tick
+  TRADE_EXECUTED: { signalId?: string; result?: unknown; timestamp?: number }
+  STATUS_UPDATE: TradingStatus
+  GET_STATUS: undefined
   // V2 API
-  | 'GET_STATUS_V2'
-  | 'GET_LLM_REPORT'
-  | 'SET_CONFIG_V2'
-  | 'START_TRADING_V2'
-  | 'STOP_TRADING_V2'
-  | 'GET_SIGNALS'
-  | 'GET_HIGH_PAYOUT_ASSETS'
-  | 'SWITCH_ASSET'
-  | 'EXPORT_CANDLES'
-  | 'UPDATE_SIGNAL_RESULT'
-  | 'NEW_SIGNAL_V2'
-  | 'PAYOUT_UPDATE'
-  | 'BEST_ASSET'
+  GET_STATUS_V2: undefined
+  GET_LLM_REPORT: undefined
+  SET_CONFIG_V2: Record<string, unknown>
+  START_TRADING_V2: undefined
+  STOP_TRADING_V2: undefined
+  GET_SIGNALS: undefined
+  GET_HIGH_PAYOUT_ASSETS: undefined
+  SWITCH_ASSET: { assetName: string }
+  EXPORT_CANDLES: { ticker: string }
+  UPDATE_SIGNAL_RESULT: { signalId: string; result: string }
+  NEW_SIGNAL_V2: { signal: unknown; config: unknown }
+  PAYOUT_UPDATE: unknown[]
+  BEST_ASSET: { name: string; payout: number }
   // Indicator API
-  | 'GET_PAGE_INDICATORS'
-  | 'GET_PAGE_RSI'
-  | 'GET_PAGE_STOCHASTIC'
-  | 'READ_INDICATORS_NOW'
-  | 'INDICATOR_UPDATE'
-  | 'INDICATOR_VALUES'
+  GET_PAGE_INDICATORS: undefined
+  GET_PAGE_RSI: undefined
+  GET_PAGE_STOCHASTIC: undefined
+  READ_INDICATORS_NOW: undefined
+  INDICATOR_UPDATE: Record<string, unknown>
+  INDICATOR_VALUES: Record<string, unknown>
   // WebSocket Interceptor API
-  | 'GET_WS_STATUS'
-  | 'GET_WS_CONNECTIONS'
-  | 'GET_WS_MESSAGES'
-  | 'SET_WS_ANALYSIS_MODE'
-  | 'CLEAR_WS_MESSAGES'
-  | 'WS_PRICE_UPDATE'
-  | 'WS_MESSAGE'
-  | 'WS_CONNECTION'
+  GET_WS_STATUS: undefined
+  GET_WS_CONNECTIONS: undefined
+  GET_WS_MESSAGES: undefined
+  SET_WS_ANALYSIS_MODE: { enabled: boolean }
+  CLEAR_WS_MESSAGES: undefined
+  WS_PRICE_UPDATE: { symbol: string; price: number; timestamp: number }
+  WS_MESSAGE: { connectionId: string; parsed: unknown; timestamp: number }
+  WS_CONNECTION: { id: string; url: string; readyState: string }
   // Auto Miner
-  | 'START_AUTO_MINER'
-  | 'STOP_AUTO_MINER'
-  | 'GET_MINER_STATUS'
+  START_AUTO_MINER: undefined
+  STOP_AUTO_MINER: undefined
+  GET_MINER_STATUS: undefined
   // Mining Status
-  | 'TOGGLE_MINING'
-  | 'MINING_STATS'
-  | 'MINING_STOPPED'
+  TOGGLE_MINING: { active: boolean }
+  MINING_STATS: { collected: number }
+  MINING_STOPPED: undefined
   // Telegram
-  | 'RELOAD_TELEGRAM_CONFIG'
+  RELOAD_TELEGRAM_CONFIG: undefined
   // Error Handling
-  | 'GET_ERROR_STATS'
-  | 'GET_ERROR_HISTORY'
-
-export interface ExtensionMessage<T = unknown> {
-  type: MessageType
-  payload?: T
+  GET_ERROR_STATS: undefined
+  GET_ERROR_HISTORY: { limit?: number }
 }
+
+/** All valid message type strings */
+export type MessageType = keyof MessagePayloadMap
+
+/**
+ * Discriminated union for extension messages.
+ * Narrows payload type when switching on `message.type`.
+ */
+export type ExtensionMessage = {
+  [K in MessageType]: MessagePayloadMap[K] extends undefined
+    ? { type: K; payload?: undefined }
+    : { type: K; payload: MessagePayloadMap[K] }
+}[MessageType]
 
 export interface TradingStatus {
   isRunning: boolean
@@ -189,7 +199,10 @@ export interface DOMSelectors {
   demoIndicator: string
 }
 
-// Discovered selectors from Pocket Option (2026-01-29)
+/**
+ * @deprecated Use platform adapter selectors instead.
+ * @see src/lib/platform/adapters/pocket-option/selectors.ts
+ */
 export const DEFAULT_SELECTORS: DOMSelectors = {
   // Trading buttons
   callButton: '.switch-state-block__item:first-child', // 매수 button
@@ -224,6 +237,8 @@ export interface AccountInfo {
  * Check if current session is demo mode
  * CRITICAL: Must return true for demo, false for live
  * When in doubt, return false (safer - prevents live trading)
+ * @deprecated Use ISafetyGuard.isDemoMode() from platform adapter instead.
+ * @see src/lib/platform/interfaces.ts
  */
 export function isDemoMode(): boolean {
   // Method 1: URL check (most reliable)
@@ -248,6 +263,8 @@ export function isDemoMode(): boolean {
 
 /**
  * Get current account type with confidence level
+ * @deprecated Use ISafetyGuard.getAccountType() from platform adapter instead.
+ * @see src/lib/platform/interfaces.ts
  */
 export function getAccountType(): { type: AccountType; confidence: 'high' | 'medium' | 'low' } {
   const urlHasDemo = window.location.pathname.includes('demo')

@@ -2,6 +2,13 @@
 // ============================================================
 // Selector Resolver - Multi-layer DOM fallback system
 // ============================================================
+// Uses platform selectors as the single source of truth.
+// ============================================================
+
+import {
+  PO_DEMO_SELECTORS,
+  PO_SELECTOR_FALLBACKS,
+} from '../lib/platform/adapters/pocket-option/selectors'
 
 export interface SelectorDefinition {
   primary: string
@@ -11,39 +18,29 @@ export interface SelectorDefinition {
 
 export type RobustSelectors = Record<string, SelectorDefinition>
 
-export const ROBUST_SELECTORS: RobustSelectors = {
-  callButton: {
-    primary: '.switch-state-block__item:first-child',
-    fallbacks: [
-      '.btn-call',
-      'button:contains("Higher")',
-      '.trading-panel__buttons-item--up'
-    ]
-  },
-  putButton: {
-    primary: '.switch-state-block__item:last-child',
-    fallbacks: [
-      '.btn-put',
-      'button:contains("Lower")',
-      '.trading-panel__buttons-item--down'
-    ]
-  },
-  priceDisplay: {
-    primary: '.chart-item .value__val',
-    fallbacks: [
-      '.chart-block__price .value',
-      '.current-price',
-      '[data-test="current-price"]'
-    ]
-  },
-  balanceDisplay: {
-    primary: '.balance-info-block__value',
-    fallbacks: [
-      '.user-balance',
-      '.header__balance-value'
-    ]
+/**
+ * Build robust selectors from platform selector definitions.
+ * Primary = PO_DEMO_SELECTORS[key], Fallbacks = PO_SELECTOR_FALLBACKS[key].
+ */
+function buildRobustSelectors(): RobustSelectors {
+  const result: RobustSelectors = {}
+  const allKeys = new Set([
+    ...Object.keys(PO_DEMO_SELECTORS),
+    ...Object.keys(PO_SELECTOR_FALLBACKS),
+  ])
+
+  for (const key of allKeys) {
+    const primary = PO_DEMO_SELECTORS[key] || PO_SELECTOR_FALLBACKS[key]?.[0] || ''
+    const fallbacks = PO_SELECTOR_FALLBACKS[key] || []
+    if (primary) {
+      result[key] = { primary, fallbacks: fallbacks.filter(f => f !== primary) }
+    }
   }
+
+  return result
 }
+
+export const ROBUST_SELECTORS: RobustSelectors = buildRobustSelectors()
 
 export class SelectorResolver {
   private cache: Map<string, string> = new Map()
@@ -51,7 +48,7 @@ export class SelectorResolver {
   /**
    * Resolve an element using fallbacks and caching
    */
-  async resolve(key: keyof RobustSelectors): Promise<HTMLElement | null> {
+  async resolve(key: string): Promise<HTMLElement | null> {
     const def = ROBUST_SELECTORS[key]
     if (!def) return null
 

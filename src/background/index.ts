@@ -96,7 +96,7 @@ async function handleMessage(
 
   switch (message.type) {
     case 'TICK_DATA':
-      return handleTickData(message.payload as Tick)
+      return handleTickData(message.payload)
 
     case 'TRADE_EXECUTED':
       return handleTradeExecuted(message.payload)
@@ -111,19 +111,19 @@ async function handleMessage(
       return stopTrading()
 
     case 'STATUS_UPDATE':
-      return updateStatus(message.payload as Partial<TradingStatus>)
+      return updateStatus(message.payload)
 
     case 'GET_ERROR_STATS':
       return errorHandler.getStats()
 
     case 'GET_ERROR_HISTORY':
-      return errorHandler.getHistory((message.payload as { limit?: number })?.limit ?? 20)
+      return errorHandler.getHistory(message.payload?.limit ?? 20)
 
     default:
       errorHandler.handle(
         new POError({
           code: ErrorCode.MSG_INVALID_TYPE,
-          message: `Unknown message type: ${message.type}`,
+          message: `Unknown message type: ${(message as { type: string }).type}`,
           context: ctx,
         })
       )
@@ -243,7 +243,7 @@ async function handleTickData(tick: Tick): Promise<void> {
   }
 }
 
-async function handleTradeExecuted(payload: unknown): Promise<void> {
+async function handleTradeExecuted(payload: { signalId?: string; result?: unknown; timestamp?: number }): Promise<void> {
   console.log('[Background] Trade executed:', payload)
   // TODO: Record trade in database
 }

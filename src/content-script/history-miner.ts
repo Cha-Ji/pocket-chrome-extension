@@ -4,7 +4,7 @@
 // 차트 요소를 찾아서 자동으로 스크롤 이벤트를 발생시킴
 // ============================================================
 
-import { DataSender } from '../lib/data-sender'
+import { DataSender, CandleLike } from '../lib/data-sender'
 
 let miningInterval: NodeJS.Timeout | null = null
 let collectedCount = 0
@@ -71,7 +71,7 @@ function findMainCanvas(): HTMLCanvasElement | null {
 }
 
 // 캔들 데이터 수집 훅 (기존 수집기에 추가)
-export function onCandleCaptured(candles: any[]) {
+export function onCandleCaptured(candles: CandleLike[]) {
   if (miningInterval) {
     // 채굴 중이면 서버로 대량 전송
     DataSender.sendHistory(candles)
