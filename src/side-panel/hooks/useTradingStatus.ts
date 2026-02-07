@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { TradingStatus, ExtensionMessage } from '../../lib/types'
+import { errorHandler, tryCatchAsync } from '../../lib/errors'
 
 const initialStatus: TradingStatus = {
   isRunning: false,
@@ -20,7 +21,9 @@ export function useTradingStatus() {
           setStatus(response as TradingStatus)
         }
       })
-      .catch(console.error)
+      .catch((error) => {
+        console.warn('[side-panel] Failed to load initial status:', error)
+      })
   }, [])
 
   // Listen for status updates
@@ -41,7 +44,9 @@ export function useTradingStatus() {
       const response = await chrome.runtime.sendMessage({ type: 'START_TRADING' })
       return response || { success: false, error: 'No response' }
     } catch (error) {
-      return { success: false, error: String(error) }
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      console.error('[side-panel] Start trading error:', error)
+      return { success: false, error: message }
     } finally {
       setIsLoading(false)
     }
@@ -53,7 +58,9 @@ export function useTradingStatus() {
       const response = await chrome.runtime.sendMessage({ type: 'STOP_TRADING' })
       return response || { success: false, error: 'No response' }
     } catch (error) {
-      return { success: false, error: String(error) }
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      console.error('[side-panel] Stop trading error:', error)
+      return { success: false, error: message }
     } finally {
       setIsLoading(false)
     }

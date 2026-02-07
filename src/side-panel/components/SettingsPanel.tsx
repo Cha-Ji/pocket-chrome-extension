@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { TelegramConfig, DEFAULT_TELEGRAM_CONFIG, TelegramService } from '../../lib/notifications/telegram'
+import { loadTelegramConfig, saveTelegramConfig } from '../../lib/config'
 
 export function SettingsPanel() {
   const [config, setConfig] = useState<TelegramConfig>(DEFAULT_TELEGRAM_CONFIG)
@@ -11,16 +12,16 @@ export function SettingsPanel() {
   }, [])
 
   const loadConfig = async () => {
-    const result = await chrome.storage.local.get('telegramConfig')
-    if (result.telegramConfig) {
-      setConfig(result.telegramConfig)
-    }
+    // 통합 config에서 텔레그램 설정 로드 (botToken은 session storage에서)
+    const telegramConfig = await loadTelegramConfig()
+    setConfig(telegramConfig)
   }
 
   const saveConfig = async (newConfig: TelegramConfig) => {
     setConfig(newConfig)
-    await chrome.storage.local.set({ telegramConfig: newConfig })
-    
+    // botToken은 session storage, 나머지는 local storage에 자동 분리 저장
+    await saveTelegramConfig(newConfig)
+
     // Notify background/content scripts to reload config
     chrome.runtime.sendMessage({ type: 'RELOAD_TELEGRAM_CONFIG', payload: newConfig })
   }
@@ -109,7 +110,7 @@ export function SettingsPanel() {
           </button>
         </div>
       </div>
-      
+
       <div className="text-[10px] text-gray-600 px-2">
         <p>1. Create bot via @BotFather</p>
         <p>2. Get Token</p>

@@ -5,49 +5,16 @@
 // 분석 모드에서 발견된 패턴을 기반으로 파서를 확장할 수 있습니다.
 // ============================================================
 
-import { PriceUpdate } from './websocket-interceptor'
+import type {
+  PriceUpdate,
+  CandleData,
+  OrderBookData,
+  TradeData,
+  MessageType,
+  ParsedMessage,
+} from './websocket-types'
 
-// 메시지 타입 정의
-export type MessageType = 
-  | 'price_update'
-  | 'candle_data'
-  | 'candle_history' // Array of candles
-  | 'orderbook'
-  | 'trade'
-  | 'heartbeat'
-  | 'unknown'
-
-export interface ParsedMessage {
-  type: MessageType
-  data: PriceUpdate | CandleData | CandleData[] | OrderBookData | TradeData | null
-  raw: any
-  confidence: number // 0-1, 파싱 확신도
-}
-
-export interface CandleData {
-  symbol: string
-  timestamp: number
-  open: number
-  high: number
-  low: number
-  close: number
-  volume?: number
-}
-
-export interface OrderBookData {
-  symbol: string
-  bid: number
-  ask: number
-  timestamp: number
-}
-
-export interface TradeData {
-  symbol: string
-  price: number
-  quantity: number
-  side: 'buy' | 'sell'
-  timestamp: number
-}
+export type { PriceUpdate, CandleData, OrderBookData, TradeData, MessageType, ParsedMessage } from './websocket-types'
 
 // 알려진 Pocket Option 메시지 패턴
 // 분석 모드에서 발견되면 여기에 추가
@@ -191,21 +158,18 @@ export class WebSocketParser {
       },
       parse: (data) => {
         const action = data.action || data.cmd || data.type
-        
+
         // 가격 관련 액션인지 확인
         const priceActions = ['tick', 'price', 'quote', 'candle', 'rate', 'update', 'stream', 'history', 'load']
         const isPriceAction = priceActions.some(a => action.toLowerCase().includes(a))
-        
+
         if (isPriceAction) {
           const payload = data.data || data.payload || data.body || data
-          
+
           // Case 1: History Array (Array of candles)
           if (Array.isArray(payload) && payload.length > 0) {
              const first = payload[0];
              if (typeof first === 'object' && ('open' in first || 'close' in first || 'rate' in first)) {
-                // Reuse logic from candle_history_array pattern (defined below)
-                // But for now, let's just return it as unknown so the specialized pattern catches it,
-                // OR handle it here. Let's handle it here for specific action wrapper.
                 const symbol = data.symbol || data.asset || data.pair || 'CURRENT'
                 const candles: CandleData[] = payload.map((item: any) => ({
                     symbol: item.symbol || symbol,
@@ -227,7 +191,7 @@ export class WebSocketParser {
 
           // Case 2: Single Price
           const price = this.extractPriceFromPayload(payload)
-          
+
           if (price) {
             return {
               type: 'price_update',
@@ -242,7 +206,7 @@ export class WebSocketParser {
             }
           }
         }
-        
+
         // Heartbeat 메시지
         if (action.toLowerCase().includes('ping') || action.toLowerCase().includes('heartbeat')) {
           return {
@@ -252,7 +216,7 @@ export class WebSocketParser {
             confidence: 1.0,
           }
         }
-        
+
         return {
           type: 'unknown',
           data: null,
@@ -284,15 +248,14 @@ export class WebSocketParser {
         const parseHistoryData = (data: any, symbol: string = 'CURRENT'): CandleData[] => {
           if (!Array.isArray(data)) return [];
           return data.map((c: any) => {
-            // [PO-17] 캔들 데이터 무결성 강화
             let candle: CandleData;
-            
+
             if (Array.isArray(c)) {
               candle = {
                 symbol,
                 timestamp: c[0],
                 open: c[1],
-                close: c[2] ?? c[1], // close가 없으면 open값이라도 사용
+                close: c[2] ?? c[1],
                 high: c[3] ?? c[1],
                 low: c[4] ?? c[1],
                 volume: c[5] || 0
@@ -313,7 +276,7 @@ export class WebSocketParser {
             c.timestamp != null && !isNaN(c.timestamp) && c.timestamp > 0 &&
             c.open != null && !isNaN(c.open) &&
             c.close != null && !isNaN(c.close)
-          ); // 필수 필드: NaN/null/undefined 제거 (0 값은 허용)
+          );
         };
 
         // 히스토리 이벤트 처리
@@ -321,7 +284,6 @@ export class WebSocketParser {
           let historyData: any[] | null = null;
           let symbolFromPayload: string = 'CURRENT';
 
-          // payload 구조에 따라 데이터 추출
           if (payload?.data) {
             historyData = typeof payload.data === 'string' ? JSON.parse(payload.data) : payload.data;
             symbolFromPayload = payload.symbol || payload.asset || 'CURRENT';
@@ -434,19 +396,16 @@ export class WebSocketParser {
         let decodedPayload: any = null;
 
         try {
-          // 바이너리 데이터가 JSON 문자열인 경우 처리
           const text = new TextDecoder('utf-8').decode(rawData instanceof ArrayBuffer ? rawData : rawData.buffer);
           if (text.startsWith('{') || text.startsWith('[')) {
             decodedPayload = JSON.parse(text);
           } else {
-            // 다른 형식(예: 직접적인 숫자 배열 등)인 경우 rawData 그대로 사용
             decodedPayload = rawData;
           }
         } catch (e) {
           decodedPayload = rawData;
         }
 
-        // 특정 이벤트에 따른 추가 파싱
         const historyEvents = [
           'load_history', 'history', 'updateHistoryNewFast',
           'loadHistoryPeriod', 'getHistory', 'historyResult', 'candleHistory'
@@ -507,7 +466,9 @@ export class WebSocketParser {
         if (pattern.detect(data)) {
           const result = pattern.parse(data)
           if (result.confidence > 0) {
-            return result
+            // 파싱 결과 필드 검증
+            const validated = this.validateParsedMessage(result)
+            if (validated) return validated
           }
         }
       } catch (e) {
@@ -530,11 +491,11 @@ export class WebSocketParser {
    */
   extractPrice(data: any): PriceUpdate | null {
     const parsed = this.parse(data)
-    
+
     if (parsed.type === 'price_update' && parsed.data) {
       return parsed.data as PriceUpdate
     }
-    
+
     // orderbook 데이터에서 mid price 계산
     if (parsed.type === 'orderbook' && parsed.data) {
       const ob = parsed.data as OrderBookData
@@ -545,7 +506,7 @@ export class WebSocketParser {
         source: 'websocket',
       }
     }
-    
+
     // candle 데이터에서 close price 추출
     if (parsed.type === 'candle_data' && parsed.data) {
       const candle = parsed.data as CandleData
@@ -556,8 +517,51 @@ export class WebSocketParser {
         source: 'websocket',
       }
     }
-    
+
     return null
+  }
+
+  // ============================================================
+  // Validation
+  // ============================================================
+
+  /**
+   * 파싱 결과의 필수 필드를 검증
+   * 검증 실패 시 null 반환 (silent drop)
+   */
+  private validateParsedMessage(msg: ParsedMessage): ParsedMessage | null {
+    if (!msg.data) return msg // data가 null인 경우(heartbeat 등)는 그대로 통과
+
+    switch (msg.type) {
+      case 'price_update': {
+        const d = msg.data as PriceUpdate
+        if (typeof d.symbol !== 'string' || typeof d.price !== 'number') return null
+        return msg
+      }
+      case 'candle_data': {
+        const d = msg.data as CandleData
+        if (
+          typeof d.open !== 'number' ||
+          typeof d.high !== 'number' ||
+          typeof d.low !== 'number' ||
+          typeof d.close !== 'number'
+        ) return null
+        if (d.volume !== undefined && typeof d.volume !== 'number') return null
+        return msg
+      }
+      case 'orderbook': {
+        const d = msg.data as OrderBookData
+        if (typeof d.bid !== 'number' || typeof d.ask !== 'number') return null
+        return msg
+      }
+      case 'trade': {
+        const d = msg.data as TradeData
+        if (typeof d.price !== 'number' || typeof d.quantity !== 'number') return null
+        return msg
+      }
+      default:
+        return msg
+    }
   }
 
   // ============================================================
@@ -569,7 +573,7 @@ export class WebSocketParser {
    */
   private extractPriceFromPayload(payload: any): number | null {
     if (typeof payload !== 'object' || payload === null) return null
-    
+
     // 직접 가격 필드
     const priceFields = ['price', 'value', 'rate', 'close', 'last', 'bid', 'ask']
     for (const field of priceFields) {
@@ -577,7 +581,7 @@ export class WebSocketParser {
         return payload[field]
       }
     }
-    
+
     // 중첩 구조에서 재귀 탐색
     for (const key of Object.keys(payload)) {
       const value = payload[key]
@@ -586,7 +590,7 @@ export class WebSocketParser {
         if (price) return price
       }
     }
-    
+
     return null
   }
 
@@ -608,7 +612,7 @@ export class WebSocketParser {
     if (typeof data !== 'object' || data === null) {
       return `primitive:${typeof data}`
     }
-    
+
     // 타입 힌트가 있는 필드 확인
     const typeFields = ['type', 'action', 'cmd', 'event', 'method']
     for (const field of typeFields) {
@@ -616,7 +620,7 @@ export class WebSocketParser {
         return `${field}:${data[field]}`
       }
     }
-    
+
     // 주요 필드로 구분
     const keys = Object.keys(data).sort().slice(0, 5).join(',')
     return `keys:${keys}`
@@ -671,7 +675,7 @@ export function registerPocketOptionPattern(
   extractPrice: (data: any) => { symbol: string; price: number; timestamp: number } | null
 ): void {
   const parser = getWebSocketParser()
-  
+
   parser.registerPattern({
     name: `pocket_option_${name}`,
     detect,
