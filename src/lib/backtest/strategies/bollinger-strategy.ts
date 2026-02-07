@@ -5,7 +5,7 @@
 // ============================================================
 
 import { Candle, Strategy, StrategySignal, Direction } from '../types'
-import { BollingerBands, RSI, SMA } from '../../indicators'
+import { BollingerBands, RSI } from '../../indicators'
 
 /**
  * Bollinger Band Bounce Strategy
@@ -36,10 +36,6 @@ export const BollingerBounce: Strategy = {
     const prevBB = bbValues[bbValues.length - 2]
     const currentClose = closes[closes.length - 1]
     const prevClose = closes[closes.length - 2]
-
-    // Calculate relative touch thresholds
-    const lowerTouch = currentBB.lower * (1 + touchThreshold)
-    const upperTouch = currentBB.upper * (1 - touchThreshold)
 
     let direction: Direction | null = null
     let confidence = 0

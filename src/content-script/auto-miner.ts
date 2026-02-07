@@ -1,5 +1,4 @@
 import { PayoutMonitor } from './payout-monitor'
-import { DataSender } from '../lib/data-sender'
 import { getWebSocketInterceptor } from './websocket-interceptor'
 import { loggers } from '../lib/logger'
 

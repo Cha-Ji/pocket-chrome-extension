@@ -47,7 +47,19 @@ export const PO_DEMO_DETECTION = {
   balanceLabel: '.balance-info-block__label',
 } as const
 
-/** 셀렉터 fallback 체인 */
+/** Pocket Option Real (Live) 전용 셀렉터 — Demo와 동일 구조, 차이점만 오버라이드 */
+export const PO_REAL_SELECTORS: DOMSelectors = {
+  ...PO_DEMO_SELECTORS,
+  // Real 모드에서 다를 수 있는 셀렉터를 여기에 오버라이드
+}
+
+/** Real 모드 감지 셀렉터 */
+export const PO_REAL_DETECTION = {
+  /** Real 모드에는 .is-chart-demo 클래스가 없음 */
+  balanceLabel: '.balance-info-block__label',
+} as const
+
+/** 셀렉터 fallback 체인 — 셀렉터 키별 대체 후보 (우선순위순) */
 export const PO_SELECTOR_FALLBACKS: Record<string, string[]> = {
   callButton: [
     '.switch-state-block__item:first-child',
@@ -63,6 +75,7 @@ export const PO_SELECTOR_FALLBACKS: Record<string, string[]> = {
     '.chart-item .value__val',
     '.chart-block__price .value',
     '.current-price',
+    '[data-test="current-price"]',
   ],
   balanceDisplay: [
     '.balance-info-block__value',

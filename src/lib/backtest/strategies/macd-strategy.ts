@@ -5,7 +5,7 @@
 // ============================================================
 
 import { Candle, Strategy, StrategySignal, Direction } from '../types'
-import { MACD, EMA } from '../../indicators'
+import { MACD } from '../../indicators'
 
 /**
  * MACD Signal Line Crossover Strategy

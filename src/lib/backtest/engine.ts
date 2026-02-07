@@ -11,7 +11,6 @@ import {
   BacktestResult,
   BacktestTrade,
   Strategy,
-  StrategySignal,
   Direction,
   TradeResult,
 } from './types'
