@@ -403,16 +403,22 @@ docs/issue-queue/
 - type: `bug`, `feature`, `refactor`
 - slug: kebab-case 영문 요약
 
+**Slash Commands**:
+
+| 커맨드 | 환경 | 사용법 |
+|--------|------|--------|
+| `/queue-issue` | 클라우드 | `/queue-issue bug executor에서 금액 검증 누락` |
+| `/process-issues` | 로컬 | `/process-issues` 또는 `/process-issues --dry-run` |
+
 **클라우드 LLM 작업 시**:
-1. 이슈 발견 시 `_templates/`에서 해당 타입 복사
-2. YAML frontmatter + 본문 작성
-3. `docs/issue-queue/`에 저장, 커밋 & 푸시
+1. `/queue-issue <type> <설명>` 실행 (권장)
+2. 또는 수동으로: `_templates/`에서 복사 → frontmatter 작성 → 저장
+3. 커밋 & 푸시
 
 **로컬 LLM 처리 시**:
-1. `docs/issue-queue/` 스캔 (p0→p3 순서)
-2. `gh issue create`로 GitHub Issue 생성
+1. `/process-issues` 실행 (권장)
+2. 또는 `scripts/process-issue-queue.sh` 실행
 3. 파일 삭제 후 커밋 & 푸시
-4. 또는 `scripts/process-issue-queue.sh` 실행
 
 상세: `docs/issue-queue/README.md`
 
