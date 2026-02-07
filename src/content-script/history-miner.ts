@@ -23,10 +23,9 @@ export function initHistoryMiner() {
 
 function startMining() {
   if (miningInterval) return
-  
+
   console.log('⛏️ History Miner Started')
-  document.querySelector('.chart-container') || document.body
-  
+
   // 1초마다 왼쪽으로 스크롤 (과거 데이터 로딩 트리거)
   miningInterval = setInterval(() => {
     // 마우스 휠 이벤트 시뮬레이션 (가로 스크롤)
