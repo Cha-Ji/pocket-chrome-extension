@@ -8,13 +8,10 @@
 // 4. 시장 레짐별 전략 선택
 // ============================================================
 
-import { Candle, Signal, MarketRegime, SignalGeneratorConfig } from './types'
+import { Candle, Signal, MarketRegime } from './types'
 import { detectRegime } from './strategies'
 import {
-  voteStrategy,
   rsiBBBounceStrategy,
-  emaTrendRsiPullbackStrategy,
-  tripleConfirmationStrategy,
   StrategyResult,
   HighWinRateConfig,
 } from '../backtest/strategies/high-winrate'
@@ -224,7 +221,7 @@ export class SignalGeneratorV2 {
     direction: 'CALL' | 'PUT',
     regimeInfo: { regime: MarketRegime; adx: number; direction: number }
   ): boolean {
-    const { regime, direction: trendDirection } = regimeInfo
+    const { regime } = regimeInfo
 
     // 강한 추세에서는 추세 방향과 일치하는 신호만 허용
     if (regime === 'strong_uptrend') {
@@ -405,7 +402,6 @@ function generateRecommendation(
 
   // Regime recommendation
   const ranging = byRegime['ranging']
-  const trending = byRegime['strong_uptrend'] || byRegime['strong_downtrend']
   if (ranging && ranging.wins + ranging.losses > 0) {
     const rangingRate = ranging.wins / (ranging.wins + ranging.losses)
     if (rangingRate > 0.55) {

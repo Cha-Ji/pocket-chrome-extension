@@ -1,4 +1,3 @@
-import React from 'react'
 import { TradingStatus } from '../../lib/types'
 import { formatMoney } from '../utils/format'
 

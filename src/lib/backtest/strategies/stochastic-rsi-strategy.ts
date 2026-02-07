@@ -5,7 +5,7 @@
 // ============================================================
 
 import { Candle, Strategy, StrategySignal, Direction } from '../types'
-import { StochRSI, RSI, EMA } from '../../indicators'
+import { StochRSI, EMA } from '../../indicators'
 
 /**
  * Stochastic RSI Crossover Strategy

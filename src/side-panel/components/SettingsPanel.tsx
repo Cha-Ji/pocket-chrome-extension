@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { TelegramConfig, DEFAULT_TELEGRAM_CONFIG, TelegramService } from '../../lib/notifications/telegram'
 import { loadTelegramConfig, saveTelegramConfig } from '../../lib/config'
 

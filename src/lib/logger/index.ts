@@ -22,13 +22,6 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   none: 4
 }
 
-const LOG_STYLES: Record<LogLevel, string> = {
-  debug: 'color: #888',
-  info: 'color: #0af',
-  warn: 'color: #fa0',
-  error: 'color: #f44',
-  none: ''
-}
 
 const MODULE_COLORS: Record<string, string> = {
   'WS': '#0ff',
@@ -103,7 +96,7 @@ function shouldLog(level: LogLevel, module: string): boolean {
   return globalConfig.enabledModules.includes(module)
 }
 
-function formatMessage(level: LogLevel, module: string, message: string): string {
+function formatMessage(_level: LogLevel, module: string, message: string): string {
   const parts: string[] = ['[PO]']
 
   if (globalConfig.showTimestamp) {
@@ -131,7 +124,6 @@ export class Logger {
 
     const formatted = formatMessage(level, this.module, message)
     const moduleColor = MODULE_COLORS[this.module] || '#aaa'
-    const levelStyle = LOG_STYLES[level]
 
     // Use styled console output in browser
     if (typeof window !== 'undefined') {

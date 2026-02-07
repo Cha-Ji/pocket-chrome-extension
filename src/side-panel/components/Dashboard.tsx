@@ -1,5 +1,5 @@
 
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { TradingStatus, Trade } from '../../lib/types'
 import { formatMoney, formatPercent, formatNumber } from '../utils/format'
 

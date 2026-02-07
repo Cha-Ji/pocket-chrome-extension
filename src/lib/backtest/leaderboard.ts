@@ -5,7 +5,7 @@
 // ============================================================
 
 import { Candle, BacktestConfig, BacktestResult, Strategy } from './types'
-import { BacktestEngine, getBacktestEngine } from './engine'
+import { getBacktestEngine } from './engine'
 import { calculateDetailedStatistics } from './statistics'
 import {
   LeaderboardEntry,

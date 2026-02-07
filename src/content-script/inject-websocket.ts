@@ -155,7 +155,6 @@
       set: (handler: ((event: MessageEvent) => void) | null) => {
         _onmessage = handler
         if (handler && isPriceRelated) {
-          const originalHandler = handler
           ws.addEventListener('message', function(event: MessageEvent) {
             const parsed = tryParseMessage(event.data)
             dispatchToContentScript('message', {

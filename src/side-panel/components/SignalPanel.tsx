@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react'
-import { Signal, MarketRegime } from '../../lib/signals/types'
+import { useState, useEffect, useCallback } from 'react'
+import { Signal } from '../../lib/signals/types'
 import { formatMoney, formatPercent, formatNumber } from '../utils/format'
 
 interface SignalPanelProps {
@@ -117,17 +117,6 @@ export function SignalPanel({ onSignal }: SignalPanelProps) {
     chrome.runtime.onMessage.addListener(handleMessage)
     return () => chrome.runtime.onMessage.removeListener(handleMessage)
   }, [onSignal])
-
-  const getRegimeColor = (regime: MarketRegime) => {
-    switch (regime) {
-      case 'strong_uptrend': return 'text-green-400 bg-green-400/10'
-      case 'weak_uptrend': return 'text-green-300 bg-green-300/10'
-      case 'ranging': return 'text-yellow-400 bg-yellow-400/10'
-      case 'weak_downtrend': return 'text-red-300 bg-red-300/10'
-      case 'strong_downtrend': return 'text-red-400 bg-red-400/10'
-      default: return 'text-gray-400 bg-gray-400/10'
-    }
-  }
 
   if (error) {
     return (

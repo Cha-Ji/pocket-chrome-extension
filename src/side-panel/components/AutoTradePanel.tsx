@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { AutoTraderConfig, AutoTraderStats, TradeExecution, getAutoTrader } from '../../lib/trading/auto-trader'
 import { formatMoney, formatPercent, formatNumber } from '../utils/format'
 
@@ -35,7 +35,7 @@ export function AutoTradePanel() {
       }])
     })
 
-    trader.setResultCallback((execution) => {
+    trader.setResultCallback((_execution) => {
       setStats(trader.getStats())
       setExecutions(trader.getExecutions())
     })

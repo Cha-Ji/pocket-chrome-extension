@@ -1,5 +1,6 @@
 import { forceClick } from '../lib/dom-utils'
 import { loggers } from '../lib/logger'
+import { PO_PAYOUT_SELECTORS } from '../lib/platform/adapters/pocket-option/selectors'
 
 const log = loggers.monitor
 
@@ -9,14 +10,6 @@ export interface UnavailableAsset { name: string; failedAt: number; retryCount: 
 const DEFAULT_FILTER: PayoutFilter = { minPayout: 92, onlyOTC: true, }
 const UNAVAILABLE_COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes cooldown for unavailable assets
 const MAX_RETRY_COUNT = 3 // Max retries before cooldown
-const SELECTORS = {
-  assetList: '.assets-block__alist.alist',
-  assetItem: '.alist__item',
-  assetLabel: '.alist__label',
-  assetProfit: '.alist__payout',
-  pairTrigger: '.current-symbol',
-  overlay: '.modal-overlay',
-}
 
 export class PayoutMonitor {
   private assets: Map<string, AssetPayout> = new Map()
@@ -163,9 +156,9 @@ export class PayoutMonitor {
     await this.wait(1500)
 
     let targetElement: HTMLElement | null = null
-    const assetItems = document.querySelectorAll(SELECTORS.assetItem)
+    const assetItems = document.querySelectorAll(PO_PAYOUT_SELECTORS.assetItem)
     for (const item of assetItems) {
-      const labelEl = item.querySelector(SELECTORS.assetLabel)
+      const labelEl = item.querySelector(PO_PAYOUT_SELECTORS.assetLabel)
       const rawLabel = labelEl?.textContent || ''
       const normalizedLabel = rawLabel.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
       if (normalizedLabel === normalizedTarget) {
@@ -232,10 +225,10 @@ export class PayoutMonitor {
 
   private scrapePayoutsFromDOM(): AssetPayout[] {
     const payouts: AssetPayout[] = []
-    const assetItems = document.querySelectorAll(SELECTORS.assetItem)
+    const assetItems = document.querySelectorAll(PO_PAYOUT_SELECTORS.assetItem)
     assetItems.forEach((item) => {
-      const labelEl = item.querySelector(SELECTORS.assetLabel)
-      const profitEl = item.querySelector(SELECTORS.assetProfit)
+      const labelEl = item.querySelector(PO_PAYOUT_SELECTORS.assetLabel)
+      const profitEl = item.querySelector(PO_PAYOUT_SELECTORS.assetProfit)
       if (labelEl && profitEl) {
         const name = (labelEl.textContent || (labelEl as HTMLElement).innerText || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
         const profitText = profitEl.textContent?.trim() || ''
@@ -255,15 +248,15 @@ export class PayoutMonitor {
   }
 
   private async openAssetPicker(): Promise<void> {
-    const list = document.querySelector(SELECTORS.assetList) as HTMLElement
+    const list = document.querySelector(PO_PAYOUT_SELECTORS.assetList) as HTMLElement
     if (list && list.getBoundingClientRect().height > 0) return
     log.info('Opening picker...')
-    const trigger = (document.querySelector('.pair-number-wrap') || document.querySelector(SELECTORS.pairTrigger)) as HTMLElement
+    const trigger = (document.querySelector('.pair-number-wrap') || document.querySelector(PO_PAYOUT_SELECTORS.pairTrigger)) as HTMLElement
     if (trigger) await forceClick(trigger)
   }
 
   private async closeAssetPicker(): Promise<void> {
-    const list = document.querySelector(SELECTORS.assetList)
+    const list = document.querySelector(PO_PAYOUT_SELECTORS.assetList)
     if (!list || list.getBoundingClientRect().height === 0) return
     log.info('Closing picker...')
 
@@ -271,13 +264,13 @@ export class PayoutMonitor {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await this.wait(200);
 
-    const overlay = document.querySelector(SELECTORS.overlay) as HTMLElement
+    const overlay = document.querySelector(PO_PAYOUT_SELECTORS.overlay) as HTMLElement
     if (overlay) { await forceClick(overlay); await this.wait(300); }
     
     // 여전히 열려있다면 다시 시도
-    const listAfter = document.querySelector(SELECTORS.assetList)
+    const listAfter = document.querySelector(PO_PAYOUT_SELECTORS.assetList)
     if (listAfter && listAfter.getBoundingClientRect().height > 0) {
-      const trigger = (document.querySelector('.pair-number-wrap') || document.querySelector(SELECTORS.pairTrigger)) as HTMLElement
+      const trigger = (document.querySelector('.pair-number-wrap') || document.querySelector(PO_PAYOUT_SELECTORS.pairTrigger)) as HTMLElement
       if (trigger) await forceClick(trigger)
     }
   }
