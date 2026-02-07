@@ -1,38 +1,12 @@
 import { getWebSocketParser, WebSocketParser, CandleData } from './websocket-parser'
+import type {
+  PriceUpdate,
+  WebSocketConnection,
+  WebSocketMessage,
+  WebSocketEvent,
+} from './websocket-types'
 
-export interface WebSocketConnection {
-  id: string
-  url: string
-  isPriceRelated: boolean
-  readyState: 'connecting' | 'open' | 'closing' | 'closed'
-  messageCount: number
-  lastMessageAt: number | null
-}
-
-export interface WebSocketMessage {
-  connectionId: string
-  url: string
-  parsed: any
-  rawType: string
-  timestamp: number
-  raw?: any
-  text?: string | null
-}
-
-export interface PriceUpdate {
-  symbol: string
-  price: number
-  timestamp: number
-  source: 'websocket'
-}
-
-export type WebSocketEventType = 'installed' | 'connection' | 'open' | 'close' | 'error' | 'message'
-
-export interface WebSocketEvent {
-  type: WebSocketEventType
-  data: any
-  timestamp: number
-}
+export type { PriceUpdate, WebSocketConnection, WebSocketMessage, WebSocketEvent } from './websocket-types'
 
 type PriceUpdateCallback = (update: PriceUpdate) => void
 type HistoryCallback = (candles: CandleData[]) => void
@@ -47,11 +21,13 @@ class WebSocketInterceptor {
   private isListening = false
   private analysisMode = true
   private parser: WebSocketParser
+  private boundHandler: (event: MessageEvent) => void
+
   private priceUpdateCallbacks: PriceUpdateCallback[] = []
   private historyCallbacks: HistoryCallback[] = []
   private messageCallbacks: MessageCallback[] = []
   private connectionCallbacks: ConnectionCallback[] = []
-  
+
   // [PO-17] 실시간 자산 코드 추적
   private lastAssetId: string | null = null;
 
@@ -64,11 +40,11 @@ class WebSocketInterceptor {
 
   private constructor() {
     this.parser = getWebSocketParser()
+    this.boundHandler = this.handleBridgeMessage.bind(this)
   }
 
   start(): void {
     if (this.isListening) return
-    // console.log('[PO] [WS] Starting Interceptor...');
     this.setupEventListener()
     this.injectScript()
     this.isListening = true
@@ -76,31 +52,24 @@ class WebSocketInterceptor {
 
   stop(): void {
     if (!this.isListening) return
-    window.removeEventListener('pocket-quant-ws', this.handleEvent as EventListener)
+    window.removeEventListener('message', this.boundHandler)
     this.isListening = false
   }
 
   private injectScript(): void {
     // [PO-16] Tampermonkey 사용 시 Extension 자체 주입은 비활성화
-    // Tampermonkey가 이미 'window.__pocketQuantWsHook'을 설정하므로 충돌 방지됨.
-    // 하지만 안전을 위해 아예 주입 시도를 막아둡니다.
-    // console.log('[PO] [WS] Skipping Extension Injection (Using Tampermonkey)');
     return;
 
     /*
     try {
       if (document.querySelector('script[data-pocket-quant-ws]')) return
-
-      // Use script src method which is allowed by PO's CSP
       const script = document.createElement('script')
       script.src = chrome.runtime.getURL('inject-websocket.js')
       script.setAttribute('data-pocket-quant-ws', 'true')
-      
       script.onload = () => {
         console.log('[PO] [WS] Spy Script Injected');
         script.remove()
       }
-      
       const target = document.head || document.documentElement
       target.appendChild(script)
     } catch (error) {
@@ -110,27 +79,33 @@ class WebSocketInterceptor {
   }
 
   private setupEventListener(): void {
-    window.addEventListener('message', (event) => {
-      if (event.data?.source !== 'pq-bridge') return;
-      if (event.data.type === 'ws-message') {
-        const data = event.data.data || {};
-        const message: WebSocketMessage = {
-          connectionId: data.url || 'tm-bridge',
-          url: data.url || 'unknown',
-          parsed: data.payload ?? null,
-          rawType: data.dataType || (data.text ? 'string' : typeof data.raw),
-          timestamp: data.timestamp || Date.now(),
-          raw: data.raw,
-          text: data.text ?? null
-        };
-        this.handleMessage(message, message.timestamp);
-      } else if (event.data.type === 'bridge-ready') {
-        console.log('[PO] [WS] Main World Bridge Connected');
-      }
-    });
+    window.addEventListener('message', this.boundHandler)
   }
 
-  private handleEvent = (event: CustomEvent<WebSocketEvent>): void => {
+  /**
+   * Main World Bridge 메시지 핸들러
+   * boundHandler를 통해 addEventListener/removeEventListener에서 동일한 참조 사용
+   */
+  private handleBridgeMessage(event: MessageEvent): void {
+    if (event.data?.source !== 'pq-bridge') return;
+    if (event.data.type === 'ws-message') {
+      const data = event.data.data || {};
+      const message: WebSocketMessage = {
+        connectionId: data.url || 'tm-bridge',
+        url: data.url || 'unknown',
+        parsed: data.payload ?? null,
+        rawType: data.dataType || (data.text ? 'string' : typeof data.raw),
+        timestamp: data.timestamp || Date.now(),
+        raw: data.raw,
+        text: data.text ?? null
+      };
+      this.handleMessage(message, message.timestamp);
+    } else if (event.data.type === 'bridge-ready') {
+      console.log('[PO] [WS] Main World Bridge Connected');
+    }
+  }
+
+  private handleEvent(event: CustomEvent<WebSocketEvent>): void {
     const { type, data, timestamp } = event.detail
     if (type === 'message') this.handleMessage(data, timestamp)
   }
