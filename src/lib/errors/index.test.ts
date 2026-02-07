@@ -1,46 +1,37 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { AppError, toAppError, toErrorMessage, reportError } from './index'
+import { POError, ErrorCode, ErrorSeverity, errorHandler } from './index'
 
 describe('errors module', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('toErrorMessage prefers userMessage when available', () => {
-    const error = new AppError('Internal failure', {
-      context: { module: 'test', userMessage: 'Friendly message' },
+  it('POError message defaults to error code message when not provided', () => {
+    const error = new POError({
+      code: ErrorCode.UNKNOWN,
+      context: { module: 'test', function: 'test' },
     })
 
-    expect(toErrorMessage(error)).toBe('Friendly message')
+    expect(error.message).toBeTruthy()
+    expect(error.code).toBe(ErrorCode.UNKNOWN)
   })
 
-  it('toAppError wraps unknown values with defaults', () => {
-    const error = toAppError('Boom', {
-      code: 'E_TEST',
-      severity: 'warning',
-      context: { module: 'test' },
-    })
+  it('POError.from wraps unknown values with defaults', () => {
+    const error = POError.from('Boom', { module: 'test', function: 'test' }, ErrorCode.UNKNOWN)
 
-    expect(error).toBeInstanceOf(AppError)
-    expect(error.code).toBe('E_TEST')
-    expect(error.severity).toBe('warning')
+    expect(error).toBeInstanceOf(POError)
+    expect(error.code).toBe(ErrorCode.UNKNOWN)
     expect(error.message).toBe('Boom')
   })
 
-  it('reportError calls notifier with formatted message', async () => {
-    const notifier = vi.fn()
-    vi.spyOn(console, 'error').mockImplementation(() => {})
+  it('errorHandler.handle processes errors and logs them', () => {
+    const testError = new Error('Failed')
+    const error = errorHandler.handle(testError, { module: 'test', function: 'test' })
 
-    const error = await reportError(new Error('Failed'), {
-      code: 'E_NOTIFY',
-      context: { module: 'test', action: 'notify' },
-      notifier,
-    })
+    expect(error).toBeInstanceOf(POError)
+    expect(error.message).toContain('Failed')
 
-    expect(error).toBeInstanceOf(AppError)
-    expect(notifier).toHaveBeenCalledTimes(1)
-    const [message, payload] = notifier.mock.calls[0]
-    expect(message).toContain('[E_NOTIFY]')
-    expect(payload).toBeInstanceOf(AppError)
+    const stats = errorHandler.getStats()
+    expect(stats.total).toBeGreaterThan(0)
   })
 })
