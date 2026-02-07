@@ -9,6 +9,18 @@ import { loggers } from './logger'
 const log = loggers.dataSender
 const SERVER_URL = 'http://localhost:3001'
 
+/** Loose candle shape accepted by DataSender (symbol or ticker) */
+export interface CandleLike {
+  symbol?: string
+  ticker?: string
+  timestamp: number
+  open: number
+  high: number
+  low: number
+  close: number
+  volume?: number
+}
+
 export const DataSender = {
   /**
    * 서버 상태 확인
@@ -25,7 +37,7 @@ export const DataSender = {
   /**
    * 실시간 캔들 전송
    */
-  async sendCandle(candle: any): Promise<void> {
+  async sendCandle(candle: CandleLike): Promise<void> {
     try {
       // 1. 필요한 필드만 추출 및 변환
       const payload = {
@@ -54,15 +66,15 @@ export const DataSender = {
         log.error(`Server error (${response.status}): ${errorText}`)
       }
 
-    } catch (error: any) {
-      log.error(`Network error: ${error.message}`)
+    } catch (error: unknown) {
+      log.error(`Network error: ${error instanceof Error ? error.message : String(error)}`)
     }
   },
 
   /**
    * 과거 데이터 Bulk 전송
    */
-  async sendHistory(candles: any[]): Promise<void> {
+  async sendHistory(candles: CandleLike[]): Promise<void> {
     if (candles.length === 0) return
 
     try {
@@ -115,8 +127,8 @@ export const DataSender = {
         const errorText = await response.text();
         log.fail(`Bulk send failed (HTTP ${response.status}): ${errorText}`)
       }
-    } catch (error: any) {
-      log.fail(`Bulk send network error: ${error.message}`)
+    } catch (error: unknown) {
+      log.fail(`Bulk send network error: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 }

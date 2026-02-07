@@ -87,8 +87,8 @@ function AppContent() {
       setLbEntries(result.entries)
       await LeaderboardRepository.saveResults(result.entries)
       addLog('success', `Leaderboard complete: ${result.entries.length} strategies ranked (${result.executionTimeMs}ms)`)
-    } catch (err: any) {
-      addLog('error', `Leaderboard error: ${err.message}`)
+    } catch (err: unknown) {
+      addLog('error', `Leaderboard error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setLbRunning(false)
       setLbProgress(undefined)

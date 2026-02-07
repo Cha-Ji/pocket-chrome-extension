@@ -28,8 +28,8 @@ export function useTradingStatus() {
   // Listen for status updates
   useEffect(() => {
     const handleMessage = (message: ExtensionMessage) => {
-      if (message.type === 'STATUS_UPDATE') {
-        setStatus(message.payload as TradingStatus)
+      if (message.type === 'STATUS_UPDATE' && message.payload) {
+        setStatus(message.payload)
       }
     }
 

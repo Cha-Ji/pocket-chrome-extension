@@ -25,7 +25,7 @@ let payoutMonitor: PayoutMonitor | null = null
 let indicatorReader: IndicatorReader | null = null
 let signalGenerator: SignalGeneratorV2 | null = null
 let telegramService: TelegramService | null = null
-let wsInterceptor: any = null // Use any if class not exported
+let wsInterceptor: ReturnType<typeof getWebSocketInterceptor> | null = null
 let isInitialized = false
 
 interface TradingConfigV2 {
@@ -230,12 +230,12 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
     case 'GET_MINER_STATUS': return AutoMiner.getStatus();
     case 'GET_STATUS_V2': return getSystemStatus();
     case 'GET_LLM_REPORT': return getLLMReport();
-    case 'SET_CONFIG_V2': tradingConfig = { ...tradingConfig, ...(message.payload as Partial<TradingConfigV2>) }; return { success: true, config: tradingConfig };
+    case 'SET_CONFIG_V2': tradingConfig = { ...tradingConfig, ...(message.payload as unknown as Partial<TradingConfigV2>) }; return { success: true, config: tradingConfig };
     case 'START_TRADING_V2': tradingConfig.enabled = true; return { success: true };
     case 'STOP_TRADING_V2': tradingConfig.enabled = false; return { success: true };
     case 'GET_HIGH_PAYOUT_ASSETS': return payoutMonitor?.getHighPayoutAssets() ?? [];
-    case 'SWITCH_ASSET': { const assetPayload = message.payload as { assetName?: string } | undefined; return switchToAsset(assetPayload?.assetName || ''); }
-    case 'EXPORT_CANDLES': { const candlePayload = message.payload as { ticker?: string } | undefined; return candleCollector?.exportCandles(candlePayload?.ticker || 'UNKNOWN') ?? null; }
+    case 'SWITCH_ASSET': return switchToAsset(message.payload.assetName);
+    case 'EXPORT_CANDLES': return candleCollector?.exportCandles(message.payload.ticker) ?? null;
     default: return null
   }
 }

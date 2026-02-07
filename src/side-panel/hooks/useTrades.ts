@@ -10,8 +10,9 @@ export function useTrades() {
     // For now we listen for new trades
     const handleMessage = (message: ExtensionMessage) => {
       if (message.type === 'TRADE_EXECUTED' && message.payload) {
-        // payload might be partial or full trade
-        const trade = message.payload as Trade
+        // TRADE_EXECUTED payload is { signalId?, result?, timestamp? }
+        // Map to Trade shape for display
+        const trade = message.payload as unknown as Trade
         setTrades(prev => [...prev, trade])
       }
     }
