@@ -52,9 +52,9 @@
 
 ## 관련 이슈
 <!--
-Closes #PO-17
+Closes #10
 또는
-Relates to #PO-17, #PO-18
+Relates to #10, #15
 -->
 
 
@@ -62,6 +62,7 @@ Relates to #PO-17, #PO-18
 ---
 **Reviewed by**: <!-- LLM 에이전트명 (Claude Opus 4.5 / Cursor / Gemini 등) -->
 **Merged by**: 차지
+**Labels**: feat, bug, docs, refactor, test, chore (+ p0, p1, p2 for priority)
 
 ---
 

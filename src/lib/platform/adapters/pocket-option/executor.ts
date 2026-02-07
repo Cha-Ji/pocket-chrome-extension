@@ -160,7 +160,7 @@ export class PocketOptionExecutor implements IExecutor {
     }
 
     // 기본 셀렉터
-    const defaultSel = PO_DEMO_SELECTORS[key]
+    const defaultSel = (PO_DEMO_SELECTORS as unknown as Record<string, string>)[key]
     if (defaultSel) {
       const el = document.querySelector(defaultSel) as HTMLElement
       if (el) {

@@ -153,3 +153,10 @@ ELSE:
 3. **실시간 Forward Test 필요**
    - 백테스트 54% → 실전 검증 필요
    - 슬리피지, 지연 시간 고려
+
+## 관련 참조
+- 실시간 데이터 수집: [PO-11](../PO-11/)
+- DOM 셀렉터: [dom-selectors](../../architecture/content-script/dom-selectors/)
+- Bitshin 전략: [strategies/bitshin-option](../../strategies/bitshin-option/)
+- 전략 소스: `src/lib/backtest/strategies/`
+- 지표 소스: `src/lib/indicators/index.ts`
