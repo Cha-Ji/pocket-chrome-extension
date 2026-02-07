@@ -1,0 +1,28 @@
+name: Feature Request
+description: 신규 기능을 요청합니다
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: 목표
+      description: 무엇을 만들 것인가?
+    validations:
+      required: true
+  - type: textarea
+    id: requirements
+    attributes:
+      label: 요구사항
+      description: 기능 명세 및 UI/UX 요구사항
+    validations:
+      required: true
+  - type: textarea
+    id: tech
+    attributes:
+      label: 기술 스택
+      description: 사용할 라이브러리/프레임워크
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 조건
+      description: 체크리스트 형태로 작성해 주세요
