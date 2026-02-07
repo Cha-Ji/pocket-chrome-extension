@@ -2,8 +2,16 @@
 // Strategy Collector - Find 53%+ Win Rate Strategies
 // ============================================================
 
-import { describe, it, expect } from 'vitest'
-import { fetchBinanceData, fetchMultipleSymbols } from './real-data-fetcher'
+import { describe, it, expect, vi } from 'vitest'
+import { fetchBinanceData, fetchMultipleSymbols } from './__mocks__/binance-api'
+
+// Mock the actual Binance fetcher to use mock data
+vi.mock('./real-data-fetcher', () => ({
+  fetchBinanceData: (symbol: string, interval?: string, limit?: number) =>
+    import('./__mocks__/binance-api').then(m => m.fetchBinanceData(symbol, interval, limit)),
+  fetchMultipleSymbols: (symbols: string[], interval?: string, limit?: number) =>
+    import('./__mocks__/binance-api').then(m => m.fetchMultipleSymbols(symbols, interval, limit)),
+}))
 import { detectRegime, calculateRegimeSeries, MarketRegime } from './market-regime'
 import {
   createRSIStrategy,
