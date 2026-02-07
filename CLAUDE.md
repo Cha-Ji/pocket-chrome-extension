@@ -437,19 +437,51 @@ A: 안 됩니다. 1 PR = 1 이슈 원칙. 관련 이슈가 여러 개면 상위 
 
 **모든 응답 마지막에 헬스체크 블록을 포함하라.**
 
+목적:
+- 불필요한 파일 참조 감지 및 제거
+- 현재 턴의 토큰 사용량 추적
+- 이전 대화에서 누적된 컨텍스트 토큰 모니터링
+- LLM의 작업 내용 간략히 기록
+
 ```text
---- healthcheck ---
-context_used:
-  task_plan_tokens: ~줄 수 또는 토큰 수
-  findings_tokens: ~줄 수 또는 토큰 수
-  progress_tokens: ~줄 수 또는 토큰 수
-  extra_context: 외부 문서/툴 결과 요약
-actions:
-  - type: update_task_plan | update_findings | update_progress | no_update
-    details: 한 줄 설명
-ab_test_variant: default
-notes: 컨텍스트 품질/문제점
---- end_healthcheck ---
+╔════════════════════════════════════════════════════════════════╗
+║                        HEALTHCHECK                             ║
+╠════════════════════════════════════════════════════════════════╣
+║ CONTEXT USAGE                                                  ║
+║ ─────────────────────────────────────────────────────────────  ║
+║  Current Turn:                                                 ║
+║    • task_plan: ~150 tokens (~30 lines)                        ║
+║    • findings: ~200 tokens (~40 lines)                         ║
+║    • progress: ~100 tokens (~20 lines)                         ║
+║    • tools_output: ~500 tokens (grep, read 결과)               ║
+║    • other_docs: 참조한 추가 문서 요약                          ║
+║                                                                 ║
+║  Previous Context:                                             ║
+║    • accumulated_turns: 3                                      ║
+║    • estimated_conversation_tokens: ~5000                      ║
+║                                                                 ║
+║  Efficiency:                                                   ║
+║    • files_referenced: 5                                       ║
+║    • files_actually_used: 4                                    ║
+║    • waste_ratio: 20%                                          ║
+║                                                                 ║
+╠════════════════════════════════════════════════════════════════╣
+║ ACTIONS TAKEN                                                  ║
+║ ─────────────────────────────────────────────────────────────  ║
+║  • [UPDATE] task_plan: 체크박스 2개 완료 표시                  ║
+║  • [UPDATE] findings: WebSocket 파서 null 체크 패턴 추가       ║
+║  • [NO_UPDATE] progress: 중간 단계, 로그 불필요                ║
+║  • [COMMIT] 코드 수정 완료 및 커밋                             ║
+║                                                                 ║
+╠════════════════════════════════════════════════════════════════╣
+║ NOTES                                                          ║
+║ ─────────────────────────────────────────────────────────────  ║
+║  Quality: 참조한 findings 중 80%가 실제 응답에 기여            ║
+║  Issues: progress.md의 오래된 로그는 불필요, 최근 5개만 읽기   ║
+║  Next: 다음 턴에는 task_plan만 스캔, findings는 검색 기반     ║
+║  Variant: default                                              ║
+║                                                                 ║
+╚════════════════════════════════════════════════════════════════╝
 ```
 
 ## 토큰 최적화 피드백 루프
