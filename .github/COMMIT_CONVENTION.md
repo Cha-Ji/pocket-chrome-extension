@@ -6,14 +6,15 @@
 - 제목: 한국어로 작성 (차지님이 빠르게 스캔 가능)
 - 본문: 영어로 작성 (LLM이 나중에 컨텍스트 이해 가능)
 - 이슈 티켓: 웬만하면 항상 생성 후 커밋 (`[-]`는 예외적 상황만)
+- GitHub Issues 사용: Jira 대신 GitHub Issues로 통합 관리
 
 ---
 
 ## 커밋 메시지 작성 체크리스트
 
 ### 1단계: 이슈 티켓 확인
-- [ ] 현재 작업에 대한 Jira/GitHub 이슈가 있는가?
-  - 있음 → `[PO-17]` 형식으로 사용
+- [ ] 현재 작업에 대한 GitHub Issue가 있는가?
+  - 있음 → `[#123]` 형식으로 사용
   - 없음 → **이슈를 먼저 생성하세요** (`.github/ISSUE_TEMPLATE/` 참고)
   - 긴급 핫픽스/의존성 업데이트만 `[-]` 허용
 
@@ -35,7 +36,7 @@
 
 **필수 항목**: 원인, 해결, 영향범위, LLM Context
 ```
-[PO-17][dom-utils] WebSocket 파서 null 체크 누락 수정
+[#17][dom-utils] WebSocket 파서 null 체크 누락 수정
 
 * 원인: 중첩 객체 접근 시 방어 로직 없음
 * 해결: Optional chaining 적용
@@ -55,7 +56,7 @@
 
 **필수 항목**: 구현 내용, 영향범위, LLM Context
 ```
-[PO-19][backtest] 전략 성과 리더보드 추가
+[#19][backtest] 전략 성과 리더보드 추가
 
 * 구현 내용: 승률/MDD/샤프지수 기준 전략 랭킹 UI
 * 영향범위: UI 신규 페이지 추가, API 엔드포인트 2개 생성
@@ -73,7 +74,7 @@
 
 **필수 항목**: 변경 이유, 주요 변경, 영향범위, LLM Context
 ```
-[PO-20][logger] 로거 시스템 중앙화
+[#20][logger] 로거 시스템 중앙화
 
 * 변경 이유: 15개 모듈에 중복된 console.log 제거
 * 주요 변경: winston 기반 중앙 로거, 모듈별 네임스페이스 분리
@@ -93,12 +94,12 @@
 
 **필수 항목**: LLM Context만
 ```
-[PO-21][README] 설치 가이드 업데이트
+[#21][docs] 설치 가이드 업데이트
 
 * LLM Context: Updated installation guide with Node.js v20 requirement and troubleshooting section for M1 Mac users.
 ```
 ```
-[-][deps] package.json 의존성 보안 패치
+[-][chore] package.json 의존성 보안 패치
 
 * LLM Context: Updated dependencies to patch security vulnerabilities (CVE-2024-xxxx). No breaking changes. Tested locally.
 ```
@@ -114,19 +115,19 @@
 
 **제목만 쓰고 본문 생략 금지**
 ```
-[PO-17][dom-utils] WebSocket 파서 수정
+[#17][dom-utils] WebSocket 파서 수정
 # 본문 없음 → LLM이 나중에 컨텍스트 모름
 ```
 
 **한글/영어 혼용 금지**
 ```
-[PO-17][dom-utils] Fix WebSocket parser null check
+[#17][dom-utils] Fix WebSocket parser null check
 * 원인: Nested object access without null checks  # 제목은 한글, 본문은 영어로 통일
 ```
 
 **이슈 없이 큰 변경 커밋 금지**
 ```
-[-][전체] 아키텍처 전면 리팩토링  # 이슈를 반드시 만들어야 함
+[-][chore] 아키텍처 전면 리팩토링  # 이슈를 반드시 만들어야 함
 ```
 
 ---

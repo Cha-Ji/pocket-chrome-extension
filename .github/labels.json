@@ -1,0 +1,77 @@
+[
+  {
+    "name": "feat",
+    "color": "00ff00",
+    "description": "신규 기능 추가"
+  },
+  {
+    "name": "bug",
+    "color": "ff0000",
+    "description": "버그 수정"
+  },
+  {
+    "name": "docs",
+    "color": "0000ff",
+    "description": "문서 작성/수정"
+  },
+  {
+    "name": "refactor",
+    "color": "ffaa00",
+    "description": "코드 정리 및 구조 개선"
+  },
+  {
+    "name": "test",
+    "color": "aa00ff",
+    "description": "테스트 코드 추가/수정"
+  },
+  {
+    "name": "chore",
+    "color": "333333",
+    "description": "패키지, 설정, CI/CD 변경"
+  },
+  {
+    "name": "p0",
+    "color": "ff0000",
+    "description": "긴급 (서비스 장애)"
+  },
+  {
+    "name": "p1",
+    "color": "ffaa00",
+    "description": "높음 (기능 장애)"
+  },
+  {
+    "name": "p2",
+    "color": "ffff00",
+    "description": "보통 (불편)"
+  },
+  {
+    "name": "p3",
+    "color": "cccccc",
+    "description": "낮음 (개선)"
+  },
+  {
+    "name": "wontfix",
+    "color": "cccccc",
+    "description": "수정하지 않음"
+  },
+  {
+    "name": "duplicate",
+    "color": "cccccc",
+    "description": "중복된 이슈"
+  },
+  {
+    "name": "epic",
+    "color": "3366cc",
+    "description": "대규모 작업 (여러 이슈 포함)"
+  },
+  {
+    "name": "blocked",
+    "color": "ff6666",
+    "description": "다른 작업 대기 중"
+  },
+  {
+    "name": "help-wanted",
+    "color": "33aa33",
+    "description": "도움 요청"
+  }
+]

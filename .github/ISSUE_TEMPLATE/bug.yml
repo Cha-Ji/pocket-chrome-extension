@@ -7,6 +7,24 @@ body:
     attributes:
       label: 증상
       description: 어떤 문제가 발생하는가? 재현 조건을 포함해 주세요.
+      placeholder: |
+        버그 설명:
+        - 증상: ...
+        - 재현 방법: ...
+        - 예상 결과: ...
+        - 실제 결과: ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 환경 정보
+      description: 문제가 발생한 환경을 설명해 주세요.
+      placeholder: |
+        - Chrome 버전: ...
+        - OS: ...
+        - Extension 버전: ...
+        - Pocket Option 계정: Demo/Live
     validations:
       required: true
   - type: textarea
@@ -14,19 +32,23 @@ body:
     attributes:
       label: 원인 (파악된 경우)
       description: 기술적 원인을 설명해 주세요.
+      placeholder: "예: WebSocket 메시지 파싱 중 null 체크 누락"
   - type: textarea
     id: solution
     attributes:
       label: 해결 방안
       description: 계획된 수정 방법을 설명해 주세요.
+      placeholder: "예: Optional chaining 적용하여 null 안전성 확보"
   - type: dropdown
     id: priority
     attributes:
-      label: 우선순위
+      label: 우선순위 (라벨 기준)
+      description: 버그의 심각도를 선택하세요
       options:
-        - 긴급 (서비스 장애)
-        - 높음 (기능 장애)
-        - 보통 (불편)
-        - 낮음 (개선)
+        - p0 긴급 (서비스 장애)
+        - p1 높음 (기능 장애)
+        - p2 보통 (불편)
+        - p3 낮음 (개선)
+      default: 1
     validations:
       required: true

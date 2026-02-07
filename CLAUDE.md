@@ -187,39 +187,55 @@ if (!isDemoMode(selectors)) {
 
 ## 필수 워크플로우 (반드시 준수)
 
-이 프로젝트는 **Jira 이슈 주도 개발**과 **3-file-pattern 문서화**를 필수로 따릅니다.
+이 프로젝트는 **GitHub Issues 주도 개발**과 **3-file-pattern 문서화**를 필수로 따릅니다.
 
-### 1. Jira 이슈 주도 개발
+### 1. GitHub Issues 주도 개발
 
-모든 개발 작업은 Jira 이슈를 기반으로 진행합니다.
+모든 개발 작업은 GitHub Issues를 기반으로 진행합니다.
 
-**Jira 프로젝트 정보**:
-- URL: https://auto-trade-extension.atlassian.net/jira/software/projects/PO/boards/2
-- 프로젝트 키: `PO` (PO-CHROME)
+**GitHub 프로젝트 정보**:
+- Issues: https://github.com/yourusername/pocket-chrome-extension/issues
+- Project: https://github.com/yourusername/pocket-chrome-extension/projects
 
-**개발 단계별 Jira 관리**:
+**라벨링 규칙** (모든 이슈는 다음 라벨 중 1개 이상 사용):
 
-| 단계 | Jira 작업 | CLI 명령어 |
-|------|-----------|------------|
-| 시작 전 | 이슈 생성 또는 기존 이슈 확인 | `node scripts/jira-cli.cjs create --summary="작업 내용"` |
-| 시작 | 상태를 "In Progress"로 변경 | `node scripts/jira-cli.cjs update SCRUM-XX --status="In Progress"` |
-| 진행 중 | 진행 상황 댓글로 기록 | `node scripts/jira-cli.cjs comment SCRUM-XX --body="진행 내용"` |
-| 완료 | 상태를 "Done"으로 변경 | `node scripts/jira-cli.cjs update SCRUM-XX --status="Done"` |
+| 라벨 | 설명 | 색상 | 사용 기준 |
+|------|------|------|----------|
+| `feat` | 신규 기능 | 🟢 `#00ff00` | 새로운 기능/UI 추가 |
+| `bug` | 버그 수정 | 🔴 `#ff0000` | 기존 기능의 문제 수정 |
+| `docs` | 문서 작성 | 🔵 `#0000ff` | README, CLAUDE.md, 코드 주석 등 |
+| `refactor` | 코드 정리 | 🟡 `#ffaa00` | 기능 유지, 구조 개선 |
+| `test` | 테스트 | 🟣 `#aa00ff` | 테스트 코드 추가/수정 |
+| `chore` | 잡무 | ⚫ `#333333` | 패키지, 설정, CI/CD 변경 |
+| `p0` | 긴급 | 🔴 `#ff0000` | 서비스 장애 (우선순위) |
+| `p1` | 높음 | 🟠 `#ffaa00` | 기능 장애 (우선순위) |
+| `p2` | 보통 | 🟡 `#ffff00` | 불편 (우선순위) |
+
+**개발 단계별 GitHub 관리**:
+
+| 단계 | 작업 |
+|------|------|
+| 시작 전 | 이슈 생성 또는 기존 이슈 확인 (`.github/ISSUE_TEMPLATE/` 참고) |
+| 시작 | 이슈를 자신에게 할당 (Assign yourself) |
+| 진행 중 | 이슈 상태를 "In Progress"로 변경 (Project 탭에서) |
+| 진행 중 | 필요하면 댓글로 진행 상황 기록 |
+| 완료 | PR 생성 후 `Closes #XXX` 로 연결 |
 
 **Git 브랜치 네이밍 규칙**:
 ```bash
-# 형식: jira/<이슈키>
-git checkout -b jira/PO-123
+# 형식: <라벨>/<이슈번호>-<간단한설명>
+git checkout -b feat/123-add-websocket-hook
 
 # 예시
-git checkout -b jira/PO-10   # 실시간 가격 데이터 수집
-git checkout -b jira/PO-11   # 인디케이터 값 읽기
+git checkout -b feat/10-real-time-price-collector
+git checkout -b bug/15-fix-null-pointer
+git checkout -b docs/20-update-readme
 ```
 
 **커밋 메시지 규칙** (상세: `.github/COMMIT_CONVENTION.md`):
 ```bash
 # [이슈번호][모듈] 한국어 제목 + LLM Context 본문
-git commit -m "[PO-10][data-collector] 실시간 가격 수집 모듈 구현
+git commit -m "[#10][data-collector] 실시간 가격 수집 모듈 구현
 
 * 구현 내용: MutationObserver 기반 DOM 가격 캡처
 * 영향범위: content-script 모듈 (신규)
@@ -238,34 +254,41 @@ git commit -m "[PO-10][data-collector] 실시간 가격 수집 모듈 구현
 
 **워크플로우 예시**:
 ```bash
-# 1. Jira 이슈 확인/생성
-node scripts/jira-cli.cjs get PO-10
+# 1. GitHub Issue 확인/생성
+# https://github.com/yourusername/pocket-chrome-extension/issues 또는
+# gh issue view 10
 
-# 2. 브랜치 생성
-git checkout -b jira/PO-10
+# 2. 브랜치 생성 (이슈 번호와 라벨 포함)
+git checkout -b feat/10-real-time-price-collector
 
-# 3. 상태 변경
-node scripts/jira-cli.cjs update PO-10 --status="In Progress"
-
-# 4. 작업 수행 + 3-file 문서화
+# 3. 작업 수행 + 3-file 문서화
 # - docs/features/xxx/task_plan.md 체크박스 업데이트
 # - docs/features/xxx/findings.md에 발견사항 기록
 # - docs/features/xxx/progress.md에 진행 로그 추가
 
-# 5. 커밋 (.github/COMMIT_CONVENTION.md 형식)
+# 4. 커밋 (.github/COMMIT_CONVENTION.md 형식)
 git add .
-git commit -m "[PO-10][data-collector] 실시간 가격 수집 구현
+git commit -m "[#10][data-collector] 실시간 가격 수집 구현
 
 * 구현 내용: MutationObserver 기반 DOM 가격 캡처
 * LLM Context: Implemented price capture with MutationObserver."
 
-# 6. 완료 처리
-node scripts/jira-cli.cjs update PO-10 --status="Done"
+# 5. PR 생성 (이슈와 자동 연결)
+gh pr create --title "[#10][data-collector] 실시간 가격 수집 구현" --body "Closes #10"
+
+# 또는 GitHub UI에서 수동 생성
 ```
 
-**Jira CLI 도움말**:
+**GitHub CLI 유용한 명령어**:
 ```bash
-node scripts/jira-cli.cjs help
+# 이슈 목록 조회
+gh issue list --label feat --state open
+
+# 특정 이슈 상세 조회
+gh issue view 10
+
+# PR 생성
+gh pr create --title "제목" --body "Closes #10"
 ```
 
 ---
@@ -313,7 +336,7 @@ npm run lint       # 린트 체크
 ## 이슈 관리 규칙
 
 ### 원칙
-**모든 작업은 이슈 티켓을 먼저 생성한 후 커밋합니다.**
+**모든 작업은 GitHub Issue를 먼저 생성한 후 커밋합니다.**
 
 이슈 없이 커밋할 수 있는 예외:
 - 긴급 핫픽스 (서비스 장애 대응)
@@ -327,23 +350,24 @@ npm run lint       # 린트 체크
 LLM 에이전트가 작업을 시작하기 전 확인:
 
 1. **현재 작업에 이슈가 있는가?**
-   - Jira 또는 GitHub Issues 검색
-   - 이슈 번호 형식: `PO-17`, `ISSUE-23` 등
+   - GitHub Issues 검색: https://github.com/yourusername/pocket-chrome-extension/issues
+   - 이슈 번호 형식: `#10`, `#123` 등
 
 2. **없다면 이슈를 생성**
    - 제목: 한국어로 작업 내용 요약 (예: "WebSocket 파서 null 체크 추가")
    - 본문: 아래 템플릿 사용
+   - 라벨 추가: `feat`, `bug`, `docs` 등 (위의 라벨링 규칙 참고)
 
 3. **이슈 번호를 커밋/PR에 연결**
-   - 커밋: `[PO-17][모듈명] 제목`
-   - PR: `Closes #PO-17`
+   - 커밋: `[#17][모듈명] 제목`
+   - PR: `Closes #17`
 
 ### 이슈 템플릿
 
 GitHub Issue 생성 시 `.github/ISSUE_TEMPLATE/`의 YAML 폼이 자동 적용됩니다:
-- 버그 수정: `.github/ISSUE_TEMPLATE/bug.yml`
-- 신규 기능: `.github/ISSUE_TEMPLATE/feature.yml`
-- 리팩토링: `.github/ISSUE_TEMPLATE/refactor.yml`
+- 버그 수정: `.github/ISSUE_TEMPLATE/bug.yml` (`bug` 라벨 자동 추가)
+- 신규 기능: `.github/ISSUE_TEMPLATE/feature.yml` (`feat` 라벨 자동 추가)
+- 리팩토링: `.github/ISSUE_TEMPLATE/refactor.yml` (`refactor` 라벨 자동 추가)
 
 ### LLM 에이전트 워크플로우
 ```
@@ -355,13 +379,13 @@ GitHub Issue 생성 시 `.github/ISSUE_TEMPLATE/`의 YAML 폼이 자동 적용�
 3-B. 이슈 없음 → 이슈 생성 (.github/ISSUE_TEMPLATE/ 참고)
    ↓
 4. 이슈 번호로 브랜치 생성
-   예: jira/PO-17, claude/backtest-leaderboard
+   예: feat/10-real-time-price, bug/15-fix-crash
    ↓
 5. 커밋 (이슈 번호 포함)
-   예: [PO-17][backtest] 리더보드 추가
+   예: [#10][data-collector] 실시간 가격 수집
    ↓
 6. PR 생성 (이슈 번호 연결)
-   예: Closes #PO-17
+   예: Closes #10
 ```
 
 ### 이슈 생성 예외 케이스
@@ -370,16 +394,17 @@ GitHub Issue 생성 시 `.github/ISSUE_TEMPLATE/`의 YAML 폼이 자동 적용�
 A: 1-2줄 오타는 `[-][docs] README 오타 수정` 형식으로 커밋 가능. 하지만 문서 전체 개편은 이슈 생성 권장.
 
 **Q: 긴급 핫픽스는?**
-A: 먼저 `[-][urgent] 긴급 수정` 형식으로 커밋 후, 배포 완료 뒤 이슈 생성하여 사후 문서화.
+A: 먼저 `[-][urgent] 긴급 수정` 형식으로 커밋 후, 배포 완료 뒤 이슈 생성하여 사후 문서화. `p0` 라벨 추가.
 
 **Q: 여러 이슈를 한 PR에 묶어도 되나요?**
-A: 안 됩니다. 1 PR = 1 이슈 원칙. 관련 이슈가 여러 개면 상위 Epic 이슈를 만들고, 하위 이슈로 분리.
+A: 안 됩니다. 1 PR = 1 이슈 원칙. 관련 이슈가 여러 개면 상위 epic/tracking 이슈를 만들고, 하위 이슈로 분리.
 
 ### 커밋 & PR 컨벤션 참고
 
 상세 규칙은 아래 파일 참고:
 - 커밋 메시지: `.github/COMMIT_CONVENTION.md`
 - PR 템플릿: `.github/PULL_REQUEST_TEMPLATE.md`
+- GitHub Labels 설정: `.github/labels.json` (선택사항)
 
 ---
 
