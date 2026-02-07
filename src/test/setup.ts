@@ -1,6 +1,11 @@
 import { vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 
+// Increase max listeners to prevent warnings during parallel tests
+if (typeof process !== 'undefined') {
+  process.setMaxListeners(15)
+}
+
 // Mock Chrome APIs
 const chromeMock = {
   runtime: {

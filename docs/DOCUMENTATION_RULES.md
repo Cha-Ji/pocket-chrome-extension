@@ -1,100 +1,109 @@
-# Documentation Rules - 3 File Pattern
+# Documentation Rules - 2단계 문서화 전략
 
 **생성일:** 2026-01-30
-**목적:** 컨텍스트 유지 및 프로젝트 추적
+**최종 수정:** 2026-02-07
+**목적:** 컨텍스트 유지 및 프로젝트 추적 (실용성 중심)
 
 ---
 
-## 📐 3 File 패턴
+## 2단계 문서화 전략
 
-모든 프로젝트/작업에 다음 3개 파일을 유지:
+문서화 수준을 작업 상태에 따라 구분합니다.
 
-### 1. `task_plan.md` - 할 일 정리
-- 전체 작업 목록
-- 우선순위
-- 예상 일정
-- 체크리스트 형태
+### Tier 1: Full 3-File (활성 작업)
 
-### 2. `findings.md` - 알게 된 내용
-- 발견한 정보
-- 기술적 세부사항
-- 코드 스니펫
-- 결정 사항 및 이유
+**적용 대상**: 현재 진행 중이거나 구현이 완료된 작업 (issues/, 활성 features/, strategies/)
 
-### 3. `progress.md` - 진행 상황
-- 현재 상태
-- 완료된 작업
-- 진행 중인 작업
-- 알려진 이슈
+| 파일 | 역할 | 최소 기준 |
+|------|------|----------|
+| `task_plan.md` | Phase별 체크리스트 | 20줄+, 구체적 항목 |
+| `findings.md` | 결정/제약/기술정보 | 30줄+, 최소 1개 결정사항 |
+| `progress.md` | 진행 로그 (역순) | 10줄+, 날짜 포함 |
 
----
+### Tier 2: Single README (참조 문서)
 
-## 📜 규칙
+**적용 대상**: 아키텍처 개요, 미착수 기능, 설계 단계 모듈
 
-### ✅ DO (해야 할 것)
-- 문서를 계속 **추가**
-- 프로젝트마다 **새 폴더/문서** 생성
-- 날짜와 함께 **업데이트 기록**
-- 결정 사항의 **이유** 기록
-- **코드 예시** 포함
+| 파일 | 역할 |
+|------|------|
+| `README.md` | 역할/구성/제약사항/소스 참조를 한 파일에 요약 |
 
-### ❌ DON'T (하지 말 것)
-- 문서 **삭제 금지**
-- 기존 내용 **덮어쓰기 금지** (추가만)
-- 중요 정보 **생략 금지**
+**Tier 승격**: 작업이 시작되면 README.md를 유지하면서 3-file을 추가
 
 ---
 
-## 📁 폴더 구조 예시
+## 필수 규칙
+
+### findings.md 작성 원칙
+- 결정사항에는 반드시 **날짜와 이유** 기록
+- 코드 예시는 실제 동작하는 코드만 포함 (빈 placeholder 금지)
+- 모든 findings.md 하단에 **관련 참조** 섹션 포함:
+  ```markdown
+  ## 관련 참조
+  - 관련 이슈: [PO-XX](경로)
+  - 소스 코드: `src/경로/파일.ts`
+  - 아키텍처: [모듈명](경로)
+  ```
+
+### progress.md 작성 원칙
+- 역순 시계열 (최신이 위)
+- 각 항목에 날짜 포함
+- 빈 파일 금지 (작업 미착수면 파일 자체를 생성하지 않음)
+
+### task_plan.md 작성 원칙
+- Phase 기반 구조 권장
+- 체크박스로 진행 상태 추적
+- 완료된 Phase는 체크 표시
+
+---
+
+## 폴더 구조
 
 ```
 docs/
 ├── DOCUMENTATION_RULES.md     # 이 파일
-├── head/                       # 프로젝트 전체 레벨
+├── head/                       # 프로젝트 전체 레벨 (Tier 1)
 │   ├── task_plan.md
 │   ├── findings.md
 │   └── progress.md
-├── architecture/
-│   └── content-script/
-│       └── dom-selectors/     # 세부 작업별
-│           ├── task_plan.md
-│           ├── findings.md
-│           └── progress.md
-├── strategies/                 # 전략 관련
-│   ├── youtube-channels.md
-│   └── rsi-strategies.md
-└── [new-feature]/             # 새 기능 추가 시
-    ├── task_plan.md
-    ├── findings.md
-    └── progress.md
+├── architecture/               # 아키텍처 개요 (Tier 2)
+│   ├── content-script/
+│   │   ├── README.md           # 모듈 개요
+│   │   └── dom-selectors/      # 활성 작업 (Tier 1)
+│   │       ├── task_plan.md
+│   │       ├── findings.md
+│   │       └── progress.md
+│   ├── side-panel-ui/README.md
+│   ├── background-service-worker/README.md
+│   └── local-database/README.md
+├── features/
+│   ├── error-handling/          # 완성 작업 (Tier 1)
+│   │   ├── task_plan.md
+│   │   ├── findings.md
+│   │   └── progress.md
+│   ├── data-collector/          # 활성 작업 (Tier 1)
+│   │   ├── task_plan.md
+│   │   ├── findings.md
+│   │   └── progress.md
+│   ├── navigator/README.md      # 미착수 (Tier 2)
+│   ├── executor/README.md
+│   ├── technical-analyst/README.md
+│   └── backtester-logger/README.md
+├── issues/                      # 이슈별 (Tier 1)
+│   ├── PO-11/
+│   ├── PO-13/
+│   └── ...
+├── research/                    # 리서치 (Tier 1 or 2)
+└── strategies/                  # 전략 (Tier 1)
 ```
 
 ---
 
-## 📝 템플릿
-
-### task_plan.md 템플릿
-```markdown
-# [작업명] - Task Plan
-
-**생성일:** YYYY-MM-DD
-**목표:** [목표 설명]
-
-## Phase 1: [단계명]
-- [ ] 작업 1
-- [ ] 작업 2
-
-## 우선순위
-| 작업 | 중요도 | 긴급도 |
-|------|--------|--------|
-| ... | ... | ... |
-```
+## 템플릿
 
 ### findings.md 템플릿
 ```markdown
 # [작업명] - Findings
-
-**최종 업데이트:** YYYY-MM-DD HH:MM
 
 ## 핵심 발견 사항
 - ...
@@ -102,56 +111,37 @@ docs/
 ## 기술적 세부사항
 - ...
 
-## 코드 예시
-\`\`\`javascript
-// ...
-\`\`\`
-
 ## 결정 사항
 | 날짜 | 결정 | 이유 |
 |------|------|------|
 | ... | ... | ... |
+
+## 관련 참조
+- 관련 이슈: [PO-XX](경로)
+- 소스 코드: `src/경로`
 ```
 
-### progress.md 템플릿
+### README.md 템플릿 (Tier 2)
 ```markdown
-# [작업명] - Progress
+# [모듈명]
 
-**최종 업데이트:** YYYY-MM-DD HH:MM
+**역할**: 한 줄 설명
 
-## 📊 진행률
-\`\`\`
-[████░░░░░░] 40%
-\`\`\`
+## 핵심 정보
+- ...
 
-## ✅ 완료
-- [x] ...
+## 제약사항
+- ...
 
-## 🔄 진행 중
-- [ ] ...
-
-## ⏳ 대기
-- [ ] ...
-
-## 🐛 이슈
-| ID | 설명 | 상태 |
-|----|------|------|
-| ... | ... | ... |
+## 관련 소스
+- `src/경로/파일.ts`
 ```
 
 ---
 
-## 🔄 업데이트 주기
+## 업데이트 주기
 
-- **task_plan.md**: 새 작업 추가 시
-- **findings.md**: 새로운 발견 시
-- **progress.md**: 작업 완료/시작 시
-
----
-
-## 💡 팁
-
-1. **날짜 기록**: 모든 업데이트에 날짜/시간 포함
-2. **링크 연결**: 관련 문서 간 상호 참조
-3. **버전 관리**: Git으로 변경 이력 추적
-4. **검색 용이성**: 명확한 제목과 키워드 사용
+- **task_plan.md**: 새 작업 추가/완료 시
+- **findings.md**: 새로운 발견/결정 시
+- **progress.md**: 작업 시작/완료 시
+- **README.md**: 모듈 구조 변경 시

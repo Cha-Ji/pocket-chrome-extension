@@ -211,3 +211,10 @@ for (const item of items) {
   }
 }
 ```
+
+## 관련 참조
+- 셀렉터 타입 정의: `src/lib/types/index.ts` (DOMSelectors)
+- 실시간 수집: [PO-11](../../../issues/PO-11/)
+- Forward Test: [PO-13](../../../issues/PO-13/)
+- 거래 실행: `src/content-script/executor.ts`
+```

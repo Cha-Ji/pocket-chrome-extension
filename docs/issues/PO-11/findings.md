@@ -77,3 +77,10 @@ npx tsx scripts/forward-test.ts --symbol=ETHUSDT --local
 | EMA Cross | 8 | 37.5% | ⚠️ ADX 30+ 조건 추가 |
 
 → V2에서 Stochastic 제거, EMA에 ADX 조건 추가
+
+## 관련 참조
+- Forward Test V1→V2 분석: [PO-13](../PO-13/)
+- DOM 셀렉터 상세: [dom-selectors](../../architecture/content-script/dom-selectors/)
+- 데이터 수집 최적화: [PO-19](../PO-19/)
+- 지표 라이브러리: `src/lib/indicators/index.ts`
+- 전략 구현체: `src/lib/backtest/strategies/`
