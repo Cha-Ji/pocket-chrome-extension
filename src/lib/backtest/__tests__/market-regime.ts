@@ -112,9 +112,9 @@ export function calculateDI(candles: Candle[], period: number = 14): { plusDI: n
     dms.push(calculateDM(candles[i], candles[i - 1]))
   }
 
-  let smoothedPlusDM = dms.slice(-period).reduce((s, d) => s + d.plusDM, 0)
-  let smoothedMinusDM = dms.slice(-period).reduce((s, d) => s + d.minusDM, 0)
-  let smoothedTR = dms.slice(-period).reduce((s, d) => s + d.tr, 0)
+  const smoothedPlusDM = dms.slice(-period).reduce((s, d) => s + d.plusDM, 0)
+  const smoothedMinusDM = dms.slice(-period).reduce((s, d) => s + d.minusDM, 0)
+  const smoothedTR = dms.slice(-period).reduce((s, d) => s + d.tr, 0)
 
   const plusDI = smoothedTR > 0 ? (smoothedPlusDM / smoothedTR) * 100 : 0
   const minusDI = smoothedTR > 0 ? (smoothedMinusDM / smoothedTR) * 100 : 0
