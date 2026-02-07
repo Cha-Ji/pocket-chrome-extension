@@ -26,3 +26,9 @@
 - **Server**: Node.js (Express) + SQLite
 - **Client**: Chrome Extension (Background Script)
 - **Protocol**: HTTP POST (단순하고 견고함)
+
+## 관련 참조
+- History Mining 이슈: [PO-16](../../issues/PO-16-history-mining-fix/)
+- DataSender 최적화: [PO-19](../../issues/PO-19/)
+- WS 후킹: [tampermonkey-integration](../../research/tampermonkey-integration/)
+- 서버 소스: `scripts/data-collector-server.ts`

@@ -36,8 +36,13 @@
 - (2026-01-26) 포워드 테스트 흐름: 실시간 수집 -> 가상 주문 -> 만기 결과 업데이트
 - (2026-01-26) 로드맵(요약): 기반 구축 -> 데이터 파이프라인 -> 분석/시각화 -> 자동화 -> 안정화/최적화
 
-## 코드 스니펫
+## 관련 참조
 
-````text
-// 필요한 경우 최소한의 예시만 기록
-````
+| 주제 | 문서 위치 |
+|------|----------|
+| DOM 셀렉터 카탈로그 | [architecture/content-script/dom-selectors/](../architecture/content-script/dom-selectors/) |
+| Forward Test 분석 | [issues/PO-13/](../issues/PO-13/) |
+| 실시간 데이터 수집 | [issues/PO-11/](../issues/PO-11/) |
+| 에러 처리 모듈 | [features/error-handling/](../features/error-handling/) |
+| Bitshin 전략 | [strategies/bitshin-option/](../strategies/bitshin-option/) |
+| WS 후킹 리서치 | [research/tampermonkey-integration/](../research/tampermonkey-integration/) |
