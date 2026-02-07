@@ -14,7 +14,7 @@ interface MiningState {
   lastRequestAt: number
 }
 
-let minerState: MiningState = {
+const minerState: MiningState = {
   isActive: false,
   currentAsset: null,
   assetsToMine: [],

@@ -7,6 +7,7 @@ dist/
 # Environment
 .env
 .env.local
+.env.*
 
 # IDE
 .idea/
@@ -20,7 +21,16 @@ Thumbs.db
 
 # Test
 coverage/
+test-results/
+playwright-report/
 *.log
+
+# Data (large market data files)
+data/
+*.db
+*.db-shm
+*.db-wal
+forward-test-results*.json
 
 # Temporary
 *.tmp
