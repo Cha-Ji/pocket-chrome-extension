@@ -9,6 +9,33 @@ import { loggers } from './logger'
 const log = loggers.dataSender
 const SERVER_URL = 'http://localhost:3001'
 
+/** DataSender 전송 통계 */
+export interface DataSenderStats {
+  serverOnline: boolean
+  lastHealthCheck: number
+  bulkSendCount: number
+  bulkSuccessCount: number
+  bulkFailCount: number
+  bulkTotalCandles: number
+  lastBulkSendAt: number
+  realtimeSendCount: number
+  realtimeSuccessCount: number
+  realtimeFailCount: number
+}
+
+const senderStats: DataSenderStats = {
+  serverOnline: false,
+  lastHealthCheck: 0,
+  bulkSendCount: 0,
+  bulkSuccessCount: 0,
+  bulkFailCount: 0,
+  bulkTotalCandles: 0,
+  lastBulkSendAt: 0,
+  realtimeSendCount: 0,
+  realtimeSuccessCount: 0,
+  realtimeFailCount: 0,
+}
+
 /** Loose candle shape accepted by DataSender (symbol or ticker) */
 export interface CandleLike {
   symbol?: string
@@ -28,8 +55,12 @@ export const DataSender = {
   async checkHealth(): Promise<boolean> {
     try {
       const res = await fetch(`${SERVER_URL}/health`)
+      senderStats.serverOnline = res.ok
+      senderStats.lastHealthCheck = Date.now()
       return res.ok
     } catch (e) {
+      senderStats.serverOnline = false
+      senderStats.lastHealthCheck = Date.now()
       return false
     }
   },
@@ -38,11 +69,11 @@ export const DataSender = {
    * 실시간 캔들 전송
    */
   async sendCandle(candle: CandleLike): Promise<void> {
+    senderStats.realtimeSendCount++
     try {
-      // 1. 필요한 필드만 추출 및 변환
       const payload = {
         symbol: candle.symbol || candle.ticker || 'UNKNOWN',
-        interval: '1m', // 일단 1분봉 고정 (추후 동적 처리)
+        interval: '1m',
         timestamp: candle.timestamp,
         open: candle.open,
         high: candle.high,
@@ -54,19 +85,22 @@ export const DataSender = {
 
       log.debug(`Sending candle: ${payload.symbol} @ ${payload.timestamp}`)
 
-      // 2. 전송 (비동기, 결과 기다리지 않음)
       const response = await fetch(`${SERVER_URL}/api/candle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
-      if (!response.ok) {
+      if (response.ok) {
+        senderStats.realtimeSuccessCount++
+      } else {
+        senderStats.realtimeFailCount++
         const errorText = await response.text();
         log.error(`Server error (${response.status}): ${errorText}`)
       }
 
     } catch (error: unknown) {
+      senderStats.realtimeFailCount++
       log.error(`Network error: ${error instanceof Error ? error.message : String(error)}`)
     }
   },
@@ -77,13 +111,14 @@ export const DataSender = {
   async sendHistory(candles: CandleLike[]): Promise<void> {
     if (candles.length === 0) return
 
+    senderStats.bulkSendCount++
     try {
       const firstCandle = candles[0];
       const symbol = firstCandle.symbol || firstCandle.ticker || 'UNKNOWN';
       log.data(`Attempting bulk send: ${candles.length} candles for ${symbol}`)
 
       const mapped = candles.map(c => ({
-        symbol: (c.symbol || c.ticker || symbol).toUpperCase().replace(/\s+/g, '-'), // 서버 표준 포맷 강제
+        symbol: (c.symbol || c.ticker || symbol).toUpperCase().replace(/\s+/g, '-'),
         interval: '1m',
         timestamp: Number(c.timestamp),
         open: Number(c.open),
@@ -102,6 +137,7 @@ export const DataSender = {
       )
 
       if (mapped.length === 0) {
+        senderStats.bulkFailCount++
         log.fail(`All ${candles.length} candles filtered out during validation. Sample: ${JSON.stringify(candles[0])}`)
         return
       }
@@ -122,13 +158,23 @@ export const DataSender = {
 
       if (response.ok) {
         const result = await response.json();
+        senderStats.bulkSuccessCount++
+        senderStats.bulkTotalCandles += result.count
+        senderStats.lastBulkSendAt = Date.now()
         log.success(`Bulk saved: ${result.count} candles (symbol: ${mapped[0].symbol})`)
       } else {
+        senderStats.bulkFailCount++
         const errorText = await response.text();
         log.fail(`Bulk send failed (HTTP ${response.status}): ${errorText}`)
       }
     } catch (error: unknown) {
+      senderStats.bulkFailCount++
       log.fail(`Bulk send network error: ${error instanceof Error ? error.message : String(error)}`)
     }
-  }
+  },
+
+  /** 전송 통계 스냅샷 반환 */
+  getStats(): DataSenderStats {
+    return { ...senderStats }
+  },
 }

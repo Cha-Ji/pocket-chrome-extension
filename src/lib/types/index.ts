@@ -144,6 +144,13 @@ export interface MessagePayloadMap {
   START_AUTO_MINER: undefined
   STOP_AUTO_MINER: undefined
   GET_MINER_STATUS: undefined
+  SET_MINER_CONFIG: {
+    offsetSeconds?: number
+    maxDaysBack?: number
+    requestDelayMs?: number
+  }
+  // DB Monitor
+  GET_DB_MONITOR_STATUS: undefined
   // Mining Status
   TOGGLE_MINING: { active: boolean }
   MINING_STATS: { collected: number }
