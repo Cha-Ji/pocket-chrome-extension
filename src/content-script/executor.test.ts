@@ -144,14 +144,14 @@ describe('TradeExecutor', () => {
   })
 
   describe('getCurrentBalance', () => {
-    it('should return null when balance element not found', () => {
+    it('should return null when balance element not found', async () => {
       document.body.innerHTML = '' // Remove demo elements
-      expect(executor.getCurrentBalance()).toBeNull()
+      expect(await executor.getCurrentBalance()).toBeNull()
     })
 
-    it('should return balance value when element exists', () => {
+    it('should return balance value when element exists', async () => {
       // Balance element is set up in setupDemoMode with "10,000.00"
-      expect(executor.getCurrentBalance()).toBe(10000)
+      expect(await executor.getCurrentBalance()).toBe(10000)
     })
   })
 

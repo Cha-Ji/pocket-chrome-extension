@@ -352,6 +352,17 @@ function calculateProfitDistribution(profits: number[]): { range: string; count:
 }
 
 function getEmptyStatistics(): DetailedStatistics {
+  // Create 24-hour hourly stats for empty trades
+  const emptyHourlyStats = new Array(24).fill(null).map((_, hour) => ({
+    hour,
+    trades: 0,
+    wins: 0,
+    losses: 0,
+    winRate: 0,
+    profit: 0,
+    avgProfit: 0,
+  }))
+
   return {
     totalTrades: 0,
     wins: 0,
@@ -385,7 +396,7 @@ function getEmptyStatistics(): DetailedStatistics {
     tradingDurationMs: 0,
     busiestHour: 0,
     quietestHour: 0,
-    hourlyStats: [],
+    hourlyStats: emptyHourlyStats,
     currentStreak: { type: 'none', count: 0 },
     streaks: [],
     sharpeRatio: 0,
