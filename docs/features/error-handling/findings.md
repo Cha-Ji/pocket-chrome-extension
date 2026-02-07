@@ -371,3 +371,9 @@ src/lib/errors/__tests__/
 ├── result.test.ts
 └── handler.test.ts
 ```
+
+## 관련 참조
+- 통합 대상: `src/background/index.ts`, `src/content-script/executor.ts`
+- UI 에러 표시: `src/side-panel/components/ErrorBoundary.tsx`
+- 에러 모듈 소스: `src/lib/errors/`
+```

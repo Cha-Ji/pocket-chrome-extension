@@ -150,3 +150,9 @@ strategy:
     - "no overlapping MAs"
     - "clear trend separation"
 ```
+
+## 관련 참조
+- Forward Test 결과: [PO-13](../../issues/PO-13/)
+- 지표 구현: `src/lib/indicators/index.ts` (SMA, EMA, Stochastic)
+- 전략 구현체: `src/lib/backtest/strategies/`
+```
