@@ -2,12 +2,16 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './tests/e2e',
-  fullyParallel: true,
+  fullyParallel: false,   // Extension tests need serial execution (shared persistent context)
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
-  reporter: 'html',
-  
+  retries: 0,             // Diagnostics should not retry — we want raw results
+  workers: 1,             // One browser instance at a time
+  reporter: [
+    ['list'],             // Console-friendly output for LLM consumption
+    ['html', { open: 'never' }],
+  ],
+  timeout: 120_000,       // Mining tests need longer timeouts
+
   use: {
     baseURL: 'https://pocketoption.com',
     trace: 'on-first-retry',
@@ -15,12 +19,29 @@ export default defineConfig({
   },
 
   projects: [
+    // Lightweight tests that run without auth / extension
     {
-      name: 'chromium',
+      name: 'basic',
+      testMatch: ['example.spec.ts', 'offline-dom.spec.ts'],
       use: { ...devices['Desktop Chrome'] },
+    },
+    // Extension-loaded tests (Playwright manages persistent context internally)
+    // Run: npx playwright test --project=extension-diagnostic
+    {
+      name: 'extension-diagnostic',
+      testMatch: ['mining-diagnostic.spec.ts'],
+      // No device config — persistent context is launched by the test itself
+    },
+    // Full extension tests
+    {
+      name: 'extension',
+      testMatch: ['extension.spec.ts'],
     },
   ],
 
-  // Note: E2E tests require login - skip in CI until credentials are configured
-  // Run locally with: POCKET_TEST_USER=xxx POCKET_TEST_PASS=xxx npx playwright test
+  // E2E tests against live Pocket Option require:
+  //   1. Accessible region (Korea, etc.)
+  //   2. Pre-authenticated profile: TEST_PROFILE=./test-profile
+  //   3. Local collector server: npm run collector
+  //   4. Built extension: npm run build
 })
