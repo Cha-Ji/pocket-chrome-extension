@@ -135,62 +135,78 @@ export class PayoutMonitor {
     return false
   }
 
+  /** 자산명 정규화 (NBSP, 공백 통합, 소문자) */
+  private normalizeAssetName(name: string): string {
+    return name.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+  }
+
+  /** DOM에서 자산 요소를 찾는다. 최대 maxAttempts회 재시도 (간격 retryDelayMs) */
+  private async findAssetElement(normalizedTarget: string, maxAttempts = 3, retryDelayMs = 800): Promise<{ element: HTMLElement; rawLabel: string } | null> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const assetItems = document.querySelectorAll(PO_PAYOUT_SELECTORS.assetItem)
+      for (const item of assetItems) {
+        const labelEl = item.querySelector(PO_PAYOUT_SELECTORS.assetLabel)
+        const rawLabel = labelEl?.textContent || ''
+        if (this.normalizeAssetName(rawLabel) === normalizedTarget) {
+          const clickTarget = (item.querySelector('.alist__link') as HTMLElement) || (item as HTMLElement)
+          return { element: clickTarget, rawLabel: rawLabel.trim() }
+        }
+      }
+      if (attempt < maxAttempts) {
+        log.info(`Asset not found yet, retrying... (${attempt}/${maxAttempts})`)
+        await this.wait(retryDelayMs)
+      }
+    }
+    return null
+  }
+
   async switchAsset(assetName: string): Promise<boolean> {
     log.info(`🔄 Switching to: ${assetName}`)
-    const normalizedTarget = assetName.replace(/\s+/g, ' ').trim().toLowerCase();
+    const normalizedTarget = this.normalizeAssetName(assetName)
 
-    // Check if asset is in cooldown
+    // 쿨다운 중인지 확인
     if (this.isAssetInCooldown(assetName)) {
       log.warn(`⏳ Asset ${assetName} is in cooldown, skipping...`)
       return false
     }
 
     // 현재 이미 해당 자산인지 확인
-    const currentEl = document.querySelector('.current-symbol');
-    if (currentEl && currentEl.textContent?.toLowerCase().includes(normalizedTarget)) {
-       log.info(`Already on ${assetName}`);
-       return true;
+    const currentEl = document.querySelector('.current-symbol')
+    if (currentEl && this.normalizeAssetName(currentEl.textContent || '').includes(normalizedTarget)) {
+       log.info(`Already on ${assetName}`)
+       return true
     }
 
     await this.openAssetPicker()
     await this.wait(1500)
 
-    let targetElement: HTMLElement | null = null
-    const assetItems = document.querySelectorAll(PO_PAYOUT_SELECTORS.assetItem)
-    for (const item of assetItems) {
-      const labelEl = item.querySelector(PO_PAYOUT_SELECTORS.assetLabel)
-      const rawLabel = labelEl?.textContent || ''
-      const normalizedLabel = rawLabel.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
-      if (normalizedLabel === normalizedTarget) {
-        targetElement = (item.querySelector('.alist__link') as HTMLElement) || (item as HTMLElement)
-        log.info(`🎯 Found match: ${rawLabel.trim()}`)
-        break
-      }
-    }
+    // DOM 재시도 포함 자산 탐색
+    const found = await this.findAssetElement(normalizedTarget)
 
-    if (targetElement) {
-      await forceClick(targetElement)
-      await this.wait(2000) // 전환 대기 시간 증가
-      
+    if (found) {
+      log.info(`🎯 Found match: ${found.rawLabel}`)
+      await forceClick(found.element)
+      await this.wait(2000)
+
       // 전환 성공 여부 확인
-      const afterEl = document.querySelector('.current-symbol');
-      const isSwitched = afterEl?.textContent?.toLowerCase().includes(normalizedTarget);
-      
+      const afterEl = document.querySelector('.current-symbol')
+      const isSwitched = afterEl && this.normalizeAssetName(afterEl.textContent || '').includes(normalizedTarget)
+
       if (!isSwitched) {
-         log.warn('❌ Switch failed (UI did not update).');
-         this.markAssetUnavailable(assetName);
-         await this.closeAssetPicker();
-         return false;
+         log.warn('❌ Switch failed (UI did not update).')
+         this.markAssetUnavailable(assetName)
+         await this.closeAssetPicker()
+         return false
       }
 
       await this.closeAssetPicker()
       await this.wait(1000)
 
-      // Enhanced unavailable asset detection
+      // 자산 이용 불가 감지 (UI 확인 성공 후에만)
       if (this.detectAssetUnavailable()) {
-         log.warn(`⚠️ Asset ${assetName} is confirmed unavailable.`);
-         this.markAssetUnavailable(assetName);
-         return false;
+         log.warn(`⚠️ Asset ${assetName} is confirmed unavailable.`)
+         this.markAssetUnavailable(assetName)
+         return false
       }
 
       log.info(`✅ Switch finished: ${assetName}`)
@@ -198,7 +214,7 @@ export class PayoutMonitor {
     }
 
     log.warn(`❌ Asset not found in list: ${assetName}`)
-    this.markAssetUnavailable(assetName);
+    this.markAssetUnavailable(assetName)
     await this.closeAssetPicker()
     return false
   }

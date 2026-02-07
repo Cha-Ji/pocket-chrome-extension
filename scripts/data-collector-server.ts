@@ -96,7 +96,8 @@ app.post('/api/candle', (req, res) => {
         high = excluded.high,
         low = excluded.low,
         close = excluded.close,
-        volume = excluded.volume
+        volume = excluded.volume,
+        source = excluded.source
     `)
 
     stmt.run(symbol, interval, timestamp, open, high, low, close, volume || 0, source || 'realtime')
@@ -161,11 +162,17 @@ app.post('/api/candles/bulk', (req, res) => {
         high = excluded.high,
         low = excluded.low,
         close = excluded.close,
-        volume = excluded.volume
+        volume = excluded.volume,
+        source = excluded.source
     `)
 
     const insertMany = db.transaction((rows: any[]) => {
-      for (const row of rows) insert.run(row)
+      for (const row of rows) {
+        // volume/source 누락 시 기본값 보정
+        row.volume = row.volume ?? 0
+        row.source = row.source || 'history'
+        insert.run(row)
+      }
       return rows.length
     })
 
