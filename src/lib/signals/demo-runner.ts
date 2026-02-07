@@ -3,7 +3,7 @@
 // ============================================================
 
 import { SignalGenerator, fetchCandles } from './signal-generator'
-import { Signal, Candle } from './types'
+import { Signal } from './types'
 
 export class DemoRunner {
   private generator: SignalGenerator

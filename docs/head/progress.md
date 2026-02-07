@@ -1,6 +1,35 @@
 # Pocket Quant Trader - Progress
 
-**최종 업데이트:** 2026-02-01 19:00 KST
+**최종 업데이트:** 2026-02-06 KST
+
+## (2026-02-06) 병렬 작업 실행 계획 수립
+
+- 19건 항목의 파일 충돌 분석 → 4단계 배치(A~J 10세션)로 분류
+- Batch 1: 5세션 병렬 (테스트, WS정비, 라이프사이클, 설정/보안, 빌드정리)
+- Batch 2: 2세션 (타입 시스템 대개편, DOM 셀렉터 통합)
+- Batch 3: 2세션 (에러/로깅 통일, 상태 동기화)
+- Batch 4: 1세션 (Import alias 전체 통일)
+- 각 세션별 프롬프트 작성 완료
+
+## (2026-02-06) 심층 아키텍처 분석 (2차)
+
+- 6개 영역 26건 추가 분석 → findings.md에 S0~S2 (항목 11~19) 기록
+- CRITICAL 발견:
+  - ExtensionMessage가 discriminated union이 아님 → 모든 핸들러에서 unsafe cast
+  - Background↔Content Script 상태 동기화 메커니즘 없음 → 레이스 컨디션
+- HIGH 발견:
+  - websocket-interceptor의 이벤트 리스너가 실제로 제거되지 않는 버그
+  - 텔레그램 봇 토큰 평문 저장, WS 데이터 무검증 전달
+
+## (2026-02-06) 레거시 모듈 삭제 + 아키텍처 리뷰
+
+- `src/sidepanel/`, `src/content/`, `src/database/` 3개 레거시 디렉토리 삭제
+  - manifest.json에서 참조 없음 확인, 다른 모듈에서 import 없음 확인
+- CLAUDE.md에서 레거시 모듈 섹션 제거
+- 코드 리뷰 기반 아키텍처 개선 과제 10건 도출 → `docs/head/findings.md` 기록
+  - P0: any 타입 제거, 셀렉터 중복 제거, 핵심 모듈 테스트
+  - P1: 에러 핸들링 일관성, Config 통합, WS 순환 의존, import alias 통일
+  - P2: 로깅 마이그레이션, barrel export, 레이어 경계 정리
 
 ## 📊 전체 진행률
 

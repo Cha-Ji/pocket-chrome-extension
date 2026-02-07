@@ -191,8 +191,6 @@ export function detectRegime(candles: Candle[]): { regime: MarketRegime; adx: nu
 // Strategy Signal Functions
 // ============================================================
 
-type SignalFn = (candles: Candle[]) => 'CALL' | 'PUT' | null
-
 // EMA Cross (12/26) - Best performer 80% win rate
 export function emaCrossSignal(candles: Candle[], fastPeriod = 12, slowPeriod = 26): 'CALL' | 'PUT' | null {
   const closes = candles.map(c => c.close)
@@ -201,7 +199,6 @@ export function emaCrossSignal(candles: Candle[], fastPeriod = 12, slowPeriod = 
   
   if (fastEMA.length < 2 || slowEMA.length < 2) return null
   
-  const offset = slowPeriod - fastPeriod
   const currFast = fastEMA[fastEMA.length - 1]
   const currSlow = slowEMA[slowEMA.length - 1]
   const prevFast = fastEMA[fastEMA.length - 2]

@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { DataSender } from '../../lib/data-sender'
-import { CandleRepository } from '../../lib/db'
 
 // ============================================================
 // History Miner Component

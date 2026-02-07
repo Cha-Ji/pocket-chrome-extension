@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 
 export function AutoMinerControl() {
   const [status, setStatus] = useState<any>({ isActive: false, current: null, completed: 0 })
