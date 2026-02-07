@@ -10,7 +10,7 @@ let miningInterval: NodeJS.Timeout | null = null
 let collectedCount = 0
 
 export function initHistoryMiner() {
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
     if (message.type === 'TOGGLE_MINING') {
       if (message.payload.active) {
         startMining()
@@ -25,7 +25,7 @@ function startMining() {
   if (miningInterval) return
   
   console.log('⛏️ History Miner Started')
-  const chartContainer = document.querySelector('.chart-container') || document.body
+  document.querySelector('.chart-container') || document.body
   
   // 1초마다 왼쪽으로 스크롤 (과거 데이터 로딩 트리거)
   miningInterval = setInterval(() => {

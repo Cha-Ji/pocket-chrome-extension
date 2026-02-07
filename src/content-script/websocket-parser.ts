@@ -10,7 +10,6 @@ import type {
   CandleData,
   OrderBookData,
   TradeData,
-  MessageType,
   ParsedMessage,
 } from './websocket-types'
 

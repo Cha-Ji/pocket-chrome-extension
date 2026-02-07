@@ -3,7 +3,6 @@ import type {
   PriceUpdate,
   WebSocketConnection,
   WebSocketMessage,
-  WebSocketEvent,
 } from './websocket-types'
 
 export type { PriceUpdate, WebSocketConnection, WebSocketMessage, WebSocketEvent } from './websocket-types'
@@ -14,10 +13,7 @@ type MessageCallback = (message: WebSocketMessage) => void
 type ConnectionCallback = (connection: WebSocketConnection) => void
 
 class WebSocketInterceptor {
-  private connections: Map<string, WebSocketConnection> = new Map()
   private messageBuffer: WebSocketMessage[] = []
-  private maxBufferSize = 1000
-  private isInstalled = false
   private isListening = false
   private analysisMode = true
   private parser: WebSocketParser
@@ -103,11 +99,6 @@ class WebSocketInterceptor {
     } else if (event.data.type === 'bridge-ready') {
       console.log('[PO] [WS] Main World Bridge Connected');
     }
-  }
-
-  private handleEvent(event: CustomEvent<WebSocketEvent>): void {
-    const { type, data, timestamp } = event.detail
-    if (type === 'message') this.handleMessage(data, timestamp)
   }
 
   private handleMessage(data: WebSocketMessage, timestamp: number): void {

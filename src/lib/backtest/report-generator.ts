@@ -4,7 +4,7 @@
 // Generates HTML reports with charts and statistics
 // ============================================================
 
-import { BacktestResult, BacktestTrade } from './types'
+import { BacktestTrade } from './types'
 
 export interface ReportData {
   title: string

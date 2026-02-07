@@ -4,7 +4,7 @@
 // ============================================================
 
 import { ExtensionMessage, Tick, TradingStatus } from '../lib/types'
-import { db, TickRepository } from '../lib/db'
+import { TickRepository } from '../lib/db'
 import { getTelegramService } from '../lib/notifications/telegram'
 import {
   POError,
@@ -83,7 +83,7 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
 
 async function handleMessage(
   message: ExtensionMessage,
-  sender: chrome.runtime.MessageSender
+  _sender: chrome.runtime.MessageSender
 ): Promise<unknown> {
   const ctx = { module: 'background' as const, function: 'handleMessage' }
 

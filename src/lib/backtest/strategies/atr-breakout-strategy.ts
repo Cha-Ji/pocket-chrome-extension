@@ -5,7 +5,7 @@
 // ============================================================
 
 import { Candle, Strategy, StrategySignal, Direction } from '../types'
-import { ATR, SMA, EMA } from '../../indicators'
+import { ATR, EMA } from '../../indicators'
 
 /**
  * ATR Channel Breakout Strategy

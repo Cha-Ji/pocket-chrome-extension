@@ -13,7 +13,6 @@ import {
   RSI,
   MACD,
   EMA,
-  calculateSMA,
 } from '../../indicators'
 
 // ============================================================
@@ -445,12 +444,9 @@ export function supertrendStrategy(
 
   // Supertrend 계산
   const closes = candles.map(c => c.close)
-  const highs = candles.map(c => c.high)
-  const lows = candles.map(c => c.low)
 
   // 현재와 이전 캔들의 중간값
   const currentHL2 = (candles[candles.length - 1].high + candles[candles.length - 1].low) / 2
-  const prevHL2 = (candles[candles.length - 2].high + candles[candles.length - 2].low) / 2
 
   // Upper/Lower bands
   const currentUpperBand = currentHL2 + (multiplier * atr)
