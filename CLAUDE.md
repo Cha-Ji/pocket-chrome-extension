@@ -27,35 +27,41 @@ LLM이 바이브코딩으로 효과적으로 개발할 수 있도록 작성된 �
 ## 아키텍처 개요
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Chrome Extension                      │
-├─────────────────────────────────────────────────────────┤
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
-│  │  Side Panel │◄──►│  Background │◄──►│   Content   │  │
-│  │  (React UI) │    │   (Worker)  │    │   Script    │  │
-│  └─────────────┘    └──────┬──────┘    └─────────────┘  │
-│                            │                             │
-│                            ▼                             │
-│                     ┌─────────────┐                      │
-│                     │  IndexedDB  │                      │
-│                     │  (Dexie.js) │                      │
-│                     └─────────────┘                      │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        Chrome Extension                          │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐          │
+│  │  Side Panel │◄──►│  Background │◄──►│   Content   │          │
+│  │  (React UI) │    │   (Worker)  │    │   Script    │          │
+│  └─────────────┘    └──────┬──────┘    └──────▲──────┘          │
+│                            │                  │ window.postMessage│
+│                            ▼                  │  (pq-bridge)     │
+│                     ┌─────────────┐    ┌──────┴──────┐          │
+│                     │  IndexedDB  │    │ Tampermonkey │          │
+│                     │  (Dexie.js) │    │  WS Hook     │          │
+│                     └─────────────┘    │ (Main World) │          │
+│                                        └─────────────┘          │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 **모듈별 역할**:
 - `src/background/`: 중앙 상태 관리, 메시지 라우팅, DB 저장
-- `src/content-script/`: DOM에서 가격 추출, 거래 실행
+- `src/content-script/`: DOM에서 가격 추출, 거래 실행, WebSocket 데이터 수신
 - `src/side-panel/`: 사용자 인터페이스 (상태 표시, 제어)
 - `src/lib/`: 공유 라이브러리 (DB, 지표, 백테스트, 타입)
+- `scripts/tampermonkey/`: Tampermonkey 유저스크립트 (WebSocket 후킹) - **프로젝트 외부에서 실행**
+- `scripts/manual-injection/`: 수동 콘솔 주입용 WebSocket 후킹 스크립트 (Tampermonkey 대안)
 
 **데이터 흐름**:
-1. Content Script가 DOM에서 가격 캡처 (MutationObserver)
-2. `chrome.runtime.sendMessage`로 Background에 Tick 전송
-3. Background가 IndexedDB에 저장
-4. Side Panel이 상태 조회 및 표시
+1. **WebSocket 경로 (주요)**: Tampermonkey 스크립트가 Main World에서 WebSocket 생성자를 오버라이드하여 모든 WS 메시지를 가로챔 → `window.postMessage(source: 'pq-bridge')`로 Content Script에 전달 → `websocket-interceptor.ts`가 수신 및 파싱
+2. **DOM 경로 (보조)**: Content Script가 DOM에서 가격 캡처 (MutationObserver)
+3. `chrome.runtime.sendMessage`로 Background에 Tick 전송
+4. Background가 IndexedDB에 저장
+5. Side Panel이 상태 조회 및 표시
 
 **메시지 통신 패턴**:
+- Tampermonkey → Content Script: `window.postMessage` (`source: 'pq-bridge'`)
+- Content Script → Tampermonkey: `window.postMessage` (`source: 'pq-content'`)
 - Content Script ↔ Background: `chrome.runtime.sendMessage`
 - Background → Content Script: `chrome.tabs.sendMessage`
 - Side Panel ↔ Background: `chrome.runtime.sendMessage`
@@ -73,14 +79,66 @@ LLM이 바이브코딩으로 효과적으로 개발할 수 있도록 작성된 �
 | lib/indicators | `src/lib/indicators/index.ts` | 기술적 지표 계산 (SMA, EMA, RSI, MACD 등) |
 | lib/backtest | `src/lib/backtest/engine.ts` | 백테스트 실행 엔진 |
 | lib/types | `src/lib/types/index.ts` | TypeScript 타입 정의, DOM 셀렉터 |
+| scripts/tampermonkey | `scripts/tampermonkey/inject-websocket.user.js` | WebSocket 후킹 (Tampermonkey 유저스크립트, 프로젝트 외부 실행) |
+| scripts/manual-injection | `scripts/manual-injection/hook.js` | WebSocket 후킹 (브라우저 콘솔 수동 주입용, Tampermonkey 대안) |
 
 **주요 파일별 기능**:
+- `content-script/websocket-interceptor.ts`: Tampermonkey Bridge로부터 WS 메시지 수신, 파싱, 콜백 분배
 - `content-script/data-collector.ts`: MutationObserver로 가격 변화 감지, Tick 생성
 - `content-script/executor.ts`: CALL/PUT 버튼 클릭, 거래 실행
 - `content-script/payout-monitor.ts`: 페이아웃 비율 모니터링
 - `lib/backtest/strategies/`: 전략 구현체 (RSI, SMMA+Stochastic)
 - `lib/backtest/optimizer.ts`: 파라미터 최적화
 - `lib/backtest/statistics.ts`: 백테스트 통계 계산
+
+---
+
+## Tampermonkey WebSocket 후킹 (외부 스크립트)
+
+> **중요**: 이 스크립트들은 프로젝트 빌드에 포함되지 않습니다. 사용자가 직접 Tampermonkey 확장에 등록하거나 브라우저 콘솔에 붙여넣어 사용합니다.
+
+### 왜 Tampermonkey인가?
+
+Chrome Extension의 Content Script는 **Isolated World**에서 실행되어 페이지의 `WebSocket` 객체에 직접 접근할 수 없습니다. Tampermonkey는 `@run-at document-start` + `unsafeWindow`를 통해 **Main World**에서 페이지 로드 전에 확실하게 WebSocket 생성자를 오버라이드할 수 있습니다.
+
+### 스크립트 파일
+
+| 파일 | 용도 | 사용법 |
+|------|------|--------|
+| `scripts/tampermonkey/inject-websocket.user.js` | Tampermonkey 유저스크립트 | Tampermonkey 대시보드에서 새 스크립트로 등록 |
+| `scripts/manual-injection/hook.js` | 콘솔 수동 주입 | 브라우저 DevTools 콘솔(F12)에 붙여넣기 후 페이지 새로고침 |
+
+### 동작 메커니즘
+
+```
+[Pocket Option 페이지 로드]
+       │
+       ▼
+[Tampermonkey: document-start에서 WebSocket 생성자 오버라이드]
+       │
+       ▼ (사이트 코드가 new WebSocket() 호출)
+[후킹된 WebSocket이 원본 WebSocket을 생성하고 메시지 리스너를 래핑]
+       │
+       ▼ (WS 메시지 수신 시)
+[메시지 디코딩 (string/ArrayBuffer/Blob) → JSON 파싱 시도]
+[Socket.IO Binary Placeholder 패턴 처리 (451-["event",{_placeholder:true}])]
+       │
+       ▼
+[window.postMessage({ source: 'pq-bridge', type: 'ws-message', data: {...} })]
+       │
+       ▼
+[Content Script의 websocket-interceptor.ts가 수신 → 파싱 → 콜백 분배]
+```
+
+### 양방향 Bridge 통신
+
+- **수신 (Tampermonkey → Extension)**: `source: 'pq-bridge'`, `type: 'ws-message'` 또는 `'bridge-ready'`
+- **송신 (Extension → Tampermonkey)**: `source: 'pq-content'`, `type: 'ws-send'` → Tampermonkey가 활성 WebSocket을 찾아 메시지 전송
+
+### 관련 코드
+
+- 수신 측: `src/content-script/websocket-interceptor.ts` (`handleBridgeMessage`)
+- 리서치 문서: `docs/research/tampermonkey-integration/findings.md`
 
 ---
 
@@ -222,6 +280,8 @@ node scripts/jira-cli.cjs help
 | DB 스키마 수정 | `src/lib/db/index.ts` |
 | 메시지 타입 추가 | `src/lib/types/index.ts` |
 | 백테스트 로직 수정 | `src/lib/backtest/engine.ts` |
+| WebSocket 후킹 수정 | `scripts/tampermonkey/inject-websocket.user.js` |
+| WS 메시지 수신/파싱 수정 | `src/content-script/websocket-interceptor.ts` |
 
 **개발 명령어**:
 ```bash
@@ -242,6 +302,8 @@ npm run lint       # 린트 체크
 | DB 데이터 확인 필요 | - | DevTools → Application → IndexedDB |
 | 가격 캡처 안됨 | DOM 셀렉터 변경됨 | `DOMSelectors` 업데이트 필요 |
 | 거래 실행 안됨 | 데모 모드 체크 실패 | 데모 계정으로 로그인 확인 |
+| WebSocket 데이터 수신 안됨 | Tampermonkey 스크립트 미설치/비활성화 | Tampermonkey 대시보드에서 스크립트 활성화 확인 |
+| WS 후킹 중복 실행 경고 | 스크립트가 이미 주입됨 | `__pocketQuantWsHook` 플래그로 자동 감지, 페이지 새로고침 |
 
 ---
 
