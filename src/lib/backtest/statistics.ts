@@ -6,8 +6,6 @@
 
 import {
   BacktestTrade,
-  TradeResult,
-  Direction,
   MonthlyBreakdown,
   DayOfWeekStats,
   HourlyStats as HourlyStatsType,
@@ -518,7 +516,7 @@ export function calculateSortinoRatio(
  * @returns Calmar ratio
  */
 export function calculateCalmarRatio(
-  trades: BacktestTrade[],
+  _trades: BacktestTrade[],
   annualizedReturn: number,
   maxDrawdown: number
 ): number {

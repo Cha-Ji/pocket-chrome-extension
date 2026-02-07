@@ -203,13 +203,7 @@ export function rsiSignalV2(
   
   const curr = rsi[rsi.length - 1]
   const prev = rsi[rsi.length - 2]
-  const prev2 = rsi[rsi.length - 3]
-  
-  // 연속 신호 필터 (같은 방향 연속이면 무효)
-  const lastCandles = candles.slice(-3)
-  const allUp = lastCandles.every((c, i) => i === 0 || c.close > lastCandles[i-1].close)
-  const allDown = lastCandles.every((c, i) => i === 0 || c.close < lastCandles[i-1].close)
-  
+
   // 과매도 탈출 → CALL (반등 신호)
   if (prev <= oversoldEntry && curr > oversoldExit) {
     // 연속 하락 후 반등만 유효

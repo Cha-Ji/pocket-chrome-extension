@@ -14,7 +14,7 @@ export type MessageType =
   | { type: 'TRADE_RESULT'; data: { win: boolean } };
 
 export function setupMessageHandlers(stateManager: TradingStateManager): void {
-  chrome.runtime.onMessage.addListener((message: MessageType, sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((message: MessageType, _sender, sendResponse) => {
     switch (message.type) {
       case 'GET_STATE':
         sendResponse({ success: true, data: stateManager.getSession() });

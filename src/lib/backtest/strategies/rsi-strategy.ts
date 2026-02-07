@@ -5,7 +5,7 @@
 // ============================================================
 
 import { Candle, Strategy, StrategySignal, Direction } from '../types'
-import { RSI, BollingerBands, SMA, Stochastic, MACD } from '../../indicators'
+import { RSI, BollingerBands, Stochastic } from '../../indicators'
 
 /**
  * Basic RSI Oversold/Overbought Strategy

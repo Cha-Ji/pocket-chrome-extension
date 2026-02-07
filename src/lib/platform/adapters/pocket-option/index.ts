@@ -73,7 +73,7 @@ export class PocketOptionDemoAdapter implements IPlatformAdapter {
   private async waitForDOM(timeoutMs = 10_000): Promise<void> {
     const startTime = Date.now()
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve, _reject) => {
       const check = () => {
         // 차트 컨테이너가 있으면 준비 완료
         if (document.querySelector('.chart-item, .chart-block')) {

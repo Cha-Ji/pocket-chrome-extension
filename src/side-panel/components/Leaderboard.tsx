@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import type { LeaderboardEntry, LeaderboardSortKey } from '../../lib/backtest/leaderboard-types'
 import { formatMoney, formatPercent, formatNumber } from '../utils/format'
 

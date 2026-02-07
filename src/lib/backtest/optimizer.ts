@@ -7,7 +7,7 @@
 
 import { BacktestEngine, getBacktestEngine } from './engine'
 import { generatePatternedData, generateTestCandles } from './data-generator'
-import { BacktestConfig, BacktestResult, Candle, Strategy } from './types'
+import { BacktestConfig, BacktestResult, Candle } from './types'
 import { RSIStrategies } from './strategies/rsi-strategy'
 
 // ============================================================
@@ -367,15 +367,6 @@ function getScore(result: BacktestResult, objective: string): number {
  */
 function normalizeParam(value: number, range: ParamRange): number {
   return (value - range.min) / (range.max - range.min)
-}
-
-/**
- * Denormalize parameter from [0, 1] to actual range (snapped to step)
- */
-function denormalizeParam(normalized: number, range: ParamRange): number {
-  const raw = range.min + normalized * (range.max - range.min)
-  const steps = Math.round((raw - range.min) / range.step)
-  return Math.min(range.max, Math.max(range.min, range.min + steps * range.step))
 }
 
 /**

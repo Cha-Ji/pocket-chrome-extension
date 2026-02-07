@@ -4,8 +4,6 @@
 // 전략 간 비교/랭킹을 위한 리더보드 타입 정의
 // ============================================================
 
-import { BacktestConfig, BacktestResult } from './types'
-
 /** 리더보드 엔트리: 전략 하나의 백테스트 결과 요약 */
 export interface LeaderboardEntry {
   id?: number

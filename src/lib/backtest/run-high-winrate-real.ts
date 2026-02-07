@@ -13,7 +13,6 @@ import {
 } from './strategies/high-winrate'
 import { Candle } from '../signals/types'
 import * as fs from 'fs'
-import * as path from 'path'
 
 // ============================================================
 // Backtest Runner

@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import { TradingStatus, ExtensionMessage } from '../../lib/types'
-import { errorHandler, tryCatchAsync } from '../../lib/errors'
 
 const initialStatus: TradingStatus = {
   isRunning: false,

@@ -1,6 +1,4 @@
-import React, { useState, useEffect } from 'react'
-import { TradingStatus } from '../lib/types'
-import { StatusCard } from './components/StatusCard'
+import { useState, useEffect } from 'react'
 import { ControlPanel } from './components/ControlPanel'
 import { LogViewer } from './components/LogViewer'
 import { SignalPanel } from './components/SignalPanel'

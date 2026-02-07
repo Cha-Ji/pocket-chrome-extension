@@ -170,6 +170,8 @@ export interface TradingStatus {
 // ============================================================
 
 export interface DOMSelectors {
+  [key: string]: string
+
   // Trading controls
   callButton: string
   putButton: string
