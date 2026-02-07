@@ -216,12 +216,14 @@ git checkout -b jira/PO-10   # 실시간 가격 데이터 수집
 git checkout -b jira/PO-11   # 인디케이터 값 읽기
 ```
 
-**커밋 메시지 규칙**:
+**커밋 메시지 규칙** (상세: `.github/COMMIT_CONVENTION.md`):
 ```bash
-# Conventional Commits + 이슈 키
-git commit -m "feat(panel): add performance dashboard
+# [이슈번호][모듈] 한국어 제목 + LLM Context 본문
+git commit -m "[PO-10][data-collector] 실시간 가격 수집 모듈 구현
 
-SCRUM-17"
+* 구현 내용: MutationObserver 기반 DOM 가격 캡처
+* 영향범위: content-script 모듈 (신규)
+* LLM Context: Implemented real-time price capture using MutationObserver on Pocket Option DOM elements."
 ```
 
 ### 2. 3-file-pattern 문서화
@@ -250,11 +252,12 @@ node scripts/jira-cli.cjs update PO-10 --status="In Progress"
 # - docs/features/xxx/findings.md에 발견사항 기록
 # - docs/features/xxx/progress.md에 진행 로그 추가
 
-# 5. 커밋
+# 5. 커밋 (.github/COMMIT_CONVENTION.md 형식)
 git add .
-git commit -m "feat(xxx): implement feature
+git commit -m "[PO-10][data-collector] 실시간 가격 수집 구현
 
-PO-10"
+* 구현 내용: MutationObserver 기반 DOM 가격 캡처
+* LLM Context: Implemented price capture with MutationObserver."
 
 # 6. 완료 처리
 node scripts/jira-cli.cjs update PO-10 --status="Done"
@@ -337,56 +340,10 @@ LLM 에이전트가 작업을 시작하기 전 확인:
 
 ### 이슈 템플릿
 
-#### 버그 수정 이슈
-```markdown
-## 증상
-- 어떤 문제가 발생하는가?
-- 재현 조건
-
-## 원인 (파악된 경우)
-- 기술적 원인
-
-## 해결 방안
-- 계획된 수정 방법
-
-## 우선순위
-- [ ] 긴급 (서비스 장애)
-- [ ] 높음 (기능 장애)
-- [ ] 보통 (불편)
-- [ ] 낮음 (개선)
-```
-
-#### 신규 기능 이슈
-```markdown
-## 목표
-- 무엇을 만들 것인가?
-
-## 요구사항
-- 기능 명세
-- UI/UX 요구사항
-
-## 기술 스택
-- 사용할 라이브러리/프레임워크
-
-## 완료 조건
-- [ ] 조건 1
-- [ ] 조건 2
-```
-
-#### 리팩토링 이슈
-```markdown
-## 현재 문제
-- 왜 리팩토링이 필요한가?
-
-## 개선 목표
-- 어떻게 개선할 것인가?
-
-## 영향 범위
-- 변경될 모듈/파일
-
-## 롤백 계획
-- 문제 발생 시 대응 방안
-```
+GitHub Issue 생성 시 `.github/ISSUE_TEMPLATE/`의 YAML 폼이 자동 적용됩니다:
+- 버그 수정: `.github/ISSUE_TEMPLATE/bug.yml`
+- 신규 기능: `.github/ISSUE_TEMPLATE/feature.yml`
+- 리팩토링: `.github/ISSUE_TEMPLATE/refactor.yml`
 
 ### LLM 에이전트 워크플로우
 ```
@@ -395,7 +352,7 @@ LLM 에이전트가 작업을 시작하기 전 확인:
 2. 관련 이슈 검색
    ↓
 3-A. 이슈 있음 → 이슈 번호 사용
-3-B. 이슈 없음 → 이슈 생성 (위 템플릿 사용)
+3-B. 이슈 없음 → 이슈 생성 (.github/ISSUE_TEMPLATE/ 참고)
    ↓
 4. 이슈 번호로 브랜치 생성
    예: jira/PO-17, claude/backtest-leaderboard
