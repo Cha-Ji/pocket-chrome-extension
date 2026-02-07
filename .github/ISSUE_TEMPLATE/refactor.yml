@@ -7,6 +7,10 @@ body:
     attributes:
       label: 현재 문제
       description: 왜 리팩토링이 필요한가?
+      placeholder: |
+        - 기술 부채: ...
+        - 유지보수성 문제: ...
+        - 성능 문제: ...
     validations:
       required: true
   - type: textarea
@@ -14,6 +18,10 @@ body:
     attributes:
       label: 개선 목표
       description: 어떻게 개선할 것인가?
+      placeholder: |
+        - Before: ...
+        - After: ...
+        - 예상 효과: ...
     validations:
       required: true
   - type: textarea
@@ -21,8 +29,42 @@ body:
     attributes:
       label: 영향 범위
       description: 변경될 모듈/파일
+      placeholder: |
+        - 파일: src/lib/logger.ts
+        - 모듈: content-script, background
+        - 기능: 로깅, 디버그 정보 수집
+    validations:
+      required: true
   - type: textarea
     id: rollback
     attributes:
       label: 롤백 계획
       description: 문제 발생 시 대응 방안
+      placeholder: |
+        - 문제 감지 방법: ...
+        - 긴급 롤백 절차: ...
+        - 테스트 항목: ...
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 우선순위
+      description: 리팩토링의 중요도
+      options:
+        - p1 (높음 - 기술 부채 심각)
+        - p2 (보통 - 개선 필요)
+        - p3 (낮음 - 미루어도 됨)
+      default: 1
+    validations:
+      required: false
+  - type: dropdown
+    id: impact
+    attributes:
+      label: 영향도
+      description: 변경 범위의 광범위함
+      options:
+        - Small (1-2개 파일)
+        - Medium (3-10개 파일)
+        - Large (10개 이상 파일)
+      default: 0
+    validations:
+      required: false
