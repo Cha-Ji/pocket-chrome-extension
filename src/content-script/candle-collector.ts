@@ -317,7 +317,7 @@ export class CandleCollector {
       return
     }
 
-    this.observer = new MutationObserver((mutations) => {
+    this.observer = new MutationObserver((_mutations) => {
       // 가격 변화 감지 시 즉시 처리
       this.processPriceUpdate()
     })

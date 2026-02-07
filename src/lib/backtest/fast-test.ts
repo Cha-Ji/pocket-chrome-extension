@@ -65,8 +65,6 @@ function runBacktest(candles: Candle[], trendStrength: number = 4): { trades: Tr
     const prevStoch = ind.stoch[stochIdx - 1]
 
     // Trend detection
-    const shortMin = Math.min(...shortVals)
-    const shortMax = Math.max(...shortVals)
     const longMin = Math.min(...longVals)
     const longMax = Math.max(...longVals)
 

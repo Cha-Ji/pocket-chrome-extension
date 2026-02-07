@@ -1,7 +1,6 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react'
+import { Component, ErrorInfo, ReactNode } from 'react'
 import {
   POError,
-  ErrorCode,
   errorHandler,
   ErrorLogEntry,
   ErrorStats,

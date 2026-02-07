@@ -9,4 +9,4 @@ export async function forceClick(element: HTMLElement): Promise<boolean> {
   try { element.focus(); element.click(); } catch (e) {}
   return true;
 }
-export function getReactProps(element: HTMLElement): any { return null; }
+export function getReactProps(_element: HTMLElement): any { return null; }
