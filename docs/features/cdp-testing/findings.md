@@ -33,10 +33,33 @@
 - `parseSocketIOFrame()` 함수로 이벤트 이름 추출
 - 451- 접두사는 바이너리 첨부가 있다는 의미
 
+## 핵심 발견: 마이닝 파이프라인의 사일런트 실패
+
+### 문제
+- `websocket-interceptor.ts:56`에서 Extension 자체 WS Hook 주입이 명시적으로 비활성화 (`return;`)
+- Tampermonkey가 없으면 `interceptor.send()`의 `window.postMessage`가 아무 곳에도 전달되지 않음
+- 에러가 발생하지 않아 테스트가 "통과"한 것처럼 보이는 사일런트 실패
+
+### 해결
+- CDP `Page.addScriptToEvaluateOnNewDocument`로 Main World에 WS Hook 주입
+- Tampermonkey의 `@run-at document-start` + `unsafeWindow`와 동일한 효과
+- `page.goto()` 이전에 호출하면 이후 모든 네비게이션에 자동 적용
+
+### 파이프라인 커버리지 (Before → After)
+
+| 단계 | Before (console-only) | After (CDP + Bridge) |
+|------|----------------------|---------------------|
+| WS Hook 주입 | Tampermonkey 필수 | CDP 자동 주입 |
+| WS 프레임 감시 | console.log 간접 | CDP Network 직접 |
+| Bridge 메시지 | 관찰 불가 | WS 프레임으로 검증 |
+| HTTP 요청 | console.log 간접 | CDP Network 직접 |
+| 파서 버그 탐지 | 불가 | CDP vs console 교차검증 |
+
 ## 핵심 CDP 도메인 활용
 
 | 도메인 | 이벤트 | 용도 |
 |--------|--------|------|
+| Page | addScriptToEvaluateOnNewDocument | WS Hook Main World 주입 |
 | Network | webSocketCreated | WS 연결 감지 |
 | Network | webSocketFrameReceived/Sent | WS 프레임 캡처 |
 | Network | requestWillBeSent | DataSender HTTP 요청 감시 |
