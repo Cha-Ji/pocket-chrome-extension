@@ -1,5 +1,21 @@
 # Progress
 
+## 2026-02-08 (11) - Fix 6 실환경 성공 + 커밋/PR
+
+- **실환경 테스트 결과**: DataSender bulk 전송 **성공** — WS 타이밍 완벽
+- Tampermonkey 완전 불필요 확인 (Extension 내장 WS 후킹으로 대체)
+- Fix 6 Attempt 1 (동적 `<script>` 주입) 실패 → Attempt 2 (manifest `"world": "MAIN"`) 성공
+  - `document.createElement('script')` → 비동기 → PO가 먼저 WS 생성 → 타이밍 패배
+  - manifest `content_scripts` `"world": "MAIN"` → Chrome이 동기적으로 Main World에서 실행 → TM과 동일 타이밍
+- 커밋: `ef270c5` → PR #40 생성
+- **잔존 문제**: AutoMiner의 active `loadHistoryPeriod` 요청은 여전히 실패 가능
+  - DataSender (passive): PO가 자발적으로 보내는 히스토리를 수신 → **동작**
+  - AutoMiner (active): Miner가 직접 asset ID로 히스토리 요청 → asset ID 정확도 미검증
+- **다음 행동**:
+  1. 실환경에서 Miner 실행 후 콘솔 로그 확인: `Asset ID tracked (stream):` or `(raw):` 출력 여부
+  2. `loadHistoryPeriod` 요청에 사용된 asset ID가 정확한지 확인
+  3. fallback(`#APPLE_otc` 등) 대신 WS tracked ID 사용 여부 확인
+
 ## 2026-02-08 (10) - Fix 6: TM 의존성 제거 — Extension 내장 WS 후킹 활성화
 
 - **실환경 테스트 결과 (Fix 5)**: `Asset ID tracked` 로그 전혀 없음 → WS 수신 메시지 자체가 interceptor에 도달하지 않음

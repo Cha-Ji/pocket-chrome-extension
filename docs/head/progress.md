@@ -2,12 +2,15 @@
 
 **최종 업데이트:** 2026-02-08 KST
 
-## (2026-02-08) Bulk History Mining 파이프라인 + 자산 전환 수정
+## (2026-02-08) Bulk History Mining — Fix 6 성공, TM 의존성 제거
 
-- **Fix 1+2**: WS 파이프라인 파싱 수정 → 콘솔 독립 검증 성공
-- **Fix 3b**: 자산 전환 unavailable 오탐 → 오버레이 클릭 + 무조건 성공 방식으로 해결
-- **Fix 4**: Asset ID 오류 (display name → ticker 변환 실패) → TM ws.send() 후킹 추가 → **실환경 실패**
-- 다음 행동: 수동 콘솔 진단으로 Fix 4 실패 원인 특정 필요
+- **Fix 1~4**: WS 파이프라인 파싱 + 자산 전환 + Asset ID 수정 (상세: 이전 로그)
+- **Fix 5**: 수신 WS 메시지에서 asset ID 자동 추적 (`trackAssetFromMessage`)
+- **Fix 6**: **TM 의존성 완전 제거** — Extension 내장 WS 후킹 (`manifest "world": "MAIN"`)
+  - DataSender bulk 전송 **실환경 성공** (WS 타이밍 완벽)
+  - 커밋 `ef270c5` → PR #40
+- **잔존**: AutoMiner active `loadHistoryPeriod` 요청의 asset ID 정확도 미검증
+- 다음 행동: Miner 실행 → `Asset ID tracked` 로그 + `loadHistoryPeriod` 요청 ID 확인
 - 상세: `docs/features/bulk-history-db-bug/progress.md`
 
 ## (2026-02-06) 병렬 작업 실행 계획 수립

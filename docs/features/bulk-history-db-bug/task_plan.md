@@ -43,4 +43,10 @@
   - [x] interceptor: 죽은 `Array.isArray(parsed)` 코드 삭제
   - [x] auto-miner: `waitForAssetId(6s)` — 자산 전환 후 WS 수신 대기
   - [x] 빌드 성공, 테스트 25/25 통과
-- [ ] Miner 자동 수집 E2E 테스트 (실환경 검증) — TM 스크립트 수정 불필요
+- [x] **Fix 6**: TM 의존성 완전 제거 — Extension 내장 WS 후킹
+  - [x] `inject-websocket.js` TM 수준 재작성 (onmessage/send 후킹, binary placeholder)
+  - [x] `manifest.json`에 `"world": "MAIN"` content_scripts 추가 (document_start 타이밍)
+  - [x] 빌드 성공, 테스트 25/25 통과
+  - [x] **실환경 검증: DataSender bulk 전송 성공** (WS 타이밍 완벽)
+- [ ] AutoMiner active `loadHistoryPeriod` 요청 — asset ID 정확도 실환경 검증
+- [ ] Miner 자동 수집 E2E 풀 파이프라인 검증
