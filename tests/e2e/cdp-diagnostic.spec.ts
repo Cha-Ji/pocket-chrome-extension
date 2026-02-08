@@ -29,7 +29,7 @@ import { test, expect } from '@playwright/test'
 import { launchWithExtension, type ExtensionContext } from './helpers/extension-context'
 import { createCDPInspector, type CDPInspector } from './helpers/cdp-inspector'
 import { injectWSBridge } from './helpers/ws-bridge-injector'
-import { checkServerHealth, snapshotCandleCount } from './helpers/server-checker'
+import { checkServerHealth, snapshotCandleCount, getCandleCountBySymbol } from './helpers/server-checker'
 import { attachConsoleMonitor } from './helpers/console-monitor'
 
 const PO_URL = process.env.PO_URL ?? 'https://pocketoption.com/en/cabinet/demo-quick-high-low/'
@@ -95,6 +95,63 @@ test('CDP Step 1: Inject WS bridge via CDP and load page', async () => {
   expect(
     inspector.wsConnections.length,
     'At least one WebSocket connection should be established'
+  ).toBeGreaterThan(0)
+})
+
+// ─────────────────────────────────────────────────────────
+// Step 1.5: DOM 자산 목록 헬스체크
+// ─────────────────────────────────────────────────────────
+test('CDP Step 1.5: DOM asset list health check', async () => {
+  const page = ext.context.pages()[0]!
+
+  const assetInfo = await page.evaluate(() => {
+    // PO_PAYOUT_SELECTORS 기준
+    const assetItems = document.querySelectorAll('.alist__item')
+    const pairTrigger = document.querySelector('.current-symbol')
+    const assetList = document.querySelector('.assets-block__alist.alist')
+
+    // 각 자산 항목에서 이름과 페이아웃 추출 (최대 10개만 샘플)
+    const samples: { name: string; payout: string }[] = []
+    assetItems.forEach((item, i) => {
+      if (i >= 10) return
+      const label = item.querySelector('.alist__label')
+      const profit = item.querySelector('.alist__payout')
+      samples.push({
+        name: label?.textContent?.trim() || '(no label)',
+        payout: profit?.textContent?.trim() || '(no payout)',
+      })
+    })
+
+    return {
+      assetListExists: !!assetList,
+      assetCount: assetItems.length,
+      currentSymbol: pairTrigger?.textContent?.trim() || '(not found)',
+      samples,
+    }
+  })
+
+  console.log('\n=== DOM Asset List Health Check ===')
+  console.log(`Asset list container (.alist): ${assetInfo.assetListExists ? 'FOUND' : 'NOT FOUND'}`)
+  console.log(`Total asset items (.alist__item): ${assetInfo.assetCount}`)
+  console.log(`Current symbol (.current-symbol): ${assetInfo.currentSymbol}`)
+
+  if (assetInfo.samples.length > 0) {
+    console.log(`\nAsset samples (first ${assetInfo.samples.length}):`)
+    for (const s of assetInfo.samples) {
+      console.log(`  - ${s.name}: ${s.payout}`)
+    }
+  }
+
+  if (assetInfo.assetCount === 0) {
+    console.log('\n  WARNING: No asset items found in DOM.')
+    console.log('  → 자산 목록이 비어있으면 AutoMiner가 마이닝 대상을 찾지 못합니다.')
+    console.log('  → 페이지가 완전히 로드되었는지, 로그인 상태인지 확인하세요.')
+  }
+
+  // 자산이 최소 1개 이상이어야 마이닝 테스트 진행 가능
+  expect(
+    assetInfo.assetCount,
+    'At least one asset item must exist in DOM for mining tests'
   ).toBeGreaterThan(0)
 })
 
@@ -242,9 +299,80 @@ test('CDP Step 4: Full mining pipeline — AutoMiner to server', async () => {
   })
   console.log('Miner start result:', JSON.stringify(startResult))
 
-  // 마이닝 관찰
+  // 마이닝 관찰 + 5초 간격 상태 폴링
   console.log(`\nObserving mining pipeline for ${MINE_DURATION / 1000}s (CDP mode)...`)
-  await page.waitForTimeout(MINE_DURATION)
+
+  const POLL_INTERVAL = 5_000
+  const pollCount = Math.floor(MINE_DURATION / POLL_INTERVAL)
+  const statusSnapshots: any[] = []
+  const assetTransitions: { time: number; from: string | null; to: string | null }[] = []
+  let prevAsset: string | null = null
+
+  for (let i = 0; i < pollCount; i++) {
+    await page.waitForTimeout(POLL_INTERVAL)
+
+    const status = await page.evaluate(async () => {
+      return new Promise<any>((resolve) => {
+        try {
+          chrome.runtime.sendMessage({ type: 'GET_MINER_STATUS' }, (res: unknown) => resolve(res))
+        } catch (e) {
+          resolve({ error: String(e) })
+        }
+      })
+    })
+
+    statusSnapshots.push(status)
+
+    // 자산 전환 감지
+    const currentAsset = status?.current ?? null
+    if (currentAsset !== prevAsset) {
+      assetTransitions.push({
+        time: Date.now(),
+        from: prevAsset,
+        to: currentAsset,
+      })
+      if (prevAsset !== null) {
+        console.log(`  [Poll ${i + 1}] Asset switched: ${prevAsset} → ${currentAsset}`)
+      }
+      prevAsset = currentAsset
+    }
+
+    console.log(
+      `  [Poll ${i + 1}/${pollCount}] active=${status?.isActive} current=${currentAsset} ` +
+      `completed=${status?.completed ?? 0} failed=${status?.failed ?? 0} ` +
+      `candles=${status?.overallCandles ?? 0}`
+    )
+  }
+
+  // 최종 상태 스냅샷
+  const finalStatus = await page.evaluate(async () => {
+    return new Promise<any>((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: 'GET_MINER_STATUS' }, (res: unknown) => resolve(res))
+      } catch (e) {
+        resolve({ error: String(e) })
+      }
+    })
+  })
+
+  console.log('\n=== Final Miner Status ===')
+  console.log(`Active: ${finalStatus?.isActive}`)
+  console.log(`Completed assets: ${finalStatus?.completed ?? 0}`)
+  console.log(`Failed assets: ${finalStatus?.failed ?? 0}`)
+  console.log(`Overall candles: ${finalStatus?.overallCandles ?? 0}`)
+  console.log(`Elapsed: ${finalStatus?.elapsedSeconds ?? 0}s`)
+  console.log(`Candles/sec: ${finalStatus?.candlesPerSecond ?? 0}`)
+  console.log(`Asset transitions: ${assetTransitions.length}`)
+
+  if (finalStatus?.assetProgress?.length > 0) {
+    console.log('\nPer-asset progress:')
+    for (const p of finalStatus.assetProgress) {
+      console.log(
+        `  ${p.asset}: ${p.totalCandles} candles, ${p.daysCollected} days, ` +
+        `${p.requestCount} requests, complete=${p.isComplete}`
+      )
+    }
+  }
 
   // AutoMiner 중지
   await page.evaluate(async () => {
@@ -326,6 +454,101 @@ test('CDP Step 4: Full mining pipeline — AutoMiner to server', async () => {
   }
 
   monitor.detach()
+})
+
+// ─────────────────────────────────────────────────────────
+// Step 4.5: 자산별 DB 저장 검증
+// ─────────────────────────────────────────────────────────
+test('CDP Step 4.5: Verify per-asset candle storage', async () => {
+  const page = ext.context.pages()[0]!
+
+  // AutoMiner의 최종 상태에서 완료된 자산 목록 가져오기
+  const minerStatus = await page.evaluate(async () => {
+    return new Promise<any>((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: 'GET_MINER_STATUS' }, (res: unknown) => resolve(res))
+      } catch (e) {
+        resolve({ error: String(e) })
+      }
+    })
+  })
+
+  const assetProgress: Array<{
+    asset: string
+    totalCandles: number
+    isComplete: boolean
+    daysCollected: number
+    requestCount: number
+  }> = minerStatus?.assetProgress ?? []
+
+  if (assetProgress.length === 0) {
+    console.log('\n=== Per-Asset DB Verification ===')
+    console.log('No asset progress data available — skipping per-asset verification.')
+    console.log('This may indicate AutoMiner did not mine any assets in the previous step.')
+    return
+  }
+
+  // 완료된 자산과 실패한 자산 분류
+  const completedAssets = assetProgress.filter(p => p.totalCandles > 0)
+  const emptyAssets = assetProgress.filter(p => p.totalCandles === 0)
+
+  console.log('\n=== Per-Asset DB Verification ===')
+  console.log(`Assets with candles: ${completedAssets.length}`)
+  console.log(`Assets with 0 candles: ${emptyAssets.length}`)
+
+  // 서버 DB에서 심볼별 캔들 수 조회
+  const symbolNames = completedAssets.map(p => p.asset)
+  const dbStats = await getCandleCountBySymbol()
+
+  console.log(`\nServer DB has ${dbStats.length} symbols total`)
+
+  // 교차 검증: AutoMiner가 수집했다고 보고한 자산이 실제 DB에 저장되었는지
+  if (completedAssets.length > 0) {
+    console.log('\n--- Cross-validation: Miner report vs Server DB ---')
+    let verifiedCount = 0
+    let missingCount = 0
+
+    for (const asset of completedAssets) {
+      // 자산 이름 정규화하여 DB 심볼과 매칭
+      const normalize = (s: string) =>
+        s.toUpperCase().replace(/[\s_-]+/g, '').replace(/OTC$/, 'OTC')
+      const normalized = normalize(asset.asset)
+      const dbEntry = dbStats.find(s => normalize(s.symbol) === normalized)
+
+      if (dbEntry && dbEntry.count > 0) {
+        console.log(
+          `  [OK] ${asset.asset}: miner=${asset.totalCandles} candles, ` +
+          `db=${dbEntry.count} candles (${dbEntry.days} days)`
+        )
+        verifiedCount++
+      } else {
+        console.log(
+          `  [MISS] ${asset.asset}: miner reported ${asset.totalCandles} candles, ` +
+          `but NOT found in server DB`
+        )
+        missingCount++
+      }
+    }
+
+    console.log(`\nVerification result: ${verifiedCount} OK, ${missingCount} missing`)
+
+    if (missingCount > 0) {
+      console.log('\n  DIAGNOSIS: Some mined assets are missing from server DB')
+      console.log('  → DataSender may have failed to send data to localhost:3001')
+      console.log('  → Check Step 4 API call results for failures')
+    }
+  }
+
+  // 실패한 자산 리포트
+  if (emptyAssets.length > 0) {
+    console.log('\n--- Assets with 0 candles (failed/skipped) ---')
+    for (const asset of emptyAssets) {
+      console.log(
+        `  ${asset.asset}: ${asset.requestCount} requests, ` +
+        `complete=${asset.isComplete}`
+      )
+    }
+  }
 })
 
 // ─────────────────────────────────────────────────────────
