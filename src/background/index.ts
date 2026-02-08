@@ -44,6 +44,11 @@ let tradingStatus: TradingStatus = {
 }
 
 // ============================================================
+// Storage Access Level (Content Script에서 session storage 접근 허용)
+// ============================================================
+chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' })
+
+// ============================================================
 // Extension Lifecycle
 // ============================================================
 
