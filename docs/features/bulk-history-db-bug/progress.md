@@ -1,5 +1,27 @@
 # Progress
 
+## 2026-02-08 (7) - WS 히스토리 타임아웃 근본 원인: Asset ID 오류 (Fix 4)
+
+- 자산 전환 Fix 3b 적용 후 전환은 성공하나, WS 히스토리 요청이 모든 자산에서 타임아웃
+- **근본 원인 발견**: `resolveAssetId()` fallback이 display name → asset ID 변환 시 오류
+  - "Apple OTC" → `#APPLE_otc` (❌ 잘못된 ID, PO는 `#AAPL_otc` 형식 사용)
+  - PO 서버가 존재하지 않는 asset ID 요청을 묵살 → 응답 없음 → 타임아웃
+- **원인 2**: TM 스크립트가 `ws.send()`를 후킹하지 않아 발신 `changeSymbol` 이벤트의 real asset ID 미캡처
+- Fix 4 적용:
+  1. TM `ws.send()` 후킹 → 발신 메시지에서 `"asset"` 필드 캡처 → `ws-asset-change` 이벤트로 전달
+  2. Interceptor `ws-asset-change` 핸들러 추가 → `lastAssetId` 업데이트
+  3. `resolveAssetId()` 3단계 체인: WS tracked → DOM 추출 → fallback(WARNING 로깅)
+- 빌드 성공, 테스트 25/25 통과
+- **다음 행동**: TM 스크립트 업데이트 후 실환경 테스트. 콘솔 로그에서 `Asset ID (WS tracked)` 또는 `FALLBACK` 확인
+
+## 2026-02-08 (6) - 자산 전환: 오버레이 클릭 리로드 방식 전환 (Fix 3b)
+
+- Fix 3 접근(15초 passive 대기) 실패 — .asset-inactive가 "다시 로드하려면 클릭" 상태
+- 핵심 발견: .current-symbol은 정상 업데이트 → 전환 성공, 차트만 미로딩 상태
+- Fix 3b: dismissStaleInactive/detectAssetUnavailable/tryReloadInactive 삭제 (106줄 제거)
+  - 전환 확인 후 오버레이 있으면 클릭 1회 → 무조건 성공 반환
+  - WS 타임아웃이 실제 가용성 판단
+
 ## 2026-02-08 (5) - 자산 전환 unavailable 오탐 Fix 3 적용
 
 - 근본 원인 분석: 타이밍 부족(4s) + 스코프 부재(전체 DOM) + 조기 클릭 간섭
