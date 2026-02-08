@@ -23,6 +23,7 @@ Thumbs.db
 coverage/
 test-results/
 playwright-report/
+test-profile/
 *.log
 
 # Data (large market data files)

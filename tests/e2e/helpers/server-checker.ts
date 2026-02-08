@@ -61,3 +61,39 @@ export async function snapshotCandleCount(): Promise<number> {
   const health = await checkServerHealth()
   return health.totalCandles
 }
+
+/** 심볼별 캔들 수집 통계 */
+export interface SymbolCandleStat {
+  symbol: string
+  count: number
+  oldest: number
+  newest: number
+  days: number
+}
+
+/**
+ * 서버의 /api/candles/stats 엔드포인트에서 심볼별 캔들 수를 조회.
+ * 특정 심볼만 필터링하려면 symbols 배열을 전달.
+ */
+export async function getCandleCountBySymbol(
+  symbols?: string[]
+): Promise<SymbolCandleStat[]> {
+  try {
+    const res = await fetch(`${SERVER_URL}/api/candles/stats`, {
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!res.ok) return []
+    const stats: SymbolCandleStat[] = await res.json()
+    if (!Array.isArray(stats)) return []
+    if (symbols && symbols.length > 0) {
+      // 심볼 이름 정규화 후 매칭 (대소문자/공백/OTC 표기 차이 흡수)
+      const normalize = (s: string) =>
+        s.toUpperCase().replace(/[\s_-]+/g, '').replace(/OTC$/, 'OTC')
+      const normalizedSet = new Set(symbols.map(normalize))
+      return stats.filter(s => normalizedSet.has(normalize(s.symbol)))
+    }
+    return stats
+  } catch {
+    return []
+  }
+}

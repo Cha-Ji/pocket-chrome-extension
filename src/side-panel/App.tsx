@@ -7,6 +7,7 @@ import { SettingsPanel } from './components/SettingsPanel'
 import { Dashboard } from './components/Dashboard'
 import { AutoMinerControl } from './components/AutoMinerControl'
 import { HistoryMiner } from './components/HistoryMiner'
+import { DBMonitorDashboard } from './components/DBMonitorDashboard'
 import { useTradingStatus } from './hooks/useTradingStatus'
 import { useLogs } from './hooks/useLogs'
 import { useTrades } from './hooks/useTrades'
@@ -29,7 +30,7 @@ function AppContent() {
   const { status, startTrading, stopTrading, isLoading } = useTradingStatus()
   const { logs, addLog, clearLogs } = useLogs()
   const { trades } = useTrades()
-  const [activeTab, setActiveTab] = useState<'signals' | 'auto' | 'status' | 'logs' | 'leaderboard' | 'settings'>('signals')
+  const [activeTab, setActiveTab] = useState<'signals' | 'auto' | 'mining' | 'status' | 'logs' | 'leaderboard' | 'settings'>('signals')
   const [lbEntries, setLbEntries] = useState<LeaderboardEntry[]>([])
   const [lbRunning, setLbRunning] = useState(false)
   const [lbProgress, setLbProgress] = useState<LeaderboardProgress | undefined>()
@@ -160,6 +161,16 @@ function AppContent() {
           🤖 Auto
         </button>
         <button
+          onClick={() => setActiveTab('mining')}
+          className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
+            activeTab === 'mining'
+              ? 'bg-pocket-green text-white'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          ⛏️ Mine
+        </button>
+        <button
           onClick={() => setActiveTab('status')}
           className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
             activeTab === 'status'
@@ -207,14 +218,19 @@ function AppContent() {
       )}
 
       {activeTab === 'auto' && (
-        <>
-          <AutoTradePanel />
-          <div className="border-t border-gray-700 pt-4">
-             <h3 className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Data Mining</h3>
-             <AutoMinerControl />
-             <HistoryMiner />
-          </div>
-        </>
+        <AutoTradePanel />
+      )}
+
+      {activeTab === 'mining' && (
+        <div className="flex flex-col gap-4">
+          <h2 className="text-lg font-bold text-white">⛏️ Data Mining</h2>
+          <p className="text-xs text-gray-400">
+            백테스트에 필요한 캔들 데이터를 자동으로 수집합니다.
+          </p>
+          <AutoMinerControl />
+          <HistoryMiner />
+          <DBMonitorDashboard />
+        </div>
       )}
 
       {activeTab === 'status' && (
