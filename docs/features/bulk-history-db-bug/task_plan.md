@@ -28,4 +28,14 @@
   - [x] 디버그 로깅 강화
 - [x] 빌드 성공 (8.66s)
 - [x] 단위 테스트 25/25 통과
+
+## WS 히스토리 타임아웃 (자산 전환 성공 후)
+
+- [x] **Fix 4**: Asset ID 오류 수정 — TM ws.send() 후킹 + interceptor 연동
+  - [x] TM: ws.send() 후킹 → 발신 메시지에서 asset 필드 캡처
+  - [x] Interceptor: ws-asset-change 핸들러 추가
+  - [x] resolveAssetId(): WS tracked → DOM → fallback 3단계 체인
+  - [x] fallback 사용 시 WARNING 로깅
+- [x] 빌드 성공, 테스트 25/25 통과
+- [ ] **중요**: Tampermonkey 대시보드에서 TM 스크립트 업데이트 필요
 - [ ] Miner 자동 수집 E2E 테스트 (실환경 검증)
