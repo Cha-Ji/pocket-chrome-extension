@@ -285,23 +285,52 @@ git commit -m "[#10][data-collector] 실시간 가격 수집 모듈 구현
 * LLM Context: Implemented real-time price capture using MutationObserver on Pocket Option DOM elements."
 ```
 
-### 2. 3-file-pattern 문서화
+### 2. 3-file-pattern 문서화 (항상 적용 — Rule)
 
-모든 작업은 해당 폴더에 3개 파일로 문서화합니다.
+> 이 규칙은 모든 세션에서 자동 적용된다. `/3-file-pattern` skill 호출 불필요.
+> 상세 템플릿과 Tier 시스템: `docs/DOCUMENTATION_RULES.md` 참조.
 
-| 파일 | 목적 | 업데이트 시점 |
-|------|------|---------------|
-| `task_plan.md` | 체크리스트 | 작업 항목 완료 시 체크 |
-| `findings.md` | 결정/제약/핵심 정보 | 중요 발견 즉시 기록 |
-| `progress.md` | 진행 로그 (최신이 위) | 매 작업 세션마다 |
+#### 세션 시작 프로토콜 (Session Handoff)
 
-**워크플로우 예시**:
+새 세션이 작업을 이어받을 때 **반드시** 다음 순서로 수행하라:
+
+1. `docs/head/progress.md` 읽기 → 마지막 작업 상태 + "다음 행동" 확인
+2. `docs/head/task_plan.md` 읽기 → 전체 진행률 파악
+3. 현재 작업의 3-file 폴더 찾기 (`docs/issues/PO-XX/` 또는 `docs/features/XXX/`)
+4. 해당 폴더의 `progress.md` → `task_plan.md` → 필요시 `findings.md` 순서로 읽기
+5. 작업 재개 (`progress.md`의 "다음 행동"부터)
+
+**문서 탐색 우선순위**:
+```
+docs/head/progress.md          ← 1순위: 마지막 상태
+docs/head/task_plan.md         ← 2순위: 전체 체크리스트
+docs/issues/PO-XX/progress.md  ← 3순위: 이슈별 상세
+docs/features/XXX/progress.md  ← 3순위: 기능별 상세
+docs/head/findings.md          ← 필요시: 핵심 결정사항
+docs/head/map.md               ← 필요시: 아키텍처 매핑
+```
+
+#### 3-file 필수 규칙
+
+| 규칙 | 설명 |
+|------|------|
+| 시작 전 읽기 | 작업 시작 전 해당 폴더의 `task_plan.md` + `progress.md` 필수 읽기 |
+| 즉시 생성 | 3개 파일이 없으면 즉시 생성 (템플릿: `docs/DOCUMENTATION_RULES.md`) |
+| 발견 즉시 기록 | 새 사실/제약/결정 → `findings.md`에 즉시 기록 |
+| 완료 즉시 체크 | 하위 작업 완료 → `task_plan.md` 체크박스 갱신 |
+| 세션 종료 기록 | 중단/종료 시 `progress.md` 최상단에 현재 상태 + "다음 행동" 기록 |
+| 응답에 명시 | 응답 종료 시 업데이트한 파일명 명시 (헬스체크 블록에 포함) |
+
+**2단계 Tier 시스템**:
+- **Tier 1 (Full 3-File)**: 활성/완성 작업 → `task_plan.md` + `findings.md` + `progress.md`
+- **Tier 2 (Single README)**: 미착수/참조용 → `README.md`만 (작업 시작 시 Tier 1로 승격)
+
+#### 워크플로우 예시
 ```bash
 # 1. GitHub Issue 확인/생성
-# https://github.com/yourusername/pocket-chrome-extension/issues 또는
-# gh issue view 10
+gh issue view 10
 
-# 2. 브랜치 생성 (이슈 번호와 라벨 포함)
+# 2. 브랜치 생성
 git checkout -b feat/10-real-time-price-collector
 
 # 3. 작업 수행 + 3-file 문서화
@@ -309,17 +338,11 @@ git checkout -b feat/10-real-time-price-collector
 # - docs/features/xxx/findings.md에 발견사항 기록
 # - docs/features/xxx/progress.md에 진행 로그 추가
 
-# 4. 커밋 (.github/COMMIT_CONVENTION.md 형식)
-git add .
-git commit -m "[#10][data-collector] 실시간 가격 수집 구현
+# 4. 커밋
+git commit -m "[#10][data-collector] 실시간 가격 수집 구현"
 
-* 구현 내용: MutationObserver 기반 DOM 가격 캡처
-* LLM Context: Implemented price capture with MutationObserver."
-
-# 5. PR 생성 (이슈와 자동 연결)
+# 5. PR 생성
 gh pr create --title "[#10][data-collector] 실시간 가격 수집 구현" --body "Closes #10"
-
-# 또는 GitHub UI에서 수동 생성
 ```
 
 **GitHub CLI 유용한 명령어**:
@@ -511,14 +534,6 @@ docs/issue-queue/
 - `docs/head/progress.md`: 진행 로그(역순)
 - `docs/head/map.md`: 아키텍처 ↔ 기능 매핑
 - `docs/head/parallel-work.md`: 병렬 작업 분류 및 상태
-
-## 3-file 규칙
-
-모든 작업 폴더는 아래 3개 파일을 반드시 포함합니다.
-
-- `task_plan.md`: 체크리스트(항목은 진행 시 체크)
-- `findings.md`: 결정 사항, 제약/가정, 핵심 정보, 코드 스니펫
-- `progress.md`: 날짜별 진행 로그(최신이 위)
 
 ## 폴더 체계
 

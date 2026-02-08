@@ -397,6 +397,7 @@ describe('Tampermonkey inject-websocket.user.js', () => {
     it('pq-content 요청을 받아 활성 WebSocket으로 전송한다', () => {
       execScript()
       const ws = new window.WebSocket('wss://po.trade/socket') as any
+      vi.spyOn(ws, 'send') // Hook 래퍼 위에 spy 재설치
 
       window.dispatchEvent(
         new MessageEvent('message', {
@@ -417,6 +418,7 @@ describe('Tampermonkey inject-websocket.user.js', () => {
     it('문자열 payload는 그대로 전송한다', () => {
       execScript()
       const ws = new window.WebSocket('wss://po.trade/socket') as any
+      vi.spyOn(ws, 'send')
 
       window.dispatchEvent(
         new MessageEvent('message', {
@@ -435,6 +437,8 @@ describe('Tampermonkey inject-websocket.user.js', () => {
       execScript()
       const ws1 = new window.WebSocket('wss://po.trade/socket') as any
       const ws2 = new window.WebSocket('wss://other.com/socket') as any
+      vi.spyOn(ws1, 'send')
+      vi.spyOn(ws2, 'send')
 
       window.dispatchEvent(
         new MessageEvent('message', {
@@ -454,6 +458,7 @@ describe('Tampermonkey inject-websocket.user.js', () => {
     it('pq-content가 아닌 메시지는 무시한다', () => {
       execScript()
       const ws = new window.WebSocket('wss://po.trade/socket') as any
+      vi.spyOn(ws, 'send')
 
       window.dispatchEvent(
         new MessageEvent('message', {

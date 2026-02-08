@@ -53,25 +53,10 @@ class WebSocketInterceptor {
   }
 
   private injectScript(): void {
-    // [PO-16] Tampermonkey 사용 시 Extension 자체 주입은 비활성화
+    // manifest.json의 content_scripts "world": "MAIN"으로 inject-websocket.js가
+    // document_start에 Main World에서 직접 실행됨 (TM과 동일한 타이밍)
+    // 동적 <script> 주입은 비동기이므로 타이밍 패배 가능 → manifest 방식 사용
     return;
-
-    /*
-    try {
-      if (document.querySelector('script[data-pocket-quant-ws]')) return
-      const script = document.createElement('script')
-      script.src = chrome.runtime.getURL('inject-websocket.js')
-      script.setAttribute('data-pocket-quant-ws', 'true')
-      script.onload = () => {
-        console.log('[PO] [WS] Spy Script Injected');
-        script.remove()
-      }
-      const target = document.head || document.documentElement
-      target.appendChild(script)
-    } catch (error) {
-      console.error('[PO] [WS] Injection failed:', error)
-    }
-    */
   }
 
   private setupEventListener(): void {
@@ -96,32 +81,39 @@ class WebSocketInterceptor {
         text: data.text ?? null
       };
       this.handleMessage(message, message.timestamp);
+    } else if (event.data.type === 'ws-asset-change') {
+      // TM ws.send() 후킹에서 캡처된 발신 메시지의 asset ID
+      const asset = event.data.data?.asset;
+      if (asset) {
+        this.lastAssetId = asset;
+        console.log(`[PO] [WS] 🎯 Asset ID captured (outgoing): ${asset}`);
+      }
     } else if (event.data.type === 'bridge-ready') {
       console.log('[PO] [WS] Main World Bridge Connected');
     }
   }
 
+  // 파서가 반환하는 유효한 ParsedMessage 타입 목록
+  private static readonly VALID_PARSED_TYPES = new Set([
+    'price_update', 'candle_data', 'candle_history', 'orderbook', 'trade', 'heartbeat'
+  ]);
+
   private handleMessage(data: WebSocketMessage, timestamp: number): void {
-    // [PO-16] 이미 파싱된 데이터가 있더라도, 구조화된 ParsedMessage 형태가 아니면 다시 파싱 시도
+    // 이미 파싱된 데이터가 유효한 ParsedMessage 타입이 아니면 파서로 재전달
+    // 중요: Tampermonkey Bridge의 'binary_payload' 타입은 파서의 socketio_binary_payload 패턴이 처리해야 함
     let parsed = data.parsed;
-    if (!parsed || typeof parsed.type !== 'string') {
-      parsed = this.parser.parse(data.text ?? data.raw);
+    if (!parsed || !WebSocketInterceptor.VALID_PARSED_TYPES.has(parsed.type)) {
+      // binary_payload는 파서의 패턴 10이 처리할 수 있으므로 원본 객체를 전달
+      const toParse = (parsed?.type === 'binary_payload') ? parsed : (data.text ?? data.raw);
+      parsed = this.parser.parse(toParse);
     }
 
     const enriched: WebSocketMessage = { ...data, parsed }
     this.messageCallbacks.forEach(cb => cb(enriched))
 
-    // [PO-17] 자산 코드 추적 (changeSymbol 메시지 가로채기)
-    if (parsed && Array.isArray(parsed)) {
-       const event = parsed[0];
-       const payload = parsed[1];
-       if (event === 'changeSymbol' && payload?.asset) {
-          this.lastAssetId = payload.asset;
-          console.log(`[PO] [WS] 🎯 Tracked Active Asset ID: ${this.lastAssetId}`);
-       }
-    }
+    // [Fix 5] 수신 WS 메시지에서 asset ID 자동 추적 (2가지 전략)
+    this.trackAssetFromMessage(parsed, data);
 
-    // [PO-17] 디버깅 로그 추가
     if (parsed && parsed.type === 'candle_history') {
        const candles = parsed.data as CandleData[];
        console.log(`[PO] [WS-Interceptor] Candle History Detected! Count: ${candles?.length || 0}`);
@@ -182,6 +174,39 @@ class WebSocketInterceptor {
       payload,
       urlPart
     }, '*');
+  }
+
+  /**
+   * [Fix 5] 수신 WS 메시지에서 asset ID를 자동 추적
+   * 전략 A: 파싱된 price_update (updateStream 등)의 symbol 필드
+   * 전략 B: 원본 raw 텍스트의 "asset":"..." 필드 (changeSymbol, 히스토리 응답 등)
+   */
+  private trackAssetFromMessage(parsed: any, data: WebSocketMessage): void {
+    // 전략 A: 파싱된 price_update 결과의 symbol 추적
+    // updateStream 이벤트가 파싱되면 confidence 0.99의 price_update가 됨
+    if (parsed?.type === 'price_update' && parsed.data) {
+      const symbol = (parsed.data as any).symbol;
+      if (symbol && symbol !== 'CURRENT' && symbol !== 'UNKNOWN') {
+        const assetId = String(symbol);
+        if (assetId !== this.lastAssetId) {
+          this.lastAssetId = assetId;
+          console.log(`[PO] [WS] 🎯 Asset ID tracked (stream): ${assetId}`);
+        }
+      }
+    }
+
+    // 전략 B: 원본 텍스트에서 "asset":"#XXX" 패턴 감지
+    // changeSymbol, subscribeMessage, updateHistoryNewFast 등의 응답에 포함
+    if (data.text && typeof data.text === 'string') {
+      const assetMatch = data.text.match(/"asset"\s*:\s*"([^"]+)"/);
+      if (assetMatch) {
+        const assetId = assetMatch[1];
+        if (assetId !== this.lastAssetId) {
+          this.lastAssetId = assetId;
+          console.log(`[PO] [WS] 🎯 Asset ID tracked (raw): ${assetId}`);
+        }
+      }
+    }
   }
 
   getActiveAssetId(): string | null {

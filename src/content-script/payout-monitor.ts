@@ -112,71 +112,16 @@ export class PayoutMonitor {
     }
   }
 
-  /** .asset-inactive 리로드 시도 — "다시 로드하려면 클릭" 메시지가 있으면 클릭 후 복구 대기 */
-  private async tryReloadInactive(): Promise<boolean> {
-    const MAX_RELOAD_ATTEMPTS = 2
-
-    for (let attempt = 1; attempt <= MAX_RELOAD_ATTEMPTS; attempt++) {
-      const inactiveEl = document.querySelector('.asset-inactive') as HTMLElement | null
-      if (!inactiveEl || inactiveEl.offsetParent === null) {
-        log.info('✅ asset-inactive 해소됨')
-        return true
-      }
-
-      log.info(`🔄 asset-inactive 리로드 시도 ${attempt}/${MAX_RELOAD_ATTEMPTS}...`)
-      await forceClick(inactiveEl)
-      await this.wait(3000)
-    }
-
-    // 최종 확인
-    const stillInactive = document.querySelector('.asset-inactive') as HTMLElement | null
-    if (stillInactive && stillInactive.offsetParent !== null) {
-      log.warn('🔍 리로드 시도 모두 실패, asset-inactive 유지')
-      return false
-    }
-
-    log.info('✅ asset-inactive 리로드 성공')
-    return true
-  }
-
-  /** 자산 전환 전 잔류 .asset-inactive 오버레이 사전 제거 */
-  private async dismissStaleInactive(): Promise<void> {
-    const inactiveEl = document.querySelector('.asset-inactive') as HTMLElement | null
-    if (inactiveEl && inactiveEl.offsetParent !== null) {
-      log.info('🧹 잔류 asset-inactive 오버레이 제거 시도...')
-      await forceClick(inactiveEl)
-      await this.wait(1500)
-    }
-  }
-
-  /** Enhanced detection of unavailable assets */
-  private detectAssetUnavailable(): boolean {
-    // Pattern 1: '.asset-inactive' with Korean text
-    const inactiveEl = document.querySelector('.asset-inactive')
-    if (inactiveEl && (inactiveEl as HTMLElement).offsetParent !== null) {
-      const text = inactiveEl.textContent || ''
-      if (text.includes('불가능') || text.includes('unavailable') || text.toLowerCase().includes('not available')) {
-        log.warn(`🔍 Unavailable detected: Pattern 1 (.asset-inactive), text: "${text.substring(0, 80)}"`)
-        return true
-      }
-    }
-    // Pattern 2: 모달/알림 검사 — 가시성 체크(offsetParent) 추가로 숨겨진 모달 오탐 방지
-    const modals = document.querySelectorAll('.modal, .notification, .alert, .toast')
-    for (const modal of modals) {
-      if ((modal as HTMLElement).offsetParent === null) continue
-      const text = (modal.textContent || '').toLowerCase()
-      if (text.includes('not available') || text.includes('unavailable') || text.includes('이용 불가')) {
-        log.warn(`🔍 Unavailable detected: Pattern 2 (${modal.className}), text: "${text.substring(0, 80)}"`)
-        return true
-      }
-    }
-    // Pattern 3: Check if chart area shows loading/error state
-    const chartError = document.querySelector('.chart-error, .chart-loading-error')
-    if (chartError && (chartError as HTMLElement).offsetParent !== null) {
-      log.warn('🔍 Unavailable detected: Pattern 3 (.chart-error/.chart-loading-error)')
-      return true
-    }
-    return false
+  /** 차트 영역 내 .asset-inactive 요소를 찾는 헬퍼 */
+  private findChartInactiveEl(): HTMLElement | null {
+    const chart = document.querySelector('.chart-item') || document.querySelector('.chart-block')
+    const el = chart
+      ? chart.querySelector('.asset-inactive') as HTMLElement | null
+      : document.querySelector('.chart-item .asset-inactive, .chart-block .asset-inactive') as HTMLElement | null
+    if (!el || el.offsetParent === null) return null
+    const rect = el.getBoundingClientRect()
+    if (rect.width === 0 && rect.height === 0) return null
+    return el
   }
 
   /** 자산명 정규화 (NBSP, 공백 통합, 소문자) */
@@ -254,9 +199,7 @@ export class PayoutMonitor {
        return true
     }
 
-    // 이전 자산의 잔류 .asset-inactive 오버레이 사전 제거
-    await this.dismissStaleInactive()
-
+    // 피커 열기 전 잔류 오버레이는 무시 — 자산 전환이 새 차트를 로드하므로 불필요
     await this.openAssetPicker()
     await this.wait(1500)
 
@@ -275,7 +218,7 @@ export class PayoutMonitor {
       await forceClick(found.element)
       await this.wait(2000)
 
-      // 전환 성공 여부 확인
+      // 전환 성공 여부 확인 (.current-symbol 텍스트가 변경되었는지)
       const afterEl = document.querySelector('.current-symbol')
       const isSwitched = afterEl && this.normalizeAssetName(afterEl.textContent || '').includes(normalizedTarget)
 
@@ -287,29 +230,29 @@ export class PayoutMonitor {
       }
 
       await this.closeAssetPicker()
-      await this.wait(1000)
+      await this.wait(2000)
 
-      // 자산 이용 불가 감지 (UI 확인 성공 후에만)
-      if (this.detectAssetUnavailable()) {
-         // "다시 로드하려면 클릭" 상태면 리로드 시도
-         const recovered = await this.tryReloadInactive()
-         if (!recovered) {
-           this.markAssetUnavailable(assetName)
-           return false
-         }
-         // 리로드 성공 → 다시 한번 확인
-         if (this.detectAssetUnavailable()) {
-           this.markAssetUnavailable(assetName)
-           return false
-         }
+      // "다시 로드하려면 클릭" 오버레이가 있으면 클릭하여 차트 리로드 시도
+      // 이것은 오류가 아니라 PO의 정상적인 차트 로딩 메커니즘
+      const overlay = this.findChartInactiveEl()
+      if (overlay) {
+        log.info('🔄 차트 inactive 오버레이 감지, 클릭하여 리로드 요청...')
+        await forceClick(overlay)
+        // 리로드 완료 대기 (최대 5초)
+        await this.waitForCondition(
+          () => !this.findChartInactiveEl(),
+          5000,
+          500,
+        )
       }
 
+      // 오버레이 존재 여부와 관계없이 전환 성공으로 처리
+      // WS 응답 타임아웃(auto-miner.ts)이 실제 데이터 가용성을 판단
       log.info(`✅ Switch finished: ${assetName}`)
       return true
     }
 
     log.warn(`❌ Asset not found in list: ${assetName}`)
-    this.markAssetUnavailable(assetName)
     await this.closeAssetPicker()
     return false
   }
@@ -410,6 +353,18 @@ export class PayoutMonitor {
   }
 
   private wait(ms: number): Promise<void> { return new Promise(resolve => setTimeout(resolve, ms)) }
+
+  /** 조건이 true가 될 때까지 폴링. 타임아웃 시 false 반환 */
+  private async waitForCondition(
+    predicate: () => boolean, timeoutMs: number, intervalMs = 500
+  ): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (predicate()) return true
+      await this.wait(intervalMs)
+    }
+    return predicate() // 마지막 한 번 더 확인
+  }
   private notifyObservers(): void {
     const assets = this.getHighPayoutAssets()
     this.observers.forEach(cb => cb(assets))

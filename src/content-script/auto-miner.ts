@@ -49,7 +49,7 @@ const DEFAULT_CONFIG: BulkMiningConfig = {
 
 const MAX_RETRIES = 3
 const MAX_SWITCH_RETRIES = 2  // 자산 전환 재시도 횟수
-const CONSECUTIVE_UNAVAILABLE_THRESHOLD = 3  // 연속 N개 unavailable 시 일시 중단
+const CONSECUTIVE_UNAVAILABLE_THRESHOLD = 5  // 연속 N개 unavailable 시 일시 중단 (3→5 상향)
 const MARKET_CLOSED_WAIT_MS = 5 * 60 * 1000  // 시장 닫힘 판단 시 5분 대기
 const PAYOUT_WAIT_INTERVAL_MS = 5000  // 페이아웃 데이터 대기 주기
 const PAYOUT_MAX_WAIT_ATTEMPTS = 12   // 최대 대기 횟수 (5s × 12 = 60s)
@@ -78,13 +78,66 @@ let payoutMonitorRef: PayoutMonitor | null = null
 // ============================================================
 
 function resolveAssetId(): string {
+  // 1순위: WS 메시지에서 캡처된 asset ID (수신 updateStream 또는 TM ws.send() 후킹)
   const interceptor = getWebSocketInterceptor()
   const trackedId = interceptor.getActiveAssetId()
-  if (trackedId) return trackedId
+  if (trackedId) {
+    log.info(`📋 Asset ID (WS tracked): ${trackedId}`)
+    return trackedId
+  }
 
+  // 2순위: DOM에서 asset ID 추출 (PO 페이지의 data 속성)
+  const domId = extractAssetIdFromDOM()
+  if (domId) {
+    log.info(`📋 Asset ID (DOM): ${domId}`)
+    return domId
+  }
+
+  // 3순위: 이름 기반 fallback (정확하지 않을 수 있음!)
   const asset = minerState.currentAsset || ''
   const fallbackId = asset.toUpperCase().replace(/\s+OTC$/i, '_otc').replace(/\s+/g, '_')
-  return fallbackId.startsWith('#') ? fallbackId : '#' + fallbackId
+  const result = fallbackId.startsWith('#') ? fallbackId : '#' + fallbackId
+  log.warn(`⚠️ Asset ID (FALLBACK - 부정확할 수 있음): ${result}. 수신 WS 메시지에서 asset ID가 아직 캡처되지 않았습니다.`)
+  return result
+}
+
+/**
+ * [Fix 5] 자산 전환 후 WS 수신 메시지에서 asset ID가 캡처될 때까지 대기
+ * updateStream 등의 수신 메시지에서 자동 추적되므로, 짧은 시간 대기하면 캡처됨
+ */
+async function waitForAssetId(timeoutMs = 5000, intervalMs = 500): Promise<string | null> {
+  const interceptor = getWebSocketInterceptor()
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const id = interceptor.getActiveAssetId()
+    if (id) return id
+    await new Promise(r => setTimeout(r, intervalMs))
+  }
+  return interceptor.getActiveAssetId()
+}
+
+/** DOM에서 PO의 실제 asset ID를 추출 시도 */
+function extractAssetIdFromDOM(): string | null {
+  // 방법 1: 차트 영역의 data 속성
+  const chartEl = document.querySelector('.chart-item[data-id], .chart-item[data-asset], [data-active-asset]')
+  if (chartEl) {
+    const id = chartEl.getAttribute('data-id') || chartEl.getAttribute('data-asset') || chartEl.getAttribute('data-active-asset')
+    if (id) return id
+  }
+
+  // 방법 2: URL 파라미터에서 asset ID 추출
+  const urlParams = new URLSearchParams(window.location.search)
+  const urlAsset = urlParams.get('asset') || urlParams.get('symbol')
+  if (urlAsset) return urlAsset.startsWith('#') ? urlAsset : '#' + urlAsset
+
+  // 방법 3: PO의 전역 상태에서 추출 (window 객체)
+  try {
+    const win = window as any
+    if (win.__pocketOptionState?.activeAsset) return win.__pocketOptionState.activeAsset
+    if (win.CURRENT_ASSET) return win.CURRENT_ASSET
+  } catch { /* ignore */ }
+
+  return null
 }
 
 // ============================================================
@@ -187,12 +240,21 @@ export const AutoMiner = {
       }
     }
     if (!switched) {
-      log.warn(`Failed to switch to ${assetName}, skipping...`)
+      // 실제 unavailable(asset-inactive)인 경우와 기술적 전환 실패를 구분
+      const isActuallyUnavailable = payoutMonitorRef?.isAssetUnavailable(assetName) ?? false
+
+      if (isActuallyUnavailable) {
+        log.warn(`⛔ ${assetName} is unavailable, skipping...`)
+        minerState.consecutiveUnavailable++
+      } else {
+        log.warn(`❌ Failed to switch to ${assetName} (technical failure), skipping...`)
+        // 기술적 실패는 consecutiveUnavailable 카운터에 반영하지 않음
+      }
+
       minerState.failedAssets.add(assetName)
       minerState.completedAssets.add(assetName)
-      minerState.consecutiveUnavailable++
 
-      // 연속 N개 자산 실패 → OTC 시장 닫힘으로 판단, 5분 대기
+      // 연속 N개 자산이 실제로 이용 불가 → OTC 시장 닫힘으로 판단, 5분 대기
       if (minerState.consecutiveUnavailable >= CONSECUTIVE_UNAVAILABLE_THRESHOLD) {
         log.warn(`🌙 연속 ${minerState.consecutiveUnavailable}개 자산 이용 불가 — OTC 시장이 닫혀있는 것으로 판단, ${MARKET_CLOSED_WAIT_MS / 60000}분 후 재시도`)
         minerState.completedAssets.clear()
@@ -211,8 +273,17 @@ export const AutoMiner = {
     minerState.currentAsset = assetName
     minerState.retryCount = 0
 
-    // 자산 로딩 대기
-    await new Promise(r => setTimeout(r, 4000))
+    // [Fix 5] 자산 전환 후 WS 수신 메시지에서 asset ID가 캡처될 때까지 대기
+    // updateStream이 오면 interceptor가 자동으로 lastAssetId를 업데이트함
+    log.info(`⏳ 자산 로딩 및 WS asset ID 캡처 대기 중...`)
+    const capturedId = await waitForAssetId(6000, 500)
+    if (capturedId) {
+      log.info(`✅ WS asset ID 캡처 성공: ${capturedId}`)
+    } else {
+      log.warn(`⚠️ WS asset ID 캡처 실패, fallback 사용 예정`)
+      // 추가 1초 대기 후 마지막 기회
+      await new Promise(r => setTimeout(r, 1000))
+    }
 
     // 진행 상태 초기화
     if (!minerState.progress.has(assetName)) {
