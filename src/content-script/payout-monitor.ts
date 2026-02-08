@@ -91,6 +91,11 @@ export class PayoutMonitor {
     return false
   }
 
+  /** 자산이 unavailable 목록에 있는지 확인 (쿨다운 조건 무관) */
+  isAssetUnavailable(assetName: string): boolean {
+    return this.unavailableAssets.has(assetName)
+  }
+
   /** Get available assets (excluding those in cooldown) */
   getAvailableAssets(): AssetPayout[] {
     return this.getHighPayoutAssets().filter(a => !this.isAssetInCooldown(a.name))
@@ -102,10 +107,45 @@ export class PayoutMonitor {
     if (existing) {
       existing.retryCount++
       existing.failedAt = Date.now()
-      log.warn(`Asset ${assetName} failed again (retry ${existing.retryCount}/${MAX_RETRY_COUNT})`)
     } else {
       this.unavailableAssets.set(assetName, { name: assetName, failedAt: Date.now(), retryCount: 1 })
-      log.warn(`Asset ${assetName} marked as unavailable (retry 1/${MAX_RETRY_COUNT})`)
+    }
+  }
+
+  /** .asset-inactive 리로드 시도 — "다시 로드하려면 클릭" 메시지가 있으면 클릭 후 복구 대기 */
+  private async tryReloadInactive(): Promise<boolean> {
+    const MAX_RELOAD_ATTEMPTS = 2
+
+    for (let attempt = 1; attempt <= MAX_RELOAD_ATTEMPTS; attempt++) {
+      const inactiveEl = document.querySelector('.asset-inactive') as HTMLElement | null
+      if (!inactiveEl || inactiveEl.offsetParent === null) {
+        log.info('✅ asset-inactive 해소됨')
+        return true
+      }
+
+      log.info(`🔄 asset-inactive 리로드 시도 ${attempt}/${MAX_RELOAD_ATTEMPTS}...`)
+      await forceClick(inactiveEl)
+      await this.wait(3000)
+    }
+
+    // 최종 확인
+    const stillInactive = document.querySelector('.asset-inactive') as HTMLElement | null
+    if (stillInactive && stillInactive.offsetParent !== null) {
+      log.warn('🔍 리로드 시도 모두 실패, asset-inactive 유지')
+      return false
+    }
+
+    log.info('✅ asset-inactive 리로드 성공')
+    return true
+  }
+
+  /** 자산 전환 전 잔류 .asset-inactive 오버레이 사전 제거 */
+  private async dismissStaleInactive(): Promise<void> {
+    const inactiveEl = document.querySelector('.asset-inactive') as HTMLElement | null
+    if (inactiveEl && inactiveEl.offsetParent !== null) {
+      log.info('🧹 잔류 asset-inactive 오버레이 제거 시도...')
+      await forceClick(inactiveEl)
+      await this.wait(1500)
     }
   }
 
@@ -116,20 +156,24 @@ export class PayoutMonitor {
     if (inactiveEl && (inactiveEl as HTMLElement).offsetParent !== null) {
       const text = inactiveEl.textContent || ''
       if (text.includes('불가능') || text.includes('unavailable') || text.toLowerCase().includes('not available')) {
+        log.warn(`🔍 Unavailable detected: Pattern 1 (.asset-inactive), text: "${text.substring(0, 80)}"`)
         return true
       }
     }
-    // Pattern 2: Modal or notification with unavailable message
+    // Pattern 2: 모달/알림 검사 — 가시성 체크(offsetParent) 추가로 숨겨진 모달 오탐 방지
     const modals = document.querySelectorAll('.modal, .notification, .alert, .toast')
     for (const modal of modals) {
+      if ((modal as HTMLElement).offsetParent === null) continue
       const text = (modal.textContent || '').toLowerCase()
       if (text.includes('not available') || text.includes('unavailable') || text.includes('이용 불가')) {
+        log.warn(`🔍 Unavailable detected: Pattern 2 (${modal.className}), text: "${text.substring(0, 80)}"`)
         return true
       }
     }
     // Pattern 3: Check if chart area shows loading/error state
     const chartError = document.querySelector('.chart-error, .chart-loading-error')
     if (chartError && (chartError as HTMLElement).offsetParent !== null) {
+      log.warn('🔍 Unavailable detected: Pattern 3 (.chart-error/.chart-loading-error)')
       return true
     }
     return false
@@ -140,14 +184,41 @@ export class PayoutMonitor {
     return name.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
   }
 
+  /** 피커 리스트 아이템이 inactive 상태인지 DOM에서 사전 감지 */
+  private isItemInactive(item: Element): boolean {
+    const el = item as HTMLElement
+    const cls = (el.className || '').toLowerCase()
+
+    // 클래스 기반: inactive, disabled, closed, locked, suspended
+    if (/\b(inactive|disabled|closed|locked|suspended)\b/.test(cls)) return true
+
+    // aria 속성 기반
+    if (el.getAttribute('aria-disabled') === 'true') return true
+
+    // 자식 요소에 inactive 지표가 있는 경우 (잠금 아이콘, 닫힘 배지 등)
+    const inactiveChild = item.querySelector('.inactive, .disabled, .closed, .locked, [data-status="closed"]')
+    if (inactiveChild) return true
+
+    // 시각적 비활성화: opacity가 0.5 이하
+    const opacity = parseFloat(getComputedStyle(el).opacity || '1')
+    if (opacity <= 0.5) return true
+
+    return false
+  }
+
   /** DOM에서 자산 요소를 찾는다. 최대 maxAttempts회 재시도 (간격 retryDelayMs) */
-  private async findAssetElement(normalizedTarget: string, maxAttempts = 3, retryDelayMs = 800): Promise<{ element: HTMLElement; rawLabel: string } | null> {
+  private async findAssetElement(normalizedTarget: string, maxAttempts = 3, retryDelayMs = 800): Promise<{ element: HTMLElement; rawLabel: string; inactive?: boolean } | null> {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const assetItems = document.querySelectorAll(PO_PAYOUT_SELECTORS.assetItem)
       for (const item of assetItems) {
         const labelEl = item.querySelector(PO_PAYOUT_SELECTORS.assetLabel)
         const rawLabel = labelEl?.textContent || ''
         if (this.normalizeAssetName(rawLabel) === normalizedTarget) {
+          // 클릭 전 inactive 사전 감지
+          if (this.isItemInactive(item)) {
+            log.warn(`⛔ ${rawLabel.trim()} — 피커 리스트에서 inactive 감지, 클릭 생략`)
+            return { element: item as HTMLElement, rawLabel: rawLabel.trim(), inactive: true }
+          }
           const clickTarget = (item.querySelector('.alist__link') as HTMLElement) || (item as HTMLElement)
           return { element: clickTarget, rawLabel: rawLabel.trim() }
         }
@@ -164,6 +235,12 @@ export class PayoutMonitor {
     log.info(`🔄 Switching to: ${assetName}`)
     const normalizedTarget = this.normalizeAssetName(assetName)
 
+    // 이전 사이클에서 unavailable로 판정된 자산 → 피커 열지 않고 즉시 스킵
+    if (this.isAssetUnavailable(assetName)) {
+      log.warn(`⛔ ${assetName} already known unavailable, skipping without opening picker`)
+      return false
+    }
+
     // 쿨다운 중인지 확인
     if (this.isAssetInCooldown(assetName)) {
       log.warn(`⏳ Asset ${assetName} is in cooldown, skipping...`)
@@ -177,6 +254,9 @@ export class PayoutMonitor {
        return true
     }
 
+    // 이전 자산의 잔류 .asset-inactive 오버레이 사전 제거
+    await this.dismissStaleInactive()
+
     await this.openAssetPicker()
     await this.wait(1500)
 
@@ -184,6 +264,13 @@ export class PayoutMonitor {
     const found = await this.findAssetElement(normalizedTarget)
 
     if (found) {
+      // 피커 리스트에서 inactive 사전 감지 → 클릭 없이 즉시 unavailable 처리
+      if (found.inactive) {
+        this.markAssetUnavailable(assetName)
+        await this.closeAssetPicker()
+        return false
+      }
+
       log.info(`🎯 Found match: ${found.rawLabel}`)
       await forceClick(found.element)
       await this.wait(2000)
@@ -204,9 +291,17 @@ export class PayoutMonitor {
 
       // 자산 이용 불가 감지 (UI 확인 성공 후에만)
       if (this.detectAssetUnavailable()) {
-         log.warn(`⚠️ Asset ${assetName} is confirmed unavailable.`)
-         this.markAssetUnavailable(assetName)
-         return false
+         // "다시 로드하려면 클릭" 상태면 리로드 시도
+         const recovered = await this.tryReloadInactive()
+         if (!recovered) {
+           this.markAssetUnavailable(assetName)
+           return false
+         }
+         // 리로드 성공 → 다시 한번 확인
+         if (this.detectAssetUnavailable()) {
+           this.markAssetUnavailable(assetName)
+           return false
+         }
       }
 
       log.info(`✅ Switch finished: ${assetName}`)
@@ -219,11 +314,34 @@ export class PayoutMonitor {
     return false
   }
 
+  /** 피커를 열어서라도 페이아웃을 가져온다 (Miner 등 외부 호출용) */
+  async fetchPayoutsForce(): Promise<void> {
+    let payouts = this.scrapePayoutsFromDOM()
+    if (payouts.length < 5) {
+      log.info('Force fetch: opening picker to scrape payouts...')
+      await this.openAssetPicker()
+      for (let i = 0; i < 3; i++) {
+        await this.wait(500)
+        payouts = this.scrapePayoutsFromDOM()
+        if (payouts.length >= 5) break
+      }
+      await this.closeAssetPicker()
+    }
+    if (payouts.length > 0) {
+      const now = Date.now()
+      payouts.forEach(p => { this.assets.set(p.name, { ...p, lastUpdated: now }) })
+    }
+    this.notifyObservers()
+  }
+
   private async fetchPayouts(): Promise<void> {
     try {
       let payouts = this.scrapePayoutsFromDOM()
-      if (payouts.length < 5) {
-        log.info('Payouts empty, opening picker...');
+      if (payouts.length === 0) {
+        // 페이아웃 데이터가 전혀 없으면 피커를 열지 않고 대기
+        log.debug('Payouts empty, waiting for data...')
+      } else if (payouts.length < 5) {
+        log.info(`Payouts partial (${payouts.length}), opening picker to fetch more...`);
         await this.openAssetPicker()
         for (let i = 0; i < 3; i++) {
             await this.wait(500); payouts = this.scrapePayoutsFromDOM();

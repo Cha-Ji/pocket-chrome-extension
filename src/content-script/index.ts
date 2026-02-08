@@ -67,7 +67,7 @@ async function initialize(): Promise<void> {
     payoutMonitor = getPayoutMonitor()
     indicatorReader = getIndicatorReader()
     signalGenerator = getSignalGeneratorV2({ symbols: ['CURRENT'], minConfidence: 0.3, expirySeconds: 60, })
-    telegramService = await getTelegramService()
+    try { telegramService = await getTelegramService() } catch { console.warn('[PO] Telegram service unavailable, continuing without it'); telegramService = null }
     wsInterceptor = getWebSocketInterceptor()
     console.log('[PO] [4] Modules initialized');
     setupCandleHandler(); setupPayoutHandler(); setupSignalHandler(); setupIndicatorHandler(); setupWebSocketHandler();
@@ -154,6 +154,9 @@ function setupWebSocketHandler(): void {
         ticker: (c.symbol && c.symbol !== 'CURRENT' && c.symbol !== 'UNKNOWN') ? c.symbol : currentSymbol
       }));
       DataSender.sendHistory(payload).catch(err => console.error('[PO] History send failed:', err));
+
+      // AutoMiner에게 응답 수신 알림 (응답 기반 연쇄 요청 트리거)
+      AutoMiner.onHistoryResponse(candles);
   })
     wsInterceptor.onMessage((message: WebSocketMessage) => {
       // [PO-17] 모든 웹소켓 메시지 로깅 (디버그용)
@@ -228,6 +231,8 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
     case 'START_AUTO_MINER': AutoMiner.start(); return { success: true, message: 'Auto Miner Started' };
     case 'STOP_AUTO_MINER': AutoMiner.stop(); return { success: true, message: 'Auto Miner Stopped' };
     case 'GET_MINER_STATUS': return AutoMiner.getStatus();
+    case 'GET_DB_MONITOR_STATUS': return { sender: DataSender.getStats() };
+    case 'SET_MINER_CONFIG': AutoMiner.updateConfig(message.payload as { offsetSeconds?: number; maxDaysBack?: number; requestDelayMs?: number }); return { success: true, config: AutoMiner.getConfig() };
     case 'GET_STATUS_V2': return getSystemStatus();
     case 'GET_LLM_REPORT': return getLLMReport();
     case 'SET_CONFIG_V2': tradingConfig = { ...tradingConfig, ...(message.payload as unknown as Partial<TradingConfigV2>) }; return { success: true, config: tradingConfig };

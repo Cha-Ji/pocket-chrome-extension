@@ -1,62 +1,170 @@
 import { PayoutMonitor } from './payout-monitor'
 import { getWebSocketInterceptor } from './websocket-interceptor'
 import { loggers } from '../lib/logger'
+import type { CandleData } from './websocket-types'
 
 const log = loggers.miner
+
+// ============================================================
+// 벌크 히스토리 수집 설정
+// ============================================================
+
+interface BulkMiningConfig {
+  offsetSeconds: number    // 한 요청당 과거 범위 (초). 86400 = 24시간 = 1440개 1분봉
+  period: number           // 캔들 주기 (60 = 1분봉)
+  maxDaysBack: number      // 최대 수집 일수
+  requestDelayMs: number   // 응답 후 다음 요청까지 딜레이 (ms)
+}
+
+interface AssetMiningProgress {
+  asset: string
+  totalCandles: number
+  oldestTimestamp: number   // 가장 오래된 캔들 시점 (초)
+  newestTimestamp: number   // 가장 새로운 캔들 시점 (초)
+  requestCount: number
+  isComplete: boolean
+}
 
 interface MiningState {
   isActive: boolean
   currentAsset: string | null
-  assetsToMine: string[]
   completedAssets: Set<string>
-  miningDuration: number
-  lastRequestAt: number
+  failedAssets: Set<string>
+  consecutiveUnavailable: number
+  payoutWaitAttempts: number
+  config: BulkMiningConfig
+  progress: Map<string, AssetMiningProgress>
+  // 응답 기반 제어
+  pendingRequest: boolean
+  retryCount: number
+  startedAt: number        // 채굴 시작 시간 (ms)
 }
+
+const DEFAULT_CONFIG: BulkMiningConfig = {
+  offsetSeconds: 86400,    // 24시간 = 약 1440개 1분봉
+  period: 60,              // 1분봉
+  maxDaysBack: 30,         // 최대 30일
+  requestDelayMs: 500,     // 응답 후 500ms 대기
+}
+
+const MAX_RETRIES = 3
+const MAX_SWITCH_RETRIES = 2  // 자산 전환 재시도 횟수
+const CONSECUTIVE_UNAVAILABLE_THRESHOLD = 3  // 연속 N개 unavailable 시 일시 중단
+const MARKET_CLOSED_WAIT_MS = 5 * 60 * 1000  // 시장 닫힘 판단 시 5분 대기
+const PAYOUT_WAIT_INTERVAL_MS = 5000  // 페이아웃 데이터 대기 주기
+const PAYOUT_MAX_WAIT_ATTEMPTS = 12   // 최대 대기 횟수 (5s × 12 = 60s)
+const RESPONSE_TIMEOUT_MS = 15000  // 15초 응답 타임아웃
 
 const minerState: MiningState = {
   isActive: false,
   currentAsset: null,
-  assetsToMine: [],
   completedAssets: new Set(),
-  miningDuration: 10000, // [PO-17] 직접 요청 시 대기 시간 단축
-  lastRequestAt: 0
+  failedAssets: new Set(),
+  consecutiveUnavailable: 0,
+  payoutWaitAttempts: 0,
+  config: { ...DEFAULT_CONFIG },
+  progress: new Map(),
+  pendingRequest: false,
+  retryCount: 0,
+  startedAt: 0,
 }
 
-let requestInterval: NodeJS.Timeout | null = null
-let rotationTimeout: NodeJS.Timeout | null = null
+let rotationTimeout: ReturnType<typeof setTimeout> | null = null
+let responseTimeout: ReturnType<typeof setTimeout> | null = null
 let payoutMonitorRef: PayoutMonitor | null = null
+
+// ============================================================
+// 자산 ID 결정 헬퍼
+// ============================================================
+
+function resolveAssetId(): string {
+  const interceptor = getWebSocketInterceptor()
+  const trackedId = interceptor.getActiveAssetId()
+  if (trackedId) return trackedId
+
+  const asset = minerState.currentAsset || ''
+  const fallbackId = asset.toUpperCase().replace(/\s+OTC$/i, '_otc').replace(/\s+/g, '_')
+  return fallbackId.startsWith('#') ? fallbackId : '#' + fallbackId
+}
+
+// ============================================================
+// AutoMiner 모듈
+// ============================================================
 
 export const AutoMiner = {
   init(monitor: PayoutMonitor) {
     payoutMonitorRef = monitor
-    log.info('Initialized')
+    log.info('Initialized (Bulk History Mode)')
   },
 
+  // ── 시작/중지 ──────────────────────────────────────────
+
   start() {
-    log.info('🚀 Starting WebSocket-Direct mining...')
+    log.info('🚀 Starting Bulk History Mining...')
     minerState.isActive = true
     minerState.completedAssets.clear()
+    minerState.failedAssets.clear()
+    minerState.consecutiveUnavailable = 0
+    minerState.payoutWaitAttempts = 0
+    minerState.progress.clear()
+    minerState.startedAt = Date.now()
     this.scanAndMineNext()
   },
 
   stop() {
     log.info('⏹ Stopping mining...')
     minerState.isActive = false
-    this.stopRequesting()
-    if (rotationTimeout) { clearTimeout(rotationTimeout); rotationTimeout = null; }
+    minerState.pendingRequest = false
+    minerState.retryCount = 0
+    this.clearTimers()
   },
+
+  // ── 설정 변경 ──────────────────────────────────────────
+
+  updateConfig(partial: Partial<BulkMiningConfig>) {
+    Object.assign(minerState.config, partial)
+    log.info(`Config updated: offset=${minerState.config.offsetSeconds}s, maxDays=${minerState.config.maxDaysBack}, delay=${minerState.config.requestDelayMs}ms`)
+  },
+
+  getConfig() {
+    return { ...minerState.config }
+  },
+
+  // ── 자산 스캔 및 순회 ──────────────────────────────────
 
   scanAndMineNext() {
     if (!minerState.isActive || !payoutMonitorRef) return
-    // Use getAvailableAssets() which excludes assets in cooldown
-    const availableAssets = payoutMonitorRef.getAvailableAssets().filter(asset => asset.payout >= 92).map(asset => asset.name)
+
+    // 페이아웃 데이터 로딩 가드 — 데이터 없으면 적극적으로 수집 시도
+    if (payoutMonitorRef.getAllAssets().length === 0) {
+      minerState.payoutWaitAttempts++
+      if (minerState.payoutWaitAttempts > PAYOUT_MAX_WAIT_ATTEMPTS) {
+        log.warn('❌ 페이아웃 데이터 60초 대기 초과, 마이닝 중단')
+        this.stop()
+        return
+      }
+      log.info(`⏳ 페이아웃 데이터 수집 시도... (${minerState.payoutWaitAttempts}/${PAYOUT_MAX_WAIT_ATTEMPTS})`)
+      // 모니터에 강제 수집 요청 후 재확인
+      payoutMonitorRef.fetchPayoutsForce().then(() => {
+        if (!minerState.isActive) return
+        rotationTimeout = setTimeout(() => this.scanAndMineNext(), PAYOUT_WAIT_INTERVAL_MS)
+      })
+      return
+    }
+    minerState.payoutWaitAttempts = 0
+
+    const availableAssets = payoutMonitorRef
+      .getAvailableAssets()
+      .filter(asset => asset.payout >= 92)
+      .map(asset => asset.name)
+
     log.info(`Found ${availableAssets.length} available assets. Completed: ${minerState.completedAssets.size}`)
     const nextAsset = availableAssets.find(asset => !minerState.completedAssets.has(asset))
-    
+
     if (!nextAsset) {
-      log.info('✅ All assets mined or none found! Waiting 1 min...')
+      log.info('✅ All assets mined! Waiting 1 min before next round...')
       minerState.completedAssets.clear()
-      rotationTimeout = setTimeout(() => this.scanAndMineNext(), 1 * 60 * 1000)
+      rotationTimeout = setTimeout(() => this.scanAndMineNext(), 60_000)
       return
     }
 
@@ -65,68 +173,221 @@ export const AutoMiner = {
   },
 
   async mineAsset(assetName: string) {
-    const switched = await payoutMonitorRef?.switchAsset(assetName)
+    let switched = false
+    for (let attempt = 1; attempt <= MAX_SWITCH_RETRIES; attempt++) {
+      switched = await payoutMonitorRef?.switchAsset(assetName) ?? false
+      if (switched) break
+      // unavailable로 감지된 자산은 재시도 없이 즉시 스킵
+      if (payoutMonitorRef?.isAssetUnavailable(assetName)) {
+        break
+      }
+      if (attempt < MAX_SWITCH_RETRIES) {
+        log.warn(`Switch attempt ${attempt}/${MAX_SWITCH_RETRIES} failed for ${assetName}, retrying in 3s...`)
+        await new Promise(r => setTimeout(r, 3000))
+      }
+    }
     if (!switched) {
       log.warn(`Failed to switch to ${assetName}, skipping...`)
+      minerState.failedAssets.add(assetName)
       minerState.completedAssets.add(assetName)
+      minerState.consecutiveUnavailable++
+
+      // 연속 N개 자산 실패 → OTC 시장 닫힘으로 판단, 5분 대기
+      if (minerState.consecutiveUnavailable >= CONSECUTIVE_UNAVAILABLE_THRESHOLD) {
+        log.warn(`🌙 연속 ${minerState.consecutiveUnavailable}개 자산 이용 불가 — OTC 시장이 닫혀있는 것으로 판단, ${MARKET_CLOSED_WAIT_MS / 60000}분 후 재시도`)
+        minerState.completedAssets.clear()
+        minerState.failedAssets.clear()
+        minerState.consecutiveUnavailable = 0
+        rotationTimeout = setTimeout(() => this.scanAndMineNext(), MARKET_CLOSED_WAIT_MS)
+        return
+      }
+
       this.scanAndMineNext()
       return
     }
 
+    // 전환 성공 시 연속 실패 카운터 리셋
+    minerState.consecutiveUnavailable = 0
     minerState.currentAsset = assetName
-    await new Promise(r => setTimeout(r, 4000)) // [PO-17] 로딩 대기 시간 충분히 확보 (2s -> 4s)
+    minerState.retryCount = 0
 
-    this.startRequesting()
-    
-    rotationTimeout = setTimeout(() => {
-      this.stopRequesting()
-      minerState.completedAssets.add(assetName)
-      log.info(`✅ Finished mining ${assetName}`)
+    // 자산 로딩 대기
+    await new Promise(r => setTimeout(r, 4000))
+
+    // 진행 상태 초기화
+    if (!minerState.progress.has(assetName)) {
+      minerState.progress.set(assetName, {
+        asset: assetName,
+        totalCandles: 0,
+        oldestTimestamp: 0,
+        newestTimestamp: 0,
+        requestCount: 0,
+        isComplete: false,
+      })
+    }
+
+    // 첫 요청 시작 (응답 기반 연쇄 요청)
+    this.requestNextChunk()
+  },
+
+  // ── 응답 기반 연쇄 요청 ────────────────────────────────
+
+  requestNextChunk() {
+    if (!minerState.isActive || !minerState.currentAsset) return
+
+    const progress = minerState.progress.get(minerState.currentAsset)
+    if (!progress) return
+
+    const { config } = minerState
+    const assetId = resolveAssetId()
+
+    // 시간 기준점: 첫 요청이면 현재 시간, 이후에는 가장 오래된 캔들 기준
+    const timeBase = progress.oldestTimestamp > 0
+      ? progress.oldestTimestamp
+      : Math.floor(Date.now() / 1000)
+
+    // 최대 과거 한도 체크
+    const maxPast = Math.floor(Date.now() / 1000) - (config.maxDaysBack * 86400)
+    if (timeBase <= maxPast) {
+      log.info(`📊 ${minerState.currentAsset}: 최대 ${config.maxDaysBack}일 도달, 자산 완료`)
+      progress.isComplete = true
+      minerState.completedAssets.add(minerState.currentAsset)
       this.scanAndMineNext()
-    }, minerState.miningDuration)
+      return
+    }
+
+    const index = timeBase * 100 + Math.floor(Math.random() * 100)
+    const interceptor = getWebSocketInterceptor()
+
+    log.info(`📤 ${assetId} | time=${new Date(timeBase * 1000).toISOString().slice(0, 16)} | offset=${config.offsetSeconds}s | req#${progress.requestCount + 1}`)
+
+    interceptor.send(
+      `42["loadHistoryPeriod",{"asset":"${assetId}","index":${index},"time":${timeBase},"offset":${config.offsetSeconds},"period":${config.period}}]`
+    )
+
+    minerState.pendingRequest = true
+    progress.requestCount++
+
+    // 응답 타임아웃 설정
+    this.startResponseTimeout()
   },
 
-  /**
-   * [PO-17] WebSocket을 통해 직접 데이터 요청
-   */
-  startRequesting() {
-    if (requestInterval) return
-    log.info('Requesting history via WebSocket...');
-    
-    const interceptor = getWebSocketInterceptor();
-    const asset = minerState.currentAsset || '';
-    
-    requestInterval = setInterval(() => {
-      // 1. 추적된 실제 자산 ID 가져오기 (가장 확실함)
-      const trackedId = interceptor.getActiveAssetId();
-      
-      // 2. 만약 추적된 ID가 없으면 UI 이름을 기반으로 변환 (백업)
-      const fallbackId = asset.toUpperCase().replace(/\s+OTC$/i, '_otc').replace(/\s+/g, '_');
-      const finalAssetId = trackedId || (fallbackId.startsWith('#') ? fallbackId : '#' + fallbackId);
+  // ── 히스토리 응답 수신 (index.ts에서 호출) ─────────────
 
-      const now = Math.floor(Date.now() / 1000);
-      const index = now * 100 + Math.floor(Math.random() * 100);
+  onHistoryResponse(candles: CandleData[]) {
+    if (!minerState.isActive || !minerState.currentAsset) return
+    if (!minerState.pendingRequest) return  // 내가 요청한 것이 아니면 무시
 
-      log.info(`📤 Requesting loadHistoryPeriod for: ${finalAssetId}`);
-      
-      // [PO-17] 사용자가 직접 확인한 고성능 패킷 포맷 적용
-      interceptor.send(`42["loadHistoryPeriod",{"asset":"${finalAssetId}","index":${index},"time":${now},"offset":9000,"period":60}]`);
-      
-      // 백업용 getHistory
-      interceptor.send(`42["getHistory",{"asset":"${finalAssetId}","period":60}]`);
+    minerState.pendingRequest = false
+    minerState.retryCount = 0
+    this.clearResponseTimeout()
 
-    }, 3000) // 요청 주기 3초로 약간 완화
+    const progress = minerState.progress.get(minerState.currentAsset)
+    if (!progress) return
+
+    // 빈 응답 또는 극소량 → 해당 자산 데이터 끝
+    if (!candles || candles.length < 10) {
+      log.info(`📊 ${minerState.currentAsset}: 데이터 끝 도달 (받은 캔들: ${candles?.length || 0}), 총 ${progress.totalCandles}개 수집 완료`)
+      progress.isComplete = true
+      minerState.completedAssets.add(minerState.currentAsset)
+      this.scanAndMineNext()
+      return
+    }
+
+    // 진행 상태 업데이트
+    progress.totalCandles += candles.length
+
+    const timestamps = candles.map(c => {
+      const ts = Number(c.timestamp)
+      // 밀리초인 경우 초 단위로 변환
+      return ts > 9999999999 ? Math.floor(ts / 1000) : ts
+    }).filter(ts => ts > 0)
+
+    if (timestamps.length > 0) {
+      const oldestInBatch = Math.min(...timestamps)
+      const newestInBatch = Math.max(...timestamps)
+      if (progress.oldestTimestamp === 0 || oldestInBatch < progress.oldestTimestamp) {
+        progress.oldestTimestamp = oldestInBatch
+      }
+      if (progress.newestTimestamp === 0 || newestInBatch > progress.newestTimestamp) {
+        progress.newestTimestamp = newestInBatch
+      }
+    }
+
+    const daysCollected = progress.newestTimestamp > 0 && progress.oldestTimestamp > 0
+      ? ((progress.newestTimestamp - progress.oldestTimestamp) / 86400).toFixed(1)
+      : '0'
+
+    log.info(`✅ ${minerState.currentAsset}: +${candles.length} (총 ${progress.totalCandles}개, ${daysCollected}일)`)
+
+    // 다음 청크 요청 (딜레이 후)
+    rotationTimeout = setTimeout(() => {
+      this.requestNextChunk()
+    }, minerState.config.requestDelayMs)
   },
 
-  stopRequesting() {
-    if (requestInterval) { clearInterval(requestInterval); requestInterval = null; }
+  // ── 응답 타임아웃 ──────────────────────────────────────
+
+  startResponseTimeout() {
+    this.clearResponseTimeout()
+    responseTimeout = setTimeout(() => {
+      if (!minerState.pendingRequest || !minerState.isActive) return
+
+      minerState.retryCount++
+      minerState.pendingRequest = false
+
+      if (minerState.retryCount >= MAX_RETRIES) {
+        log.warn(`⚠️ ${minerState.currentAsset}: ${MAX_RETRIES}회 타임아웃, 다음 자산으로 이동`)
+        if (minerState.currentAsset) {
+          minerState.completedAssets.add(minerState.currentAsset)
+        }
+        minerState.retryCount = 0
+        this.scanAndMineNext()
+      } else {
+        log.warn(`⏱️ ${minerState.currentAsset}: 응답 타임아웃 (${minerState.retryCount}/${MAX_RETRIES}), 재시도...`)
+        this.requestNextChunk()
+      }
+    }, RESPONSE_TIMEOUT_MS)
   },
+
+  clearResponseTimeout() {
+    if (responseTimeout) { clearTimeout(responseTimeout); responseTimeout = null }
+  },
+
+  clearTimers() {
+    if (rotationTimeout) { clearTimeout(rotationTimeout); rotationTimeout = null }
+    this.clearResponseTimeout()
+  },
+
+  // ── 상태 조회 ──────────────────────────────────────────
 
   getStatus() {
+    const assetProgress = Array.from(minerState.progress.values()).map(p => ({
+      asset: p.asset,
+      totalCandles: p.totalCandles,
+      daysCollected: p.newestTimestamp > 0 && p.oldestTimestamp > 0
+        ? Math.round((p.newestTimestamp - p.oldestTimestamp) / 86400 * 10) / 10
+        : 0,
+      isComplete: p.isComplete,
+      requestCount: p.requestCount,
+    }))
+
+    const overallCandles = assetProgress.reduce((sum, p) => sum + p.totalCandles, 0)
+    const elapsedSeconds = minerState.startedAt > 0
+      ? Math.round((Date.now() - minerState.startedAt) / 1000)
+      : 0
+
     return {
       isActive: minerState.isActive,
       current: minerState.currentAsset,
-      completed: Array.from(minerState.completedAssets).length
+      completed: minerState.completedAssets.size - minerState.failedAssets.size,
+      failed: minerState.failedAssets.size,
+      total: minerState.completedAssets.size,
+      assetProgress,
+      overallCandles,
+      elapsedSeconds,
+      candlesPerSecond: elapsedSeconds > 0 ? Math.round(overallCandles / elapsedSeconds) : 0,
+      config: { ...minerState.config },
     }
-  }
+  },
 }
