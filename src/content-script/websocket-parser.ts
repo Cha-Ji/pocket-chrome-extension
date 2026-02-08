@@ -447,8 +447,13 @@ export class WebSocketParser {
   parse(data: any): ParsedMessage {
     // 문자열이면 JSON 파싱 시도
     if (typeof data === 'string') {
+      let jsonStr = data;
+      // Socket.IO 프리픽스 제거: "42[...]" → "[...]", "451-[...]" → "[...]"
+      const m = data.match(/^\d+[-]?([\[{].*)/s);
+      if (m) jsonStr = m[1];
+
       try {
-        data = JSON.parse(data)
+        data = JSON.parse(jsonStr)
       } catch {
         return {
           type: 'unknown',

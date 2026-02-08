@@ -1,5 +1,44 @@
 # Progress
 
+## 2026-02-08 (10) - Fix 6: TM 의존성 제거 — Extension 내장 WS 후킹 활성화
+
+- **실환경 테스트 결과 (Fix 5)**: `Asset ID tracked` 로그 전혀 없음 → WS 수신 메시지 자체가 interceptor에 도달하지 않음
+- **근본 원인**: TM(Tampermonkey) bridge가 동작하지 않음. interceptor의 `injectScript()`가 `[PO-16]`으로 비활성화 → WS 후킹 스크립트 미주입
+- **Fix 6 적용**:
+  1. `inject-websocket.js`: TM 스크립트와 동일한 수준으로 완전 재작성 (1.81KB → 3.04KB)
+     - onmessage setter 후킹 추가
+     - ws.send() 후킹 → asset ID 캡처 (`ws-asset-change`)
+     - Extension → WS 전송 핸들러 (`ws-send`)
+     - Socket.IO Binary Placeholder 처리
+     - decodeData/extractPayload 메시지 디코딩
+  2. `websocket-interceptor.ts`: `injectScript()` 활성화 — `<script>` 태그로 Main World에 주입
+- 빌드 성공 (8.62s), 테스트 25/25 통과
+- **다음 행동**: 익스텐션 리로드 후 실환경 테스트
+  - `[PO-Spy] 🟢 Extension WS Hook Started` → 주입 성공
+  - `[PO] [WS] Main World Bridge Connected` → bridge 연결
+  - `Asset ID tracked (stream):` 또는 `Asset ID tracked (raw):` → WS 수신에서 ID 캡처
+  - TM은 이제 불필요 (비활성화해도 됨)
+
+## 2026-02-08 (9) - Fix 5: 수신 WS 메시지에서 Asset ID 자동 추적
+
+- 근본 원인 3가지 발견 + interceptor trackAssetFromMessage() 추가
+- 실환경 실패: WS 수신 메시지 자체가 interceptor에 미도달 → Fix 6으로 이어짐
+
+## 2026-02-08 (8) - Fix 4 실환경 테스트 실패
+
+- TM 스크립트 업데이트 + 빌드 후 실환경 테스트 수행
+- **결과: 여전히 실패** — 정확한 실패 로그 미수집 (다음 세션에서 상세 진단 필요)
+- 가능한 원인:
+  1. TM ws.send() 후킹이 동작하지 않음 → `ws-asset-change` 이벤트 미발생 → fallback ID 사용
+  2. TM 후킹은 동작하나 PO가 `changeSymbol`을 WS가 아닌 REST로 처리
+  3. Asset ID는 올바르지만 send 경로 자체가 동작하지 않음 (TM send handler 미수신)
+  4. PO 서버가 응답하지만 TM onmessage 후킹에서 캐치 못함
+- **다음 행동**: 브라우저 콘솔에서 단계별 수동 진단 필수
+  - `window._ws_instances` 상태 확인
+  - 수동 ws.send() 테스트
+  - TM 로그 확인 (`[TM-Spy]` 접두사)
+  - 콘솔 로그에서 `Asset ID (WS tracked)` vs `FALLBACK` 확인
+
 ## 2026-02-08 (7) - WS 히스토리 타임아웃 근본 원인: Asset ID 오류 (Fix 4)
 
 - 자산 전환 Fix 3b 적용 후 전환은 성공하나, WS 히스토리 요청이 모든 자산에서 타임아웃

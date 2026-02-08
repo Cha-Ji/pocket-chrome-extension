@@ -1,6 +1,14 @@
 # Pocket Quant Trader - Progress
 
-**최종 업데이트:** 2026-02-06 KST
+**최종 업데이트:** 2026-02-08 KST
+
+## (2026-02-08) Bulk History Mining 파이프라인 + 자산 전환 수정
+
+- **Fix 1+2**: WS 파이프라인 파싱 수정 → 콘솔 독립 검증 성공
+- **Fix 3b**: 자산 전환 unavailable 오탐 → 오버레이 클릭 + 무조건 성공 방식으로 해결
+- **Fix 4**: Asset ID 오류 (display name → ticker 변환 실패) → TM ws.send() 후킹 추가 → **실환경 실패**
+- 다음 행동: 수동 콘솔 진단으로 Fix 4 실패 원인 특정 필요
+- 상세: `docs/features/bulk-history-db-bug/progress.md`
 
 ## (2026-02-06) 병렬 작업 실행 계획 수립
 

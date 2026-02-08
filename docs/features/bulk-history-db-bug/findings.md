@@ -137,15 +137,64 @@ Miner가 `loadHistoryPeriod` WS 요청을 보내는 단계까지 도달하지 �
    - 크기 0인 요소는 보이지 않는 것으로 판정 → 무시
    - 디버그 로깅 강화 (rect 크기, 부모 클래스 출력)
 
+### Fix 3 실환경 실패 → Fix 3b로 전환
+
+**Fix 3 실패 원인**: `.asset-inactive` 오버레이의 텍스트가 "다시 로드하려면 클릭" — 일시적 로딩이 아닌 **사용자 클릭이 필요한 상태**. 15초 passive 대기는 무의미.
+
+**Fix 3b 접근 (성공)**:
+- `dismissStaleInactive()`, `detectAssetUnavailable()`, `tryReloadInactive()` 삭제 (106줄 제거)
+- `.current-symbol` 텍스트 변경으로 전환 성공 확인 → 오버레이 있으면 1회 클릭 → **무조건 성공 반환**
+- 실제 가용 여부는 WS 히스토리 응답 타임아웃으로 판단 (auto-miner 쪽)
+
+### Fix 4: WS 히스토리 타임아웃 — Asset ID 오류
+
+**증상**: 자산 전환은 성공하나, `loadHistoryPeriod` WS 요청이 모든 자산에서 15초 타임아웃 × 3 = skip
+
+**근본 원인**: `resolveAssetId()` fallback이 display name 기반 변환 → 잘못된 ID 생성
+- "Apple OTC" → `#APPLE_otc` (❌ 부정확)
+- PO 서버는 `#AAPL_otc` (티커 기반) 사용 → 존재하지 않는 ID는 묵살 → 응답 없음
+
+**원인 2**: TM 스크립트가 `ws.send()`를 후킹하지 않아 발신 `changeSymbol`의 real asset ID 미캡처
+
+**Fix 4 수정 (코드 적용 완료, 실환경 실패)**:
+1. TM: `ws.send()` 후킹 → `"asset"` 필드 regex 캡처 → `ws-asset-change` 이벤트
+2. Interceptor: `ws-asset-change` 핸들러 → `lastAssetId` 업데이트
+3. `resolveAssetId()` 3단계: WS tracked → DOM 추출 → fallback(WARNING)
+
+### Fix 4 실환경 실패 분석 → Fix 5로 해결
+
+**Fix 4 실패 근본 원인 3가지 확인**:
+
+1. **interceptor changeSymbol 추적 = 죽은 코드**: `Array.isArray(parsed)` 체크가 `ParsedMessage` 객체에 대해 항상 false → `changeSymbol` 수신 감지 불가
+2. **수신 WS 메시지 asset 추적 전무**: TM ws.send() 후킹(발신)에만 의존 → PO가 자산 전환 시 WS send를 사용하지 않으면 캡처 불가
+3. **DOM asset ID 추출 미스매치**: `data-id`, `data-asset`, `data-active-asset` 셀렉터가 실제 PO DOM에 존재하지 않음
+
+**Fix 5 접근**: TM send 후킹(발신) 대신 **서버가 보내는 수신 메시지**에서 asset ID를 자동 추적
+- 전략 A: 파싱된 `price_update` 결과의 `symbol` (updateStream 등)
+- 전략 B: 원본 raw 텍스트의 `"asset":"..."` 패턴 (changeSymbol 응답, 히스토리 응답 등)
+- auto-miner: 자산 전환 후 최대 6초 대기하며 WS 수신에서 asset ID 캡처 확인
+
+**기대 동작 흐름**:
+```
+1. switchAsset("Apple OTC") → DOM 클릭 → PO 내부 자산 전환
+2. PO 서버가 새 자산의 updateStream 전송 → "42["updateStream",[["#AAPL_otc",...]]]"
+3. TM bridge → interceptor handleMessage → parser → price_update (symbol: "#AAPL_otc")
+4. trackAssetFromMessage() → lastAssetId = "#AAPL_otc"
+5. waitForAssetId() → 6초 내 캡처 확인 → resolveAssetId() → "#AAPL_otc" 사용
+6. loadHistoryPeriod 요청에 올바른 asset ID 사용 → PO 서버 응답 → 히스토리 수신
+```
+
 ### 현재 상태 정리
 
 | 영역 | 상태 | 비고 |
 |------|------|------|
-| Fix 1 (interceptor) | ✅ 코드 적용 완료 | 실환경 미검증 |
-| Fix 2 (parser) | ✅ 코드 적용 완료 | 실환경 미검증 |
-| 단위 테스트 | ✅ 25/25 통과 | Socket.IO prefix 5케이스 포함 |
-| 자산 전환 | ❌ 전부 실패 | OTC 시장 시간 외 테스트로 추정 |
-| 파이프라인 E2E | ⏸ 검증 불가 | 자산 전환 실패로 WS 요청 미발생 |
+| Fix 1 (interceptor) | ✅ 실환경 검증 완료 | 콘솔 테스트로 확인 |
+| Fix 2 (parser) | ✅ 실환경 검증 완료 | 콘솔 테스트로 확인 |
+| Fix 3b (자산 전환) | ✅ 실환경 검증 완료 | 오버레이 클릭 방식 |
+| Fix 4 (Asset ID - TM) | ❌ 실환경 실패 | PO가 자산 전환 시 WS send 미사용 |
+| Fix 5 (Asset ID - 수신) | ⏸ 코드 적용 완료 | 실환경 검증 필요 |
+| 단위 테스트 | ✅ 25/25 통과 | |
+| 파이프라인 E2E | ⏸ 미완료 | Fix 5 실환경 검증 후 재검증 |
 
 ---
 
