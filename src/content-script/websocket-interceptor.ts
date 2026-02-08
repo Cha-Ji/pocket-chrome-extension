@@ -96,16 +96,31 @@ class WebSocketInterceptor {
         text: data.text ?? null
       };
       this.handleMessage(message, message.timestamp);
+    } else if (event.data.type === 'ws-asset-change') {
+      // TM ws.send() 후킹에서 캡처된 발신 메시지의 asset ID
+      const asset = event.data.data?.asset;
+      if (asset) {
+        this.lastAssetId = asset;
+        console.log(`[PO] [WS] 🎯 Asset ID captured (outgoing): ${asset}`);
+      }
     } else if (event.data.type === 'bridge-ready') {
       console.log('[PO] [WS] Main World Bridge Connected');
     }
   }
 
+  // 파서가 반환하는 유효한 ParsedMessage 타입 목록
+  private static readonly VALID_PARSED_TYPES = new Set([
+    'price_update', 'candle_data', 'candle_history', 'orderbook', 'trade', 'heartbeat'
+  ]);
+
   private handleMessage(data: WebSocketMessage, timestamp: number): void {
-    // [PO-16] 이미 파싱된 데이터가 있더라도, 구조화된 ParsedMessage 형태가 아니면 다시 파싱 시도
+    // 이미 파싱된 데이터가 유효한 ParsedMessage 타입이 아니면 파서로 재전달
+    // 중요: Tampermonkey Bridge의 'binary_payload' 타입은 파서의 socketio_binary_payload 패턴이 처리해야 함
     let parsed = data.parsed;
-    if (!parsed || typeof parsed.type !== 'string') {
-      parsed = this.parser.parse(data.text ?? data.raw);
+    if (!parsed || !WebSocketInterceptor.VALID_PARSED_TYPES.has(parsed.type)) {
+      // binary_payload는 파서의 패턴 10이 처리할 수 있으므로 원본 객체를 전달
+      const toParse = (parsed?.type === 'binary_payload') ? parsed : (data.text ?? data.raw);
+      parsed = this.parser.parse(toParse);
     }
 
     const enriched: WebSocketMessage = { ...data, parsed }

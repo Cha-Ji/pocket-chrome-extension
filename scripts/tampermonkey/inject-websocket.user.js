@@ -136,6 +136,23 @@
             return originalAdd(type, listener, options);
         };
         
+        // ws.send() 후킹 — 발신 메시지에서 자산 ID 캡처
+        const originalSend = ws.send.bind(ws);
+        ws.send = function(data) {
+            if (typeof data === 'string') {
+                // changeSymbol, subscribeMessage 등에서 asset ID 추출
+                const assetMatch = data.match(/"asset"\s*:\s*"([^"]+)"/);
+                if (assetMatch) {
+                    window.postMessage({
+                        source: 'pq-bridge',
+                        type: 'ws-asset-change',
+                        data: { asset: assetMatch[1], text: data.substring(0, 200), timestamp: Date.now() }
+                    }, '*');
+                }
+            }
+            return originalSend(data);
+        };
+
         // onmessage 프로퍼티 후킹 (Setter Trap)
         Object.defineProperty(ws, 'onmessage', {
             set(listener) {
