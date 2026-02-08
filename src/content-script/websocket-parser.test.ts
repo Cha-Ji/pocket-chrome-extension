@@ -210,6 +210,60 @@ describe('WebSocketParser', () => {
     })
   })
 
+  describe('Socket.IO prefix stripping', () => {
+    it('should strip "42" prefix and parse Socket.IO event array', () => {
+      const msg = '42["updateStream",[["#EURUSD_otc",1707123456,1.23456]]]'
+      const result = parser.parse(msg)
+
+      expect(result.type).toBe('price_update')
+      expect(result.confidence).toBeGreaterThan(0.9)
+    })
+
+    it('should strip "451-" prefix and parse Socket.IO binary placeholder (no actual data)', () => {
+      const msg = '451-["updateHistoryNewFast",{"_placeholder":true,"num":0}]'
+      const result = parser.parse(msg)
+
+      // placeholder 프레임은 실제 히스토리 데이터가 아님 — 다음 바이너리 프레임에 데이터가 있음
+      // JSON.parse는 성공하지만 _placeholder에는 캔들 데이터가 없으므로 unknown이 정상
+      expect(result.type).toBe('unknown')
+    })
+
+    it('should parse history event with candle data from "42" prefix', () => {
+      const candles = [
+        { open: 1.085, high: 1.086, low: 1.084, close: 1.0855, time: 1707100000 },
+        { open: 1.0855, high: 1.087, low: 1.085, close: 1.086, time: 1707100060 },
+      ]
+      const msg = `42["updateHistoryNewFast",{"asset":"#EURUSD_otc","data":${JSON.stringify(candles)}}]`
+      const result = parser.parse(msg)
+
+      expect(result.type).toBe('candle_history')
+      expect(result.confidence).toBeGreaterThan(0.9)
+      const parsed = result.data as any[]
+      expect(parsed.length).toBe(2)
+    })
+
+    it('should parse history event with array-format candles', () => {
+      // [timestamp, open, close, high, low, volume]
+      const candles = [
+        [1707100000, 1.085, 1.0855, 1.086, 1.084, 100],
+        [1707100060, 1.0855, 1.086, 1.087, 1.085, 150],
+      ]
+      const msg = `42["updateHistoryNewFast",${JSON.stringify(candles)}]`
+      const result = parser.parse(msg)
+
+      expect(result.type).toBe('candle_history')
+      const parsed = result.data as any[]
+      expect(parsed.length).toBe(2)
+      expect(parsed[0].timestamp).toBe(1707100000)
+    })
+
+    it('should handle plain number prefix without hyphen', () => {
+      const msg = '2'  // Socket.IO probe
+      const result = parser.parse(msg)
+      expect(result.type).toBe('unknown')
+    })
+  })
+
   describe('Utility methods', () => {
     it('should return pattern list', () => {
       const patterns = parser.getPatterns()

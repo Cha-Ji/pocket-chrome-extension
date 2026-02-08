@@ -78,7 +78,7 @@ let payoutMonitorRef: PayoutMonitor | null = null
 // ============================================================
 
 function resolveAssetId(): string {
-  // 1순위: WS 발신 메시지에서 캡처된 asset ID (TM ws.send() 후킹)
+  // 1순위: WS 메시지에서 캡처된 asset ID (수신 updateStream 또는 TM ws.send() 후킹)
   const interceptor = getWebSocketInterceptor()
   const trackedId = interceptor.getActiveAssetId()
   if (trackedId) {
@@ -97,8 +97,23 @@ function resolveAssetId(): string {
   const asset = minerState.currentAsset || ''
   const fallbackId = asset.toUpperCase().replace(/\s+OTC$/i, '_otc').replace(/\s+/g, '_')
   const result = fallbackId.startsWith('#') ? fallbackId : '#' + fallbackId
-  log.warn(`⚠️ Asset ID (FALLBACK - 부정확할 수 있음): ${result}. TM ws.send() 후킹이 필요합니다.`)
+  log.warn(`⚠️ Asset ID (FALLBACK - 부정확할 수 있음): ${result}. 수신 WS 메시지에서 asset ID가 아직 캡처되지 않았습니다.`)
   return result
+}
+
+/**
+ * [Fix 5] 자산 전환 후 WS 수신 메시지에서 asset ID가 캡처될 때까지 대기
+ * updateStream 등의 수신 메시지에서 자동 추적되므로, 짧은 시간 대기하면 캡처됨
+ */
+async function waitForAssetId(timeoutMs = 5000, intervalMs = 500): Promise<string | null> {
+  const interceptor = getWebSocketInterceptor()
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const id = interceptor.getActiveAssetId()
+    if (id) return id
+    await new Promise(r => setTimeout(r, intervalMs))
+  }
+  return interceptor.getActiveAssetId()
 }
 
 /** DOM에서 PO의 실제 asset ID를 추출 시도 */
@@ -258,8 +273,17 @@ export const AutoMiner = {
     minerState.currentAsset = assetName
     minerState.retryCount = 0
 
-    // 자산 로딩 대기
-    await new Promise(r => setTimeout(r, 4000))
+    // [Fix 5] 자산 전환 후 WS 수신 메시지에서 asset ID가 캡처될 때까지 대기
+    // updateStream이 오면 interceptor가 자동으로 lastAssetId를 업데이트함
+    log.info(`⏳ 자산 로딩 및 WS asset ID 캡처 대기 중...`)
+    const capturedId = await waitForAssetId(6000, 500)
+    if (capturedId) {
+      log.info(`✅ WS asset ID 캡처 성공: ${capturedId}`)
+    } else {
+      log.warn(`⚠️ WS asset ID 캡처 실패, fallback 사용 예정`)
+      // 추가 1초 대기 후 마지막 기회
+      await new Promise(r => setTimeout(r, 1000))
+    }
 
     // 진행 상태 초기화
     if (!minerState.progress.has(assetName)) {

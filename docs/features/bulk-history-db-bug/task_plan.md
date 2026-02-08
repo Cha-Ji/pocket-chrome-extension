@@ -37,5 +37,10 @@
   - [x] resolveAssetId(): WS tracked → DOM → fallback 3단계 체인
   - [x] fallback 사용 시 WARNING 로깅
 - [x] 빌드 성공, 테스트 25/25 통과
-- [ ] **중요**: Tampermonkey 대시보드에서 TM 스크립트 업데이트 필요
-- [ ] Miner 자동 수집 E2E 테스트 (실환경 검증)
+- [x] Fix 4 실패 원인 특정: TM ws.send() 후킹이 PO 자체 발신에서 동작 안 함 + interceptor changeSymbol 코드 죽은 코드
+- [x] **Fix 5**: 수신 WS 메시지에서 asset ID 자동 추적
+  - [x] interceptor: `trackAssetFromMessage()` — updateStream symbol + raw "asset" 필드
+  - [x] interceptor: 죽은 `Array.isArray(parsed)` 코드 삭제
+  - [x] auto-miner: `waitForAssetId(6s)` — 자산 전환 후 WS 수신 대기
+  - [x] 빌드 성공, 테스트 25/25 통과
+- [ ] Miner 자동 수집 E2E 테스트 (실환경 검증) — TM 스크립트 수정 불필요
