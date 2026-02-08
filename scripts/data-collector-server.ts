@@ -210,6 +210,26 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', totalCandles: count.count })
 })
 
+// 5. 자산별 수집 통계
+app.get('/api/candles/stats', (req, res) => {
+  try {
+    const stats = db.prepare(`
+      SELECT symbol,
+             COUNT(*) as count,
+             MIN(timestamp) as oldest,
+             MAX(timestamp) as newest,
+             ROUND((MAX(timestamp) - MIN(timestamp)) / 86400.0, 1) as days
+      FROM candles
+      WHERE interval = '1m'
+      GROUP BY symbol
+      ORDER BY count DESC
+    `).all()
+    res.json(stats)
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
 app.listen(PORT, () => {
   console.log(`
 🚀 Data Collector Server running at http://localhost:${PORT}
