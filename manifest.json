@@ -39,7 +39,20 @@
   "content_scripts": [
     {
       "matches": [
-        "https://pocketoption.com/*", 
+        "https://pocketoption.com/*",
+        "https://*.pocketoption.com/*",
+        "https://po.trade/*",
+        "https://*.po.trade/*",
+        "https://po2.trade/*",
+        "https://*.po2.trade/*"
+      ],
+      "js": ["src/content-script/inject-websocket.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://pocketoption.com/*",
         "https://*.pocketoption.com/*",
         "https://po.trade/*",
         "https://*.po.trade/*",
