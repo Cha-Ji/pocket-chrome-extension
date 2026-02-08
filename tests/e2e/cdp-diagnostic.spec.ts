@@ -3,14 +3,14 @@
  * =================================
  *
  * Chrome DevTools Protocol을 활용한 심층 파이프라인 진단 테스트.
- * 기존 mining-diagnostic.spec.ts의 console-monitor 방식과 달리,
- * CDP로 WebSocket 프레임/네트워크 요청/JS 예외를 직접 캡처합니다.
  *
- * 이점:
- *   - console.log에 의존하지 않아 파서가 삼킨 메시지도 감지
- *   - WS 원본 프레임과 파싱 결과를 비교하여 파서 버그 자동 탐지
- *   - DataSender HTTP 요청의 실제 상태코드/바디 확인
- *   - 메모리 누수 조기 감지 (heap 스냅샷)
+ * 핵심 차별점: CDP의 `Page.addScriptToEvaluateOnNewDocument`로
+ * Tampermonkey 없이도 WS Hook을 Main World에 자동 주입하여
+ * 마이닝 파이프라인 전체를 E2E 테스트할 수 있습니다.
+ *
+ * 파이프라인 커버리지:
+ *   [CDP WS Hook] → Content Script Interceptor → Parser →
+ *   onHistoryReceived → DataSender → localhost:3001
  *
  * 사용법:
  *   1. 빌드:         npm run build
@@ -28,7 +28,9 @@
 import { test, expect } from '@playwright/test'
 import { launchWithExtension, type ExtensionContext } from './helpers/extension-context'
 import { createCDPInspector, type CDPInspector } from './helpers/cdp-inspector'
+import { injectWSBridge } from './helpers/ws-bridge-injector'
 import { checkServerHealth, snapshotCandleCount } from './helpers/server-checker'
+import { attachConsoleMonitor } from './helpers/console-monitor'
 
 const PO_URL = process.env.PO_URL ?? 'https://pocketoption.com/en/cabinet/demo-quick-high-low/'
 const MINE_DURATION = Number(process.env.MINE_DURATION) || 30_000
@@ -68,11 +70,18 @@ test('CDP Step 0: Collector server health check', async () => {
 })
 
 // ─────────────────────────────────────────────────────────
-// Step 1: 페이지 로드 + CDP Inspector 부착
+// Step 1: CDP Inspector 부착 + WS Bridge 주입 + 페이지 로드
 // ─────────────────────────────────────────────────────────
-test('CDP Step 1: Attach CDP inspector and load page', async () => {
+test('CDP Step 1: Inject WS bridge via CDP and load page', async () => {
   const page = ext.context.pages()[0] ?? await ext.context.newPage()
   inspector = await createCDPInspector(page)
+
+  // 핵심: Tampermonkey 없이 WS Hook을 Main World에 주입
+  // page.goto() 이전에 호출해야 document-start 시점에 실행됨
+  const cdp = await page.context().newCDPSession(page)
+  await injectWSBridge(cdp)
+
+  console.log('WS Bridge injected via CDP (replaces Tampermonkey)')
 
   await page.goto(PO_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 })
   // 페이지 초기화 + WS 연결 대기
@@ -90,12 +99,13 @@ test('CDP Step 1: Attach CDP inspector and load page', async () => {
 })
 
 // ─────────────────────────────────────────────────────────
-// Step 2: WebSocket 프레임 수신 검증
+// Step 2: WS Bridge 동작 검증 (프레임 수신 확인)
 // ─────────────────────────────────────────────────────────
-test('CDP Step 2: Verify WebSocket frame reception', async () => {
+test('CDP Step 2: Verify WS bridge captures frames', async () => {
   const page = ext.context.pages()[0]!
+  const monitor = attachConsoleMonitor(page)
 
-  // 추가 프레임 수신 대기
+  // 프레임 수신 대기
   await page.waitForTimeout(5_000)
 
   const received = inspector.wsFramesByDirection('received')
@@ -116,21 +126,33 @@ test('CDP Step 2: Verify WebSocket frame reception', async () => {
     console.log(`  ${event}: ${count}`)
   }
 
+  // Bridge가 정상 동작하면 BRIDGE stage 로그가 있어야 함
+  const bridgeLogs = monitor.byStage('BRIDGE')
+  console.log(`\nBRIDGE console logs: ${bridgeLogs.length}`)
+  if (bridgeLogs.length > 0) {
+    console.log('  Bridge is connected and forwarding messages')
+  } else {
+    console.log('  WARNING: No BRIDGE logs — CDP hook may not be forwarding to content script')
+  }
+
   expect(
     received.length,
-    'Should have received WebSocket frames'
+    'CDP should capture WebSocket frames directly from the wire'
   ).toBeGreaterThan(0)
+
+  monitor.detach()
 })
 
 // ─────────────────────────────────────────────────────────
-// Step 3: WS 프레임 vs 파서 교차 검증
+// Step 3: WS 히스토리 요청/응답 교차 검증
 // ─────────────────────────────────────────────────────────
-test('CDP Step 3: Cross-validate WS frames against parser', async () => {
+test('CDP Step 3: Cross-validate WS history request/response', async () => {
   const page = ext.context.pages()[0]!
+  const monitor = attachConsoleMonitor(page)
 
-  // WebSocket을 통해 히스토리 요청 전송
   const beforeFrames = inspector.wsFrames.length
 
+  // Content Script → Bridge → WebSocket으로 히스토리 요청
   await page.evaluate(() => {
     const now = Math.floor(Date.now() / 1000)
     const index = now * 100 + 42
@@ -144,56 +166,69 @@ test('CDP Step 3: Cross-validate WS frames against parser', async () => {
   // 응답 대기
   await page.waitForTimeout(10_000)
 
-  // CDP가 캡처한 히스토리 프레임
-  const historyFrames = inspector.wsHistoryFrames()
   const newFrames = inspector.wsFrames.slice(beforeFrames)
+  const historyFrames = inspector.wsHistoryFrames()
 
-  console.log(`\nNew frames since request: ${newFrames.length}`)
-  console.log(`History frames (CDP): ${historyFrames.length}`)
-
-  // 전송된 loadHistoryPeriod 요청 확인
+  // CDP에서 본 것
   const sentHistory = newFrames.filter(
-    f => f.direction === 'sent' && f.socketIOEvent === 'loadHistoryPeriod'
+    f => f.direction === 'sent' && f.payload.includes('loadHistoryPeriod')
   )
-  console.log(`Sent loadHistoryPeriod requests: ${sentHistory.length}`)
-
-  // 수신된 히스토리 응답 확인
   const receivedHistory = newFrames.filter(
     f => f.direction === 'received' && f.socketIOEvent &&
     ['updateHistoryNewFast', 'history', 'loadHistoryPeriod', 'historyResult'].includes(f.socketIOEvent)
   )
-  console.log(`Received history responses: ${receivedHistory.length}`)
 
-  if (receivedHistory.length > 0) {
-    // 첫 번째 히스토리 응답의 캔들 수 출력
-    const first = receivedHistory[0]
-    const payload = first.parsed
-    const candleCount = Array.isArray(payload)
-      ? payload.length
-      : (payload?.data && Array.isArray(payload.data))
-        ? payload.data.length
-        : '?'
-    console.log(`First history response — event: ${first.socketIOEvent}, candles: ${candleCount}`)
+  console.log('\n=== CDP 교차 검증 결과 ===')
+  console.log(`New frames since request: ${newFrames.length}`)
+  console.log(`Sent loadHistoryPeriod (CDP wire): ${sentHistory.length}`)
+  console.log(`Received history response (CDP wire): ${receivedHistory.length}`)
+
+  // Console-monitor에서 본 것
+  const parserLogs = monitor.byStage('PARSER')
+  const historyLogs = monitor.byStage('HISTORY')
+  console.log(`Parser console logs: ${parserLogs.length}`)
+  console.log(`History console logs: ${historyLogs.length}`)
+
+  // 교차 비교: CDP는 프레임을 봤는데 파서가 못 봤으면 = 파서 버그
+  if (sentHistory.length > 0 && receivedHistory.length === 0) {
+    console.log('\n  DIAGNOSIS: Request sent but no history response received')
+    console.log('  → Server may not recognize the asset or request format')
+  }
+  if (receivedHistory.length > 0 && historyLogs.length === 0) {
+    console.log('\n  DIAGNOSIS: CDP saw history response but content script parser missed it!')
+    console.log('  → Parser bug: websocket-parser.ts is not recognizing this response format')
+    console.log('  → Raw payload sample:')
+    console.log(`    ${receivedHistory[0].payload.slice(0, 300)}`)
+  }
+  if (sentHistory.length === 0) {
+    console.log('\n  DIAGNOSIS: loadHistoryPeriod was NOT sent on the wire')
+    console.log('  → Bridge may not have found an active WebSocket connection')
+    console.log('  → Check if page has a live WebSocket:')
+    console.log(`    Active WS connections: ${inspector.wsConnections.length}`)
   }
 
-  // 교차 검증: CDP 프레임 수 vs 콘솔 기반 감지
-  // 이 차이가 크면 파서가 일부 메시지를 놓치고 있다는 의미
-  const allReceivedEvents = inspector.wsFramesByDirection('received')
-    .filter(f => f.socketIOEvent)
-    .map(f => f.socketIOEvent!)
-  const uniqueEvents = new Set(allReceivedEvents)
+  // 전체 이벤트 타입 목록 (LLM이 새 패턴 발견에 활용)
+  const uniqueEvents = new Set(
+    inspector.wsFramesByDirection('received')
+      .filter(f => f.socketIOEvent)
+      .map(f => f.socketIOEvent!)
+  )
+  console.log(`\nAll unique Socket.IO events (${uniqueEvents.size}):`)
+  console.log([...uniqueEvents].join(', '))
 
-  console.log(`\nTotal unique Socket.IO events seen by CDP: ${uniqueEvents.size}`)
-  console.log('Events:', [...uniqueEvents].join(', '))
+  monitor.detach()
 })
 
 // ─────────────────────────────────────────────────────────
-// Step 4: DataSender 네트워크 요청 검증
+// Step 4: 마이닝 파이프라인 전체 검증 (AutoMiner → Server)
 // ─────────────────────────────────────────────────────────
-test('CDP Step 4: Verify DataSender API calls', async () => {
+test('CDP Step 4: Full mining pipeline — AutoMiner to server', async () => {
   const page = ext.context.pages()[0]!
+  const monitor = attachConsoleMonitor(page)
 
   const beforeCandleCount = await snapshotCandleCount()
+  const beforeApiCalls = inspector.apiCalls.length
+  const beforeWsFrames = inspector.wsFrames.length
 
   // AutoMiner 시작
   const startResult = await page.evaluate(async () => {
@@ -223,47 +258,80 @@ test('CDP Step 4: Verify DataSender API calls', async () => {
   })
 
   const afterCandleCount = await snapshotCandleCount()
+  const newApiCalls = inspector.apiCalls.slice(beforeApiCalls)
+  const newWsFrames = inspector.wsFrames.slice(beforeWsFrames)
 
-  // CDP가 캡처한 API 호출 분석
-  console.log(`\nAPI calls to localhost:3001: ${inspector.apiCalls.length}`)
+  // ── 파이프라인 각 단계 검증 ────────────────────────
 
-  const success = inspector.apiCalls.filter(c => c.statusCode && c.statusCode >= 200 && c.statusCode < 300)
-  const failed = inspector.apiCalls.filter(c => !c.statusCode || c.statusCode < 200 || c.statusCode >= 300)
+  // Stage 1: AutoMiner가 WS 요청을 보냈는가?
+  const minerSentFrames = newWsFrames.filter(
+    f => f.direction === 'sent' && f.payload.includes('loadHistoryPeriod')
+  )
 
-  console.log(`  Success: ${success.length}`)
-  console.log(`  Failed: ${failed.length}`)
+  // Stage 2: WS 히스토리 응답이 돌아왔는가?
+  const minerReceivedHistory = newWsFrames.filter(
+    f => f.direction === 'received' && f.socketIOEvent &&
+    ['updateHistoryNewFast', 'history', 'loadHistoryPeriod', 'historyResult', 'candleHistory'].includes(f.socketIOEvent)
+  )
 
-  if (failed.length > 0) {
-    console.log('\n  Failed requests:')
-    for (const f of failed.slice(-5)) {
-      console.log(`    ${f.method} ${f.url} → ${f.statusCode}`)
+  // Stage 3: Content Script 파서가 인식했는가?
+  const historyLogs = monitor.byStage('HISTORY')
+  const senderLogs = monitor.byStage('SENDER')
+
+  // Stage 4: DataSender가 서버에 요청했는가?
+  const apiSuccess = newApiCalls.filter(c => c.statusCode && c.statusCode >= 200 && c.statusCode < 300)
+  const apiFailed = newApiCalls.filter(c => !c.statusCode || c.statusCode < 200 || c.statusCode >= 300)
+
+  // Stage 5: 서버에 데이터가 저장되었는가?
+  const newCandles = afterCandleCount - beforeCandleCount
+
+  console.log('\n=== Mining Pipeline Stage Results ===')
+  console.log(`[Stage 1] WS requests sent (loadHistoryPeriod): ${minerSentFrames.length}`)
+  console.log(`[Stage 2] WS history responses received: ${minerReceivedHistory.length}`)
+  console.log(`[Stage 3] Parser HISTORY logs: ${historyLogs.length}`)
+  console.log(`[Stage 4] API calls to server: ${newApiCalls.length} (success: ${apiSuccess.length}, failed: ${apiFailed.length})`)
+  console.log(`[Stage 5] New candles in DB: ${newCandles}`)
+
+  // 단계별 진단
+  const stages = [
+    { name: 'WS Request Sent', ok: minerSentFrames.length > 0 },
+    { name: 'WS Response Received', ok: minerReceivedHistory.length > 0 },
+    { name: 'Parser Recognized', ok: historyLogs.length > 0 },
+    { name: 'API Called', ok: newApiCalls.length > 0 },
+    { name: 'API Succeeded', ok: apiSuccess.length > 0 },
+    { name: 'Data Saved', ok: newCandles > 0 },
+  ]
+
+  console.log('\n=== Pipeline Health ===')
+  for (const stage of stages) {
+    console.log(`[${stage.ok ? 'x' : ' '}] ${stage.name}`)
+  }
+
+  const firstFail = stages.find(s => !s.ok)
+  if (firstFail) {
+    console.log(`\n** Pipeline breaks at: ${firstFail.name} **`)
+  } else {
+    console.log('\n** All pipeline stages passed! **')
+  }
+
+  // API 실패 상세
+  if (apiFailed.length > 0) {
+    console.log('\nFailed API calls:')
+    for (const f of apiFailed.slice(-3)) {
+      console.log(`  ${f.method} ${f.url} → ${f.statusCode}`)
       if (f.postData) {
-        const preview = f.postData.length > 200 ? f.postData.slice(0, 200) + '...' : f.postData
-        console.log(`    Body: ${preview}`)
+        console.log(`  Body preview: ${f.postData.slice(0, 200)}`)
       }
     }
   }
 
-  if (success.length > 0) {
-    // POST 요청의 바디 크기 통계
-    const postCalls = success.filter(c => c.method === 'POST' && c.postData)
-    if (postCalls.length > 0) {
-      const totalBytes = postCalls.reduce((sum, c) => sum + (c.postData?.length ?? 0), 0)
-      console.log(`\n  POST data stats:`)
-      console.log(`    Total requests: ${postCalls.length}`)
-      console.log(`    Total bytes sent: ${totalBytes.toLocaleString()}`)
-      console.log(`    Avg bytes/request: ${Math.round(totalBytes / postCalls.length).toLocaleString()}`)
-    }
-  }
-
-  console.log(`\nCandles — Before: ${beforeCandleCount}, After: ${afterCandleCount}, New: ${afterCandleCount - beforeCandleCount}`)
+  monitor.detach()
 })
 
 // ─────────────────────────────────────────────────────────
 // Step 5: JS 예외 및 메모리 검사
 // ─────────────────────────────────────────────────────────
 test('CDP Step 5: Check JS exceptions and memory', async () => {
-  // JS 예외 리포트
   console.log(`\nJS Exceptions: ${inspector.exceptions.length}`)
   if (inspector.exceptions.length > 0) {
     for (const e of inspector.exceptions.slice(-10)) {
@@ -272,14 +340,12 @@ test('CDP Step 5: Check JS exceptions and memory', async () => {
     }
   }
 
-  // 성능 메트릭 스냅샷
   const perf = await inspector.takePerformanceSnapshot()
   console.log('\nPerformance Metrics:')
   console.log(`  JS Heap: ${(perf.jsHeapUsedSize / 1024 / 1024).toFixed(1)}MB / ${(perf.jsHeapTotalSize / 1024 / 1024).toFixed(1)}MB`)
   console.log(`  DOM Nodes: ${perf.domNodes}`)
   console.log(`  Event Listeners: ${perf.jsEventListeners}`)
 
-  // 힙 사용률 경고 (80% 초과 시)
   const heapUsagePercent = (perf.jsHeapUsedSize / perf.jsHeapTotalSize) * 100
   if (heapUsagePercent > 80) {
     console.log(`\n  WARNING: JS heap usage is ${heapUsagePercent.toFixed(1)}% — potential memory leak`)
