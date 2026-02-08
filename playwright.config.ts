@@ -37,6 +37,12 @@ export default defineConfig({
       name: 'extension',
       testMatch: ['extension.spec.ts'],
     },
+    // CDP-based deep diagnostic tests
+    // Run: npx playwright test --project=cdp-diagnostic
+    {
+      name: 'cdp-diagnostic',
+      testMatch: ['cdp-diagnostic.spec.ts'],
+    },
   ],
 
   // E2E tests against live Pocket Option require:
