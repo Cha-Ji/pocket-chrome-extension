@@ -14,6 +14,7 @@ import {
   Direction,
   TradeResult,
 } from './types'
+import { preprocessCandles, type PreprocessResult } from './candle-utils'
 
 export class BacktestEngine {
   private strategies: Map<string, Strategy> = new Map()
@@ -49,8 +50,30 @@ export class BacktestEngine {
       throw new Error('Not enough candles for backtest (minimum 50)')
     }
 
-    // Sort candles by timestamp (oldest first)
-    const sortedCandles = [...candles].sort((a, b) => a.timestamp - b.timestamp)
+    // Preprocess: sort, validate, deduplicate, handle gaps
+    const gapStrategy = config.gapStrategy || 'skip'
+    const preprocessed: PreprocessResult = preprocessCandles(candles, {
+      gapStrategy,
+      expectedIntervalMs: config.expectedIntervalMs || 0,
+      maxGapCandles: config.maxGapCandles || 10,
+      removeInvalid: true,
+      removeDuplicates: true,
+    })
+
+    // Log warnings
+    for (const warn of preprocessed.warnings) {
+      console.log(`[BacktestEngine] ⚠️ ${warn}`)
+    }
+
+    const sortedCandles = preprocessed.candles
+
+    if (sortedCandles.length < 50) {
+      throw new Error(
+        `Not enough valid candles for backtest after preprocessing (got ${sortedCandles.length}, minimum 50). ` +
+        `Original: ${candles.length}, Gaps: ${preprocessed.analysis.gapCount}, ` +
+        `Coverage: ${preprocessed.analysis.coveragePercent.toFixed(1)}%`
+      )
+    }
 
     // Filter by time range
     const filteredCandles = sortedCandles.filter(
@@ -94,6 +117,12 @@ export class BacktestEngine {
         if (exitCandleIndex === -1) continue // No exit candle found
 
         const exitCandle = filteredCandles[exitCandleIndex]
+
+        // Skip trade if exit candle is too far from expected expiry (gap in data)
+        // Allow up to 3x the expected expiry window to account for minor gaps
+        const exitTimeDiff = exitCandle.timestamp - expiryTime
+        const maxExitSlippage = config.expirySeconds * 1000 * 2
+        if (exitTimeDiff > maxExitSlippage) continue
 
         // Determine result with slippage/latency simulation
         const entryPrice = currentCandle.close + (config.slippage || 0) * (signal.direction === 'CALL' ? 1 : -1)
@@ -166,6 +195,17 @@ export class BacktestEngine {
       startTime: config.startTime,
       endTime: config.endTime,
       durationMs: Date.now() - startTs,
+      dataQuality: {
+        totalCandles: preprocessed.analysis.totalCandles,
+        detectedIntervalMs: preprocessed.analysis.detectedIntervalMs,
+        gapCount: preprocessed.analysis.gapCount,
+        totalMissingCandles: preprocessed.analysis.totalMissingCandles,
+        coveragePercent: preprocessed.analysis.coveragePercent,
+        duplicatesRemoved: preprocessed.analysis.duplicatesRemoved,
+        invalidRemoved: preprocessed.analysis.invalidRemoved,
+        gapStrategy,
+        warnings: preprocessed.warnings,
+      },
       trades,
       equityCurve,
     }
