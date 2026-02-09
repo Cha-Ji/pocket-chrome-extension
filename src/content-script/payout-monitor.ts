@@ -129,6 +129,19 @@ export class PayoutMonitor {
     return name.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
   }
 
+  /** 현재 활성 자산이 target인지 확인 (.current-symbol + .pair-number-wrap 이중 체크) */
+  private isCurrentAsset(normalizedTarget: string): boolean {
+    const symbolEl = document.querySelector('.current-symbol')
+    if (symbolEl && this.normalizeAssetName(symbolEl.textContent || '').includes(normalizedTarget)) {
+      return true
+    }
+    const pairEl = document.querySelector('.pair-number-wrap')
+    if (pairEl && this.normalizeAssetName(pairEl.textContent || '').includes(normalizedTarget)) {
+      return true
+    }
+    return false
+  }
+
   /** 피커 리스트 아이템이 inactive 상태인지 DOM에서 사전 감지 */
   private isItemInactive(item: Element): boolean {
     const el = item as HTMLElement
@@ -193,8 +206,7 @@ export class PayoutMonitor {
     }
 
     // 현재 이미 해당 자산인지 확인
-    const currentEl = document.querySelector('.current-symbol')
-    if (currentEl && this.normalizeAssetName(currentEl.textContent || '').includes(normalizedTarget)) {
+    if (this.isCurrentAsset(normalizedTarget)) {
        log.info(`Already on ${assetName}`)
        return true
     }
@@ -216,15 +228,18 @@ export class PayoutMonitor {
 
       log.info(`🎯 Found match: ${found.rawLabel}`)
       await forceClick(found.element)
-      await this.wait(2000)
 
-      // 전환 성공 여부 확인 (.current-symbol 텍스트가 변경되었는지)
-      const afterEl = document.querySelector('.current-symbol')
-      const isSwitched = afterEl && this.normalizeAssetName(afterEl.textContent || '').includes(normalizedTarget)
+      // 폴링으로 전환 성공 여부 확인 (최대 5초, 500ms 간격)
+      const isSwitched = await this.waitForCondition(
+        () => this.isCurrentAsset(normalizedTarget),
+        5000,
+        500,
+      )
 
       if (!isSwitched) {
-         log.warn('❌ Switch failed (UI did not update).')
-         this.markAssetUnavailable(assetName)
+         log.warn(`❌ Switch failed (UI did not update within 5s). target="${normalizedTarget}"`)
+         // 기술적 전환 실패 — markAssetUnavailable 호출하지 않음
+         // auto-miner가 기술적 실패와 실제 unavailable을 구분하도록 함
          await this.closeAssetPicker()
          return false
       }

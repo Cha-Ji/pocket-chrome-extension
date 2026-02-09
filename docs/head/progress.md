@@ -2,16 +2,14 @@
 
 **최종 업데이트:** 2026-02-08 KST
 
-## (2026-02-08) Bulk History Mining — Fix 6 성공, TM 의존성 제거
+## (2026-02-08) Bulk History Mining — Fix 7 코드 적용, 실환경 검증 대기
 
-- **Fix 1~4**: WS 파이프라인 파싱 + 자산 전환 + Asset ID 수정 (상세: 이전 로그)
-- **Fix 5**: 수신 WS 메시지에서 asset ID 자동 추적 (`trackAssetFromMessage`)
-- **Fix 6**: **TM 의존성 완전 제거** — Extension 내장 WS 후킹 (`manifest "world": "MAIN"`)
-  - DataSender bulk 전송 **실환경 성공** (WS 타이밍 완벽)
-  - 커밋 `ef270c5` → PR #40
-- **잔존**: AutoMiner active `loadHistoryPeriod` 요청의 asset ID 정확도 미검증
-- 다음 행동: Miner 실행 → `Asset ID tracked` 로그 + `loadHistoryPeriod` 요청 ID 확인
-- 상세: `docs/features/bulk-history-db-bug/progress.md`
+- **Fix 1~6**: 파이프라인 파싱 + 자산 전환 + Asset ID + TM 제거 (상세: 이전 로그)
+- **DataSender (passive)**: ✅ 실환경 성공 — `1449 candles #AAPL_OTC` 수집 완료
+- **Fix 7 적용**: switchAsset 오분류 버그 수정 — `markAssetUnavailable` 제거 + 폴링 체크 + 이중 셀렉터
+  - 빌드 성공, 테스트 106/106 통과
+- 다음 행동: 익스텐션 리로드 → AutoMiner 실행 → 자산 전환 성공 여부 확인
+- 상세: `docs/features/bulk-history-db-bug/progress.md` 세션 12
 
 ## (2026-02-06) 병렬 작업 실행 계획 수립
 
