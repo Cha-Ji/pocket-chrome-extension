@@ -415,7 +415,7 @@ export async function createCDPInspector(page: Page): Promise<CDPInspector> {
             break
           case 'Frames Received':
             lines.push('> WebSocket이 연결되었지만 프레임이 수신되지 않았습니다.')
-            lines.push('> Tampermonkey bridge가 활성화되어 있는지 확인하세요.')
+            lines.push('> WS bridge(inject-websocket.js)가 활성화되어 있는지 확인하세요.')
             break
           case 'History Data':
             lines.push('> 프레임은 수신되지만 히스토리 이벤트가 없습니다.')
