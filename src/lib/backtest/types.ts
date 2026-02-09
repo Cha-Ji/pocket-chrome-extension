@@ -37,24 +37,32 @@ export interface BacktestTrade {
   strategySignal?: Record<string, number> // indicator values at entry
 }
 
+/** Strategy for handling gaps in candle data */
+export type GapHandlingStrategy = 'skip' | 'fill' | 'split'
+
 /** Backtest configuration */
 export interface BacktestConfig {
   // Data
   symbol: string
   startTime: number
   endTime: number
-  
+
   // Trading params
   initialBalance: number
   betAmount: number // fixed or percentage
   betType: 'fixed' | 'percentage'
   payout: number // expected payout percentage (e.g., 92)
   expirySeconds: number // trade duration
-  
+
   // High-fidelity simulation
   slippage?: number // average price slippage in pips/points
   latencyMs?: number // execution delay in milliseconds
-  
+
+  // Gap handling
+  gapStrategy?: GapHandlingStrategy // default: 'skip'
+  expectedIntervalMs?: number // auto-detected if not set
+  maxGapCandles?: number // for 'split' strategy, default 10
+
   // Strategy
   strategyId: string
   strategyParams: Record<string, number>
@@ -92,7 +100,20 @@ export interface BacktestResult {
   startTime: number
   endTime: number
   durationMs: number
-  
+
+  // Data quality
+  dataQuality?: {
+    totalCandles: number
+    detectedIntervalMs: number
+    gapCount: number
+    totalMissingCandles: number
+    coveragePercent: number
+    duplicatesRemoved: number
+    invalidRemoved: number
+    gapStrategy: GapHandlingStrategy
+    warnings: string[]
+  }
+
   // Trade history
   trades: BacktestTrade[]
   equityCurve: { timestamp: number; balance: number }[]

@@ -5,6 +5,7 @@
 export * from './types'
 export * from './engine'
 export * from './data-generator'
+export * from './candle-utils'
 export * from './statistics'
 export * from './leaderboard-types'
 export { runLeaderboard, scoreAndRankEntries, formatLeaderboardReport } from './leaderboard'
