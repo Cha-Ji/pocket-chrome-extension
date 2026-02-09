@@ -184,6 +184,63 @@ Miner가 `loadHistoryPeriod` WS 요청을 보내는 단계까지 도달하지 �
 6. loadHistoryPeriod 요청에 올바른 asset ID 사용 → PO 서버 응답 → 히스토리 수신
 ```
 
+### Fix 7 (필요): switchAsset "UI did not update" → 연쇄 오분류 버그
+
+**발견**: 2026-02-08 세션 12
+
+**증상**:
+- DataSender(passive)는 정상 동작 — `Bulk saved: 1449 candles (symbol: #AAPL_OTC)`
+- AutoMiner(active)는 자산 전환 100% 실패 → 5개 연속 후 "OTC 시장 닫힘" 판단
+
+**로그 흐름**:
+```
+[Monitor] ❌ Switch failed (UI did not update).
+[Monitor] Closing picker...
+[DOM] Requesting Remote Click on: <A class="pair-number-wrap"> "Apple OTC"
+[Miner] ⛔ VISA OTC is unavailable, skipping...
+[Miner] 🌙 연속 5개 자산 이용 불가 — OTC 시장이 닫혀있는 것으로 판단, 5분 후 재시도
+```
+
+**근본 원인**: `payout-monitor.ts:226-228` — **기술적 전환 실패를 자산 이용 불가로 오분류**
+
+```typescript
+// payout-monitor.ts:225-229
+if (!isSwitched) {
+   log.warn('❌ Switch failed (UI did not update).')
+   this.markAssetUnavailable(assetName)  // ← UI 미갱신 ≠ 자산 이용 불가!
+   await this.closeAssetPicker()
+   return false
+}
+```
+
+**연쇄 메커니즘**:
+1. `switchAsset()` → `.current-symbol` 텍스트에 target 미포함 → `markAssetUnavailable()` 호출
+2. `auto-miner.ts:244` — `isAssetUnavailable()` → `true` (방금 마킹됨)
+3. `consecutiveUnavailable++` → 5개 도달 → "시장 닫힘" 판정 → 5분 대기
+
+auto-miner에 기술적 실패 vs 실제 unavailable 구분 로직이 있지만 (`auto-miner.ts:243-252`), switchAsset이 이미 `markAssetUnavailable`을 호출해버려서 항상 "실제 unavailable"로 판정됨.
+
+**"UI did not update" 자체의 원인 후보**:
+1. `.current-symbol` 텍스트 형식이 피커 이름과 불일치 (예: "AAPL" vs "Apple OTC")
+2. `wait(2000)`이 부족 — PO React 렌더링이 더 느릴 수 있음
+3. `forceClick`이 PO React 이벤트 시스템에서 무시됨
+
+**DataSender vs AutoMiner 역할 (레거시 아님)**:
+
+| | DataSender (passive) | AutoMiner (active) |
+|---|---|---|
+| 트리거 | PO가 자발적으로 보내는 히스토리 수신 | 능동적으로 자산 전환 + WS 요청 |
+| 범위 | 현재 보고 있는 자산 1개만 | 여러 자산을 자동 순회 |
+| 연결 | `index.ts:156` — `onHistoryReceived` → `sendHistory()` | `index.ts:159` — 같은 콜백에서 `onHistoryResponse()` |
+
+AutoMiner는 레거시가 아님. 다수 자산 데이터 수집에 필수. 자산 전환 검증 버그로 무력화 상태.
+
+**Fix 7 수정 방향**:
+1. `switchAsset`에서 "UI did not update" 실패 시 `markAssetUnavailable()` 제거 → 단순 `false` 반환
+2. `.current-symbol` 체크를 폴링 방식으로 변경 (최대 5초, 500ms 간격) — `waitForCondition` 활용
+3. `.current-symbol` 외에 `.pair-number-wrap` 텍스트도 확인하여 전환 성공 판정
+4. (진단 선행) 브라우저 콘솔에서 전환 후 `.current-symbol?.textContent` 직접 확인 필요
+
 ### 현재 상태 정리
 
 | 영역 | 상태 | 비고 |
@@ -193,8 +250,10 @@ Miner가 `loadHistoryPeriod` WS 요청을 보내는 단계까지 도달하지 �
 | Fix 3b (자산 전환) | ✅ 실환경 검증 완료 | 오버레이 클릭 방식 |
 | Fix 4 (Asset ID - TM) | ❌ 실환경 실패 | PO가 자산 전환 시 WS send 미사용 |
 | Fix 5 (Asset ID - 수신) | ⏸ 코드 적용 완료 | 실환경 검증 필요 |
+| Fix 6 (TM 의존성 제거) | ✅ 실환경 성공 | Extension 내장 WS 후킹 |
+| **Fix 7 (switchAsset 오분류)** | **⏸ 미착수** | **findings 분석 완료, 코드 수정 필요** |
 | 단위 테스트 | ✅ 25/25 통과 | |
-| 파이프라인 E2E | ⏸ 미완료 | Fix 5 실환경 검증 후 재검증 |
+| 파이프라인 E2E | ⏸ 미완료 | Fix 7 적용 후 재검증 |
 
 ---
 

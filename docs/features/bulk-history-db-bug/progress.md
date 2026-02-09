@@ -1,5 +1,23 @@
 # Progress
 
+## 2026-02-08 (12) - Fix 7 코드 적용 완료 (switchAsset 오분류 버그)
+
+- **실환경 로그 분석**: DataSender(passive) 정상 (`1449 candles #AAPL_OTC`), AutoMiner(active) 전환 100% 실패
+- **AutoMiner 레거시 여부 확인**: 레거시 아님. DataSender는 현재 자산만, AutoMiner는 다수 자산 순회 담당
+- **근본 원인**: `payout-monitor.ts` — "UI did not update" 기술적 실패 시 `markAssetUnavailable()` 오호출
+- **Fix 7 적용** (`payout-monitor.ts`):
+  1. `isCurrentAsset()` 헬퍼 추가 — `.current-symbol` + `.pair-number-wrap` 이중 체크
+  2. 전환 확인을 폴링으로 변경 — 고정 `wait(2000)` → `waitForCondition(5000, 500)`
+  3. "UI did not update" 시 `markAssetUnavailable()` 제거 — 단순 `false` 반환
+- 빌드 성공, 테스트 106/106 통과
+- **다음 행동**:
+  1. 익스텐션 리로드 후 실환경에서 AutoMiner 실행
+  2. 콘솔 확인 포인트:
+     - `Switch failed` 메시지가 여전히 나오면 → `.current-symbol` / `.pair-number-wrap` 텍스트 직접 확인
+     - `Switch finished` → 자산 전환 성공 → WS 히스토리 요청 확인
+     - `Bulk saved` → E2E 파이프라인 완성
+  3. `consecutiveUnavailable` 카운터가 기술적 실패로 증가하지 않는지 확인
+
 ## 2026-02-08 (11) - Fix 6 실환경 성공 + 커밋/PR
 
 - **실환경 테스트 결과**: DataSender bulk 전송 **성공** — WS 타이밍 완벽
