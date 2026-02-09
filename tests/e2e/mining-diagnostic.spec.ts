@@ -5,7 +5,7 @@
  * 이 테스트는 LLM이 마이닝 데이터 파이프라인을 자동으로 디버깅할 수 있게 해줍니다.
  *
  * 파이프라인:
- *   Tampermonkey WS Hook → Content Script Interceptor → Parser →
+ *   WS Hook (Main World) → Content Script Interceptor → Parser →
  *   onHistoryReceived → DataSender → localhost:3001 → SQLite
  *
  * 사용법 (로컬):
@@ -86,9 +86,9 @@ test('Step 1: Extension initialises on Pocket Option', async () => {
 })
 
 // ─────────────────────────────────────────────────────────
-// Test 3: Tampermonkey Bridge 연결 확인
+// Test 3: WS Bridge 연결 확인
 // ─────────────────────────────────────────────────────────
-test('Step 2: Tampermonkey bridge is connected', async () => {
+test('Step 2: WS bridge is connected', async () => {
   const page = ext.context.pages()[0]!
   const monitor = attachConsoleMonitor(page)
 
@@ -107,11 +107,9 @@ test('Step 2: Tampermonkey bridge is connected', async () => {
     console.log('\n========================================')
     console.log('BRIDGE NOT CONNECTED')
     console.log('Possible causes:')
-    console.log('  1. Tampermonkey is not installed or the script is disabled')
-    console.log('  2. The userscript @match does not cover the current URL')
-    console.log('  3. The page loaded before document-start injection')
-    console.log('Fix: Install inject-websocket.user.js in Tampermonkey')
-    console.log('     OR use scripts/manual-injection/hook.js in console')
+    console.log('  1. Extension inject-websocket.js is not loaded (check manifest.json)')
+    console.log('  2. The page loaded before document-start injection')
+    console.log('Fix: Ensure inject-websocket.js is in manifest.json content_scripts with world: MAIN')
     console.log('========================================')
   }
 
@@ -245,7 +243,7 @@ test('Step 5: Manual WS history request and response', async () => {
     console.log('NO DATA SAVED — Debugging hints:')
     if (parserLogs.length === 0) {
       console.log('  → PARSER never fired. The WS response is not being parsed.')
-      console.log('    Check: Is the Tampermonkey bridge forwarding the response?')
+      console.log('    Check: Is the WS bridge forwarding the response?')
       console.log('    Check: Does the parser recognise the response format?')
     } else if (historyLogs.length === 0) {
       console.log('  → PARSER fired but HISTORY callback never called.')
