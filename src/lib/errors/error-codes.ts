@@ -28,6 +28,7 @@ export enum ErrorCode {
   TRADE_INSUFFICIENT_BALANCE = 'TRADE_INSUFFICIENT_BALANCE',
   TRADE_MARKET_CLOSED = 'TRADE_MARKET_CLOSED',
   TRADE_BUTTON_NOT_FOUND = 'TRADE_BUTTON_NOT_FOUND',
+  TRADE_INVALID_AMOUNT = 'TRADE_INVALID_AMOUNT',
 
   // ============================================
   // DOM Errors (4xx)
@@ -113,6 +114,7 @@ export const ERROR_SEVERITY_MAP: Record<ErrorCode, ErrorSeverity> = {
   [ErrorCode.TRADE_INSUFFICIENT_BALANCE]: ErrorSeverity.WARNING,
   [ErrorCode.TRADE_MARKET_CLOSED]: ErrorSeverity.INFO,
   [ErrorCode.TRADE_BUTTON_NOT_FOUND]: ErrorSeverity.CRITICAL,
+  [ErrorCode.TRADE_INVALID_AMOUNT]: ErrorSeverity.CRITICAL,
 
   // DOM
   [ErrorCode.DOM_ELEMENT_NOT_FOUND]: ErrorSeverity.WARNING,
@@ -172,6 +174,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.TRADE_INSUFFICIENT_BALANCE]: '잔액 부족',
   [ErrorCode.TRADE_MARKET_CLOSED]: '시장 마감',
   [ErrorCode.TRADE_BUTTON_NOT_FOUND]: '거래 버튼을 찾을 수 없음',
+  [ErrorCode.TRADE_INVALID_AMOUNT]: '유효하지 않은 거래 금액',
 
   // DOM
   [ErrorCode.DOM_ELEMENT_NOT_FOUND]: 'DOM 요소를 찾을 수 없음',
