@@ -3,8 +3,8 @@
 // Manages trading state and coordinates between components
 // ============================================================
 
-import { ExtensionMessage, Tick, TradingStatus } from '../lib/types'
-import { TickRepository } from '../lib/db'
+import { ExtensionMessage, Tick, Trade, TradingStatus } from '../lib/types'
+import { TickRepository, TradeRepository } from '../lib/db'
 import { getTelegramService } from '../lib/notifications/telegram'
 import {
   POError,
@@ -218,23 +218,38 @@ function updateStatus(updates: Partial<TradingStatus>): void {
 // Data Handling
 // ============================================================
 
+// Tick 저장 실패 시 재시도를 위한 메모리 버퍼
+const failedTickBuffer: Tick[] = []
+const MAX_FAILED_TICK_BUFFER = 100
+let consecutiveTickFailures = 0
+
 async function handleTickData(tick: Tick): Promise<void> {
   if (!tick) return
 
   const ctx = { module: 'background' as const, function: 'handleTickData' }
 
+  // 이전에 실패한 tick이 있으면 함께 재시도
+  const ticksToSave = [...failedTickBuffer, tick]
+  failedTickBuffer.length = 0
+
   const result = await tryCatchAsync(
     async () => {
-      // Store tick in database
-      await TickRepository.add(tick)
+      if (ticksToSave.length === 1) {
+        await TickRepository.add(ticksToSave[0])
+      } else {
+        await TickRepository.bulkAdd(ticksToSave)
+      }
 
-      // Update current ticker
+      // 저장 성공 시 연속 실패 카운터 리셋
+      consecutiveTickFailures = 0
+
+      // 현재 티커 업데이트
       tradingStatus.currentTicker = tick.ticker
 
-      // Periodically clean old data (every 1000 ticks)
+      // 주기적으로 오래된 데이터 정리 (10000개 초과 시)
       const count = (await TickRepository.count()) || 0
       if (count > 10000) {
-        const cutoff = Date.now() - 24 * 60 * 60 * 1000 // 24 hours
+        const cutoff = Date.now() - 24 * 60 * 60 * 1000 // 24시간
         await TickRepository.deleteOlderThan(cutoff)
       }
     },
@@ -242,15 +257,72 @@ async function handleTickData(tick: Tick): Promise<void> {
     ErrorCode.DB_WRITE_FAILED
   )
 
-  // Log but don't throw - tick data loss is acceptable
   if (!result.success) {
-    // Error already logged by tryCatchAsync via errorHandler
+    consecutiveTickFailures++
+
+    // 실패한 tick을 버퍼에 보관 (버퍼 크기 제한)
+    for (const t of ticksToSave) {
+      if (failedTickBuffer.length < MAX_FAILED_TICK_BUFFER) {
+        failedTickBuffer.push(t)
+      }
+    }
+
+    // 연속 5회 실패 시 경고 알림
+    if (consecutiveTickFailures === 5) {
+      errorHandler.handle(
+        new POError({
+          code: ErrorCode.DB_WRITE_FAILED,
+          message: `Tick 데이터 연속 ${consecutiveTickFailures}회 저장 실패 (버퍼: ${failedTickBuffer.length}건)`,
+          severity: ErrorSeverity.WARNING,
+          context: ctx,
+        })
+      )
+    }
   }
 }
 
-async function handleTradeExecuted(payload: { signalId?: string; result?: unknown; timestamp?: number }): Promise<void> {
+async function handleTradeExecuted(payload: {
+  signalId?: string
+  result?: unknown
+  timestamp?: number
+  direction?: Trade['direction']
+  amount?: number
+  ticker?: string
+  entryPrice?: number
+}): Promise<void> {
+  const ctx = { module: 'background' as const, function: 'handleTradeExecuted' }
+
   console.log('[Background] Trade executed:', payload)
-  // TODO: Record trade in database
+
+  const result = await tryCatchAsync(
+    async () => {
+      const trade: Omit<Trade, 'id'> = {
+        sessionId: tradingStatus.sessionId ?? 0,
+        ticker: payload.ticker ?? tradingStatus.currentTicker ?? 'unknown',
+        direction: payload.direction ?? 'CALL',
+        entryTime: payload.timestamp ?? Date.now(),
+        entryPrice: payload.entryPrice ?? 0,
+        result: 'PENDING',
+        amount: payload.amount ?? 0,
+      }
+
+      await TradeRepository.create(trade)
+    },
+    ctx,
+    ErrorCode.DB_WRITE_FAILED
+  )
+
+  // 저장 실패 시 에러 핸들러를 통해 알림
+  if (!result.success) {
+    errorHandler.handle(
+      new POError({
+        code: ErrorCode.DB_WRITE_FAILED,
+        message: `거래 기록 DB 저장 실패: ${result.error}`,
+        severity: ErrorSeverity.ERROR,
+        context: ctx,
+      })
+    )
+  }
 }
 
 // ============================================================
