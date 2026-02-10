@@ -33,7 +33,7 @@ const DEFAULT_STATUS: MinerStatus = {
   overallCandles: 0,
   elapsedSeconds: 0,
   candlesPerSecond: 0,
-  config: { offsetSeconds: 86400, maxDaysBack: 30, requestDelayMs: 500 },
+  config: { offsetSeconds: 300000, maxDaysBack: 30, requestDelayMs: 500 },
 }
 
 function formatElapsed(seconds: number): string {
