@@ -1,8 +1,8 @@
 // ============================================================
 // Extension 내장 WebSocket Hook (Main World)
 // ============================================================
-// TM(Tampermonkey) 없이도 Extension이 직접 WebSocket을 후킹합니다.
-// Content Script에서 <script> 태그로 주입되어 Main World에서 실행됩니다.
+// Extension이 직접 WebSocket을 후킹합니다.
+// manifest.json의 world: MAIN 설정으로 Main World에서 실행됩니다.
 // postMessage bridge 프로토콜로 Isolated World의 interceptor와 통신합니다.
 // ============================================================
 

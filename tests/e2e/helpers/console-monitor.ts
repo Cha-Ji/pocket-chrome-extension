@@ -5,7 +5,7 @@
  * instantly see which part of the mining data-flow is working / broken.
  *
  * Pipeline stages:
- *   BRIDGE   — Tampermonkey pq-bridge messages
+ *   BRIDGE   — pq-bridge messages (Main World WS Hook)
  *   WS_HOOK  — WebSocket interception / connection
  *   PARSER   — WebSocket message parsing
  *   HISTORY  — Candle history capture

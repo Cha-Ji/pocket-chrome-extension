@@ -72,7 +72,7 @@ class WebSocketInterceptor {
     if (event.data.type === 'ws-message') {
       const data = event.data.data || {};
       const message: WebSocketMessage = {
-        connectionId: data.url || 'tm-bridge',
+        connectionId: data.url || 'ws-bridge',
         url: data.url || 'unknown',
         parsed: data.payload ?? null,
         rawType: data.dataType || (data.text ? 'string' : typeof data.raw),
@@ -100,7 +100,7 @@ class WebSocketInterceptor {
 
   private handleMessage(data: WebSocketMessage, timestamp: number): void {
     // 이미 파싱된 데이터가 유효한 ParsedMessage 타입이 아니면 파서로 재전달
-    // 중요: Tampermonkey Bridge의 'binary_payload' 타입은 파서의 socketio_binary_payload 패턴이 처리해야 함
+    // 중요: Bridge의 'binary_payload' 타입은 파서의 socketio_binary_payload 패턴이 처리해야 함
     let parsed = data.parsed;
     if (!parsed || !WebSocketInterceptor.VALID_PARSED_TYPES.has(parsed.type)) {
       // binary_payload는 파서의 패턴 10이 처리할 수 있으므로 원본 객체를 전달
