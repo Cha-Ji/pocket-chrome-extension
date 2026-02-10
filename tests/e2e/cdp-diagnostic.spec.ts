@@ -5,7 +5,7 @@
  * Chrome DevTools Protocol을 활용한 심층 파이프라인 진단 테스트.
  *
  * 핵심 차별점: CDP의 `Page.addScriptToEvaluateOnNewDocument`로
- * Tampermonkey 없이도 WS Hook을 Main World에 자동 주입하여
+ * CDP로 WS Hook을 Main World에 자동 주입하여
  * 마이닝 파이프라인 전체를 E2E 테스트할 수 있습니다.
  *
  * 파이프라인 커버리지:
@@ -76,12 +76,12 @@ test('CDP Step 1: Inject WS bridge via CDP and load page', async () => {
   const page = ext.context.pages()[0] ?? await ext.context.newPage()
   inspector = await createCDPInspector(page)
 
-  // 핵심: Tampermonkey 없이 WS Hook을 Main World에 주입
+  // 핵심: CDP로 WS Hook을 Main World에 주입 (테스트 환경용)
   // page.goto() 이전에 호출해야 document-start 시점에 실행됨
   const cdp = await page.context().newCDPSession(page)
   await injectWSBridge(cdp)
 
-  console.log('WS Bridge injected via CDP (replaces Tampermonkey)')
+  console.log('WS Bridge injected via CDP (for E2E test environment)')
 
   await page.goto(PO_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 })
   // 페이지 초기화 + WS 연결 대기

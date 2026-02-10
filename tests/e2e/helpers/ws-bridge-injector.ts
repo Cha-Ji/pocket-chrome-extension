@@ -1,15 +1,10 @@
 /**
- * WS Bridge Injector — CDP를 통한 WebSocket Hook 자동 주입
+ * WS Bridge Injector — CDP를 통한 WebSocket Hook 자동 주입 (E2E 테스트용)
  *
- * 문제:
- *   마이닝 파이프라인은 Tampermonkey가 Main World에서 WebSocket을 후킹해야 동작합니다.
- *   하지만 E2E 테스트에서는 Tampermonkey가 설치되어 있지 않으므로
- *   파이프라인이 사일런트 실패합니다 (에러 없이 데이터가 0).
- *
- * 해결:
- *   CDP의 `Page.addScriptToEvaluateOnNewDocument`를 사용하면
- *   페이지 로드 전에 Main World에 스크립트를 주입할 수 있습니다.
- *   이것은 Tampermonkey의 `@run-at document-start`와 동일한 효과입니다.
+ * 배경:
+ *   프로덕션에서는 Extension의 inject-websocket.js (world: MAIN)가 WS 후킹을 담당합니다.
+ *   E2E 테스트에서는 Extension이 로드되지 않을 수 있으므로
+ *   CDP로 동일한 스크립트를 주입하여 파이프라인을 테스트합니다.
  *
  * 사용법:
  *   const cdp = await page.context().newCDPSession(page)
@@ -21,8 +16,7 @@
 import type { CDPSession } from '@playwright/test'
 
 /**
- * Tampermonkey의 inject-websocket.user.js와 동일한 WS Hook을
- * CDP를 통해 Main World에 주입합니다.
+ * inject-websocket.js와 동일한 WS Hook을 CDP를 통해 Main World에 주입합니다.
  *
  * 반드시 page.goto() 이전에 호출해야 합니다.
  * (addScriptToEvaluateOnNewDocument는 이후 모든 네비게이션에 적용됩니다)
@@ -35,13 +29,10 @@ export async function injectWSBridge(cdp: CDPSession): Promise<void> {
 }
 
 /**
- * scripts/tampermonkey/inject-websocket.user.js의 핵심 로직을
- * Tampermonkey 의존성 없이 재구성한 스크립트.
+ * src/content-script/inject-websocket.js의 핵심 로직을
+ * CDP 주입용으로 재구성한 스크립트.
  *
- * 변경점:
- *   - unsafeWindow 제거 (이미 Main World)
- *   - @grant/@match 등 Tampermonkey 메타데이터 제거
- *   - 로깅 접두사를 [CDP-Bridge]로 변경하여 구분 가능
+ * 로깅 접두사를 [CDP-Bridge]로 변경하여 프로덕션 훅과 구분 가능.
  */
 const WS_HOOK_SCRIPT = `
 (function() {
