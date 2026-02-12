@@ -10,7 +10,7 @@ const log = loggers.miner
 // ============================================================
 
 interface BulkMiningConfig {
-  offsetSeconds: number    // 한 요청당 과거 범위 (초). 86400 = 24시간 = 1440개 1분봉
+  offsetSeconds: number    // 한 요청당 과거 범위 (초). 300000 = 3.5일 = 5000개 1분봉
   period: number           // 캔들 주기 (60 = 1분봉)
   maxDaysBack: number      // 최대 수집 일수
   requestDelayMs: number   // 응답 후 다음 요청까지 딜레이 (ms)
@@ -41,7 +41,7 @@ interface MiningState {
 }
 
 const DEFAULT_CONFIG: BulkMiningConfig = {
-  offsetSeconds: 86400,    // 24시간 = 약 1440개 1분봉
+  offsetSeconds: 300000,   // 3.5일 = 약 5000개 1분봉 (#61)
   period: 60,              // 1분봉
   maxDaysBack: 30,         // 최대 30일
   requestDelayMs: 500,     // 응답 후 500ms 대기
@@ -53,7 +53,7 @@ const CONSECUTIVE_UNAVAILABLE_THRESHOLD = 5  // 연속 N개 unavailable 시 일�
 const MARKET_CLOSED_WAIT_MS = 5 * 60 * 1000  // 시장 닫힘 판단 시 5분 대기
 const PAYOUT_WAIT_INTERVAL_MS = 5000  // 페이아웃 데이터 대기 주기
 const PAYOUT_MAX_WAIT_ATTEMPTS = 12   // 최대 대기 횟수 (5s × 12 = 60s)
-const RESPONSE_TIMEOUT_MS = 15000  // 15초 응답 타임아웃
+const RESPONSE_TIMEOUT_MS = 30000  // 30초 응답 타임아웃 (#61 대용량 응답 대비)
 
 const minerState: MiningState = {
   isActive: false,

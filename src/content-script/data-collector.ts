@@ -13,7 +13,7 @@ export class DataCollector {
   private _isCollecting = false
   private currentPrice: number | null = null
   private priceHistory: Tick[] = []
-  private maxHistorySize = 1000
+  private maxHistorySize = 5000
 
   constructor(selectors: DOMSelectors) {
     this.selectors = selectors
