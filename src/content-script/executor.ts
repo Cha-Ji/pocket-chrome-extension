@@ -15,6 +15,7 @@ import {
   errorHandler,
   tryCatchAsync,
 } from '../lib/errors'
+import { validateTradeAmount } from '../lib/trading/validate-amount'
 
 export class TradeExecutor {
   private selectors: DOMSelectors
@@ -145,6 +146,24 @@ export class TradeExecutor {
           console.warn(`[TradeExecutor] ⚠️ Executing ${direction} trade on LIVE account!`)
         }
 
+        // 금액 검증 (amount가 지정된 경우)
+        let validatedAmount = amount
+        if (amount !== undefined) {
+          const amountValidation = validateTradeAmount(amount, {
+            minAmount: 1,
+            maxAmount: 10000,
+          })
+          if (!amountValidation.valid) {
+            throw new POError({
+              code: ErrorCode.TRADE_INVALID_AMOUNT,
+              message: `거래 금액 검증 실패: ${amountValidation.reason}`,
+              context: { ...ctx, extra: { direction, amount, reason: amountValidation.reason } },
+              severity: ErrorSeverity.CRITICAL,
+            })
+          }
+          validatedAmount = amountValidation.normalizedAmount
+        }
+
         // Validate we can trade
         const validation = await this.validateTradeConditions()
         if (!validation.canTrade) {
@@ -166,18 +185,18 @@ export class TradeExecutor {
           })
         }
 
-        // Set amount if specified
-        if (amount) {
-          await this.setTradeAmount(amount)
+        // Set amount if specified (검증 완료된 금액 사용)
+        if (validatedAmount !== undefined) {
+          await this.setTradeAmount(validatedAmount)
         }
 
         // Execute click
         this.simulateClick(button)
 
-        // Notify background
+        // Notify background (검증 완료된 금액 전송)
         chrome.runtime.sendMessage({
           type: 'TRADE_EXECUTED',
-          payload: { direction, amount, timestamp: Date.now() },
+          payload: { direction, amount: validatedAmount, timestamp: Date.now() },
         })
 
         return true

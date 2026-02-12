@@ -6,6 +6,7 @@
 
 import { Signal } from '../signals/types'
 import { SignalGenerator, fetchCandles } from '../signals/signal-generator'
+import { validateTradeAmount } from './validate-amount'
 
 export interface TradeExecution {
   signalId: string
@@ -348,9 +349,22 @@ export class AutoTrader {
   }
 
   private async executeSignal(signal: Signal): Promise<void> {
-    // Calculate position size based on risk management
-    const amount = this.calculatePositionSize()
-    
+    // 포지션 사이즈 계산 및 검증
+    const rawAmount = this.calculatePositionSize()
+
+    // 금액 검증 -- NaN, 음수, 상한 초과 등 차단
+    const amountValidation = validateTradeAmount(rawAmount, {
+      minAmount: this.config.minAmount,
+      maxAmount: this.config.maxAmount,
+    })
+
+    if (!amountValidation.valid) {
+      this.log(`거래 금액 검증 실패: ${amountValidation.reason} (원본값: ${rawAmount})`, 'error')
+      return
+    }
+
+    const amount = amountValidation.normalizedAmount!
+
     this.log(`🎯 Signal: ${signal.direction} via ${signal.strategy}`, 'info')
     this.log(`   Position size: $${amount} (${this.config.riskPerTrade}% of $${this.stats.currentBalance.toFixed(0)})`, 'info')
 

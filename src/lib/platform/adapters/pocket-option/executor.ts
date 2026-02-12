@@ -6,14 +6,26 @@
 
 import type { Direction } from '../../../types'
 import type { IExecutor, TradeExecutionResult } from '../../interfaces'
+import { createLogger } from '../../../logger'
 import {
   PO_DEMO_SELECTORS,
   PO_PAYOUT_SELECTORS,
   PO_SELECTOR_FALLBACKS,
 } from './selectors'
 
+const logger = createLogger('Executor')
+
+/** 캐시 엔트리: 셀렉터 + 캐시 시각 */
+interface SelectorCacheEntry {
+  selector: string
+  cachedAt: number
+}
+
+/** Executor 셀렉터 캐시 TTL (밀리초) - 30초 */
+const EXECUTOR_CACHE_TTL_MS = 30_000
+
 export class PocketOptionExecutor implements IExecutor {
-  private selectorCache: Map<string, string> = new Map()
+  private selectorCache: Map<string, SelectorCacheEntry> = new Map()
 
   async execute(
     direction: Direction,
@@ -140,11 +152,21 @@ export class PocketOptionExecutor implements IExecutor {
   // ============================================================
 
   private resolveElement(key: string): HTMLElement | null {
-    // 캐시 확인
+    const now = Date.now()
+
+    // 캐시 확인 (TTL + DOM 존재 검증)
     const cached = this.selectorCache.get(key)
     if (cached) {
-      const el = document.querySelector(cached) as HTMLElement
-      if (el) return el
+      const ttlExpired = now - cached.cachedAt > EXECUTOR_CACHE_TTL_MS
+      if (!ttlExpired) {
+        const el = document.querySelector(cached.selector) as HTMLElement
+        if (el) return el
+        // DOM에서 요소 제거됨 - 캐시 무효화
+        logger.debug(`캐시된 요소 DOM에서 제거됨: ${key}`)
+      } else {
+        logger.debug(`캐시 TTL 만료: ${key}`)
+      }
+      this.selectorCache.delete(key)
     }
 
     // fallback 체인
@@ -153,7 +175,7 @@ export class PocketOptionExecutor implements IExecutor {
       for (const sel of fallbacks) {
         const el = document.querySelector(sel) as HTMLElement
         if (el) {
-          this.selectorCache.set(key, sel)
+          this.selectorCache.set(key, { selector: sel, cachedAt: now })
           return el
         }
       }
@@ -164,11 +186,12 @@ export class PocketOptionExecutor implements IExecutor {
     if (defaultSel) {
       const el = document.querySelector(defaultSel) as HTMLElement
       if (el) {
-        this.selectorCache.set(key, defaultSel)
+        this.selectorCache.set(key, { selector: defaultSel, cachedAt: now })
         return el
       }
     }
 
+    logger.warn(`모든 셀렉터 실패: ${key}`)
     return null
   }
 
