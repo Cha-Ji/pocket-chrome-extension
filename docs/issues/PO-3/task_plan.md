@@ -8,4 +8,4 @@ Pocket Option 사이트의 UI 구조 변경에 유연하게 대응할 수 있는
 - [ ] `SelectorResolver` 클래스 구현: 유효성 검사 및 대안 선택 로직
 - [ ] 셀렉터 성공 이력(Success History) 저장 및 최적화 로직
 - [ ] `Content Script` 내 모듈들이 `SelectorResolver`를 사용하도록 리팩토링
-- [ ] JIRA 상태 업데이트 및 Merge
+- [ ] 이슈 상태 업데이트 및 Merge

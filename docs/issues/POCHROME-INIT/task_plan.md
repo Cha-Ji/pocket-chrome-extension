@@ -1,12 +1,12 @@
 # Task Plan - New Project Initialization (POCHROME)
 
 ## 🎯 목표
-새로운 JIRA 프로젝트 `POCHROME`을 기반으로 개발 할 일(TODO) 리스트를 정립하고 시스템을 이관함.
+프로젝트 `POCHROME`을 기반으로 개발 할 일(TODO) 리스트를 정립하고 시스템을 이관함.
 
 ## 📋 작업 목록
 - [x] 새 프로젝트 `POCHROME` 생성 시도 및 결과 확인
 - [ ] 개발 TODO 리스트 (Backlog) 상세 설계
-- [ ] JIRA 이슈 일괄 생성 (추후 이관)
+- [ ] GitHub 이슈 일괄 생성
 - [ ] 기존 SCRUM 프로젝트의 활성 태스크(`SCRUM-17`) 이관
 - [ ] 3-File Pattern 폴더 구조 업데이트
 
