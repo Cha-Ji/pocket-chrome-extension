@@ -1,6 +1,18 @@
 # Pocket Quant Trader - Progress
 
-**최종 업데이트:** 2026-02-12 KST
+**최종 업데이트:** 2026-02-13 KST
+
+## (2026-02-13) TIF-60 (Tick Imbalance Fade) 전략 구현
+
+- **새 전략**: TIF-60 — 틱 불균형 기반 역추세(되돌림) 매매
+- **이론 근거**: OIB-reversal (Sirnes 2021, Chordia et al. 2002), 초단기 리버설 (Heston et al. 2010)
+- **파일 추가**: `src/content-script/tick-strategies.ts` (코어 전략)
+- **파일 수정**: `src/content-script/index.ts` (setupCandleHandler에 TIF-60 통합)
+- **테스트**: 12개 통과 (결정적 시나리오 포함)
+- **동작 모드**: 독립 모드(기본) / SignalGeneratorV2 방향 합의 모드(옵션)
+- **파라미터**: windowSec=20, minTicks=80, imbalanceThreshold=0.65, deltaZThreshold=2.0
+- 다음 행동: 실환경 틱 데이터로 승률 검증, 자산별 파라미터 튜닝
+- 상세: `docs/features/tif-60-strategy/`
 
 ## (2026-02-12) Tick/Candle 테이블 분리 + Timestamp 정규화
 
