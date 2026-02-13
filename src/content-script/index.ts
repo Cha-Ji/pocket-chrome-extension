@@ -29,6 +29,11 @@ let telegramService: TelegramService | null = null
 let wsInterceptor: ReturnType<typeof getWebSocketInterceptor> | null = null
 let isInitialized = false
 
+// [#46] Race Condition Guard: 동시 거래 실행 방지
+let isExecutingTrade = false
+let lastTradeExecutedAt = 0
+const TRADE_COOLDOWN_MS = 3000 // 최소 3초 간격
+
 const DEFAULT_CONFIG: TradingConfigV2 = {
   enabled: false,
   autoAssetSwitch: true,
@@ -235,12 +240,27 @@ async function handleNewSignal(signal: Signal): Promise<void> {
 
 async function executeSignal(signal: Signal): Promise<void> {
   if (!tradeExecutor) return
+
+  // [#46] Race Condition Guard: 동시 거래 실행 방지
+  if (isExecutingTrade) {
+    console.warn(`[PO] ⚠️ Trade skipped (already executing): ${signal.direction} (${signal.strategy})`);
+    return
+  }
+  const timeSinceLastTrade = Date.now() - lastTradeExecutedAt
+  if (timeSinceLastTrade < TRADE_COOLDOWN_MS) {
+    console.warn(`[PO] ⚠️ Trade skipped (cooldown ${TRADE_COOLDOWN_MS - timeSinceLastTrade}ms remaining): ${signal.direction} (${signal.strategy})`);
+    return
+  }
+
+  isExecutingTrade = true
   console.log(`[PO] 🚀 Executing: ${signal.direction} (${signal.strategy})`);
   try {
     const result = await tradeExecutor.executeTrade(signal.direction, tradingConfig.tradeAmount);
+    lastTradeExecutedAt = Date.now()
     if (result) telegramService?.sendMessage(`🚀 [PO] <b>Trade Executed</b>\n${signal.direction} on ${signal.symbol}`);
     try { chrome.runtime.sendMessage({ type: 'TRADE_EXECUTED', payload: { signalId: signal.id, result, timestamp: Date.now() } }).catch(() => {}) } catch {}
   } catch (error) { console.error('[PO] Trade execution error:', error) }
+  finally { isExecutingTrade = false }
 }
 
 function notifyBestAsset(asset: AssetPayout): void {
