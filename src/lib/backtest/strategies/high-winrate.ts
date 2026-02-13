@@ -13,6 +13,7 @@ import {
   Stochastic,
   EMA,
 } from '../../indicators'
+import { zmr60WithHighWinRateConfig } from './zmr-60'
 
 // ============================================================
 // Strategy Interfaces
@@ -383,6 +384,7 @@ export type StrategyName =
   | 'adx-rsi'
   | 'triple-confirm'
   | 'ema-pullback'
+  | 'zmr-60'
 
 export function runHighWinRateStrategy(
   strategyName: StrategyName,
@@ -400,6 +402,8 @@ export function runHighWinRateStrategy(
       return tripleConfirmationStrategy(candles, config)
     case 'ema-pullback':
       return emaTrendRsiPullbackStrategy(candles, config)
+    case 'zmr-60':
+      return zmr60WithHighWinRateConfig(candles, config)
     default:
       return { signal: null, confidence: 0, reason: 'Unknown strategy', indicators: {} }
   }
