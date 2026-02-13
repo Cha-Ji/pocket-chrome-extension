@@ -23,7 +23,7 @@ import {
   type TickRow,
   type ResampledCandle,
 } from '../src/lib/backtest/tick-resampler'
-import { toEpochMs } from '../src/lib/utils/time'
+import { toEpochMs } from '../src/lib/utils/time.ts'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
