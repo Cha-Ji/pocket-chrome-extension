@@ -10,7 +10,7 @@
 
 import { Candle } from '../../signals/types'
 import { RSI, BollingerBands } from '../../indicators'
-import { StrategyResult, HighWinRateConfig, DEFAULT_CONFIG } from './high-winrate'
+import type { StrategyResult, HighWinRateConfig } from './high-winrate'
 
 // ============================================================
 // ZMR-60 Configuration
@@ -226,11 +226,12 @@ export function zmr60WithHighWinRateConfig(
   hwConfig: Partial<HighWinRateConfig> = {}
 ): StrategyResult {
   const mergedConfig: Partial<ZMR60Config> = {}
-  const cfg = { ...DEFAULT_CONFIG, ...hwConfig }
 
-  mergedConfig.rsiPeriod = cfg.rsiPeriod
-  mergedConfig.rsiOversold = cfg.rsiOversold
-  mergedConfig.rsiOverbought = cfg.rsiOverbought
+  // HighWinRateConfig의 RSI 파라미터를 ZMR60Config에 매핑
+  // DEFAULT_ZMR60_CONFIG의 기본값과 동일한 값을 사용하되, hwConfig로 오버라이드
+  if (hwConfig.rsiPeriod !== undefined) mergedConfig.rsiPeriod = hwConfig.rsiPeriod
+  if (hwConfig.rsiOversold !== undefined) mergedConfig.rsiOversold = hwConfig.rsiOversold
+  if (hwConfig.rsiOverbought !== undefined) mergedConfig.rsiOverbought = hwConfig.rsiOverbought
 
   return zmr60Strategy(candles, mergedConfig)
 }

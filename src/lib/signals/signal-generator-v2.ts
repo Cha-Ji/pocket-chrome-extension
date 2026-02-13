@@ -225,34 +225,39 @@ export class SignalGeneratorV2 {
 
     // RSI+BB 전략 (기본)
     const rsiBBResult = rsiBBBounceStrategy(candles, this.config.highWinRateConfig)
+    const noSignal: StrategyResult = { signal: null, confidence: 0, reason: 'No signal', indicators: {} }
 
     // ZMR-60 통합 모드 체크
     const mergeMode = this.config.zmr60MergeMode
     if (mergeMode === 'off') {
-      return rsiBBResult
+      return rsiBBResult ?? noSignal
     }
 
     // ZMR-60 전략 실행
     const zmr60Result = zmr60WithHighWinRateConfig(candles, this.config.highWinRateConfig)
 
+    // null-guard: 전략이 null을 반환할 수 있음
+    const rsi = rsiBBResult ?? noSignal
+    const zmr = zmr60Result ?? noSignal
+
     if (mergeMode === 'consensus') {
       // 둘 다 같은 방향의 신호를 낼 때만 반환 (승률 극대화)
       if (
-        rsiBBResult.signal &&
-        zmr60Result.signal &&
-        rsiBBResult.signal === zmr60Result.signal
+        rsi.signal &&
+        zmr.signal &&
+        rsi.signal === zmr.signal
       ) {
         // 더 높은 confidence를 선택하되, reason에 consensus 표기
-        const chosen = rsiBBResult.confidence >= zmr60Result.confidence ? rsiBBResult : zmr60Result
+        const chosen = rsi.confidence >= zmr.confidence ? rsi : zmr
         return {
           ...chosen,
           reason: `[consensus] ${chosen.reason}`,
           indicators: {
-            ...rsiBBResult.indicators,
-            ...zmr60Result.indicators,
-            zmr60_z: zmr60Result.indicators.z ?? 0,
-            rsiBB_confidence: rsiBBResult.confidence,
-            zmr60_confidence: zmr60Result.confidence,
+            ...rsi.indicators,
+            ...zmr.indicators,
+            zmr60_z: zmr.indicators.z ?? 0,
+            rsiBB_confidence: rsi.confidence,
+            zmr60_confidence: zmr.confidence,
           },
         }
       }
@@ -261,14 +266,14 @@ export class SignalGeneratorV2 {
     }
 
     // mergeMode === 'best': 높은 confidence 선택
-    if (rsiBBResult.signal && zmr60Result.signal) {
-      return rsiBBResult.confidence >= zmr60Result.confidence ? rsiBBResult : zmr60Result
+    if (rsi.signal && zmr.signal) {
+      return rsi.confidence >= zmr.confidence ? rsi : zmr
     }
     // 하나만 신호가 있으면 그것을 반환
-    if (rsiBBResult.signal) return rsiBBResult
-    if (zmr60Result.signal) return zmr60Result
+    if (rsi.signal) return rsi
+    if (zmr.signal) return zmr
 
-    return rsiBBResult // 둘 다 null → null 반환
+    return rsi // 둘 다 null → null 반환
   }
 
   private passesTrendFilter(
