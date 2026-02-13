@@ -391,6 +391,8 @@ npm test           # 테스트 실행
 npm run lint       # 린트 체크
 ```
 
+> **상세 운영 가이드**: 서버 실행법, 테스트 실행법, 백테스트 실행/분석, 로그 해석 등은 [`docs/SETUP_GUIDE.md`](docs/SETUP_GUIDE.md)를 참조하세요.
+
 ### 개발/배포 환경 권한 분리
 
 Chrome Extension의 `host_permissions`를 빌드 모드에 따라 분리합니다.
