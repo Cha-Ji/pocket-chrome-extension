@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Signal } from '../../lib/signals/types'
-import { AssetPayout, ExtensionMessage, MessageType } from '../../lib/types'
+import { AssetPayout, MessageType } from '../../lib/types'
 import { formatMoney, formatPercent, formatNumber } from '../utils/format'
+import { usePortSubscription } from '../hooks/usePortSubscription'
 
 interface SignalPanelProps {
   onSignal?: (signal: Signal) => void
@@ -91,27 +92,36 @@ export function SignalPanel({ onSignal }: SignalPanelProps) {
     fetchStatus()
   }, [fetchStatus])
 
-  // Auto refresh
+  // Subscribe to new signals via port (replaces onMessage listener + autoRefresh polling)
+  const handleNewSignal = useCallback((payload: unknown) => {
+    if (payload) {
+      const { signal } = payload as { signal: Signal }
+      setSignals(prev => [signal, ...prev].slice(0, 20))
+      onSignal?.(signal)
+    }
+  }, [onSignal])
+  usePortSubscription('NEW_SIGNAL_V2', handleNewSignal)
+
+  // Subscribe to payout updates via port
+  const handlePayoutUpdate = useCallback((payload: unknown) => {
+    if (payload) {
+      const { name, payout } = payload as { name: string; payout: number }
+      setHighPayoutAssets(prev => {
+        const exists = prev.some(a => a.name === name)
+        if (exists) return prev.map(a => a.name === name ? { ...a, payout } : a)
+        return [...prev, { name, payout, isOTC: name.includes('OTC'), lastUpdated: Date.now() }].slice(0, 10)
+      })
+    }
+  }, [])
+  usePortSubscription('BEST_ASSET', handlePayoutUpdate)
+
+  // Fallback: auto refresh for full status sync (optional, off by default)
   useEffect(() => {
     if (!autoRefresh) return
-    
-    const interval = setInterval(fetchStatus, 5000)
+
+    const interval = setInterval(fetchStatus, 10000) // Reduced from 5s to 10s
     return () => clearInterval(interval)
   }, [autoRefresh, fetchStatus])
-
-  // Listen for new signals from content script
-  useEffect(() => {
-    const handleMessage = (message: ExtensionMessage) => {
-      if (message.type === 'NEW_SIGNAL_V2' && message.payload) {
-        const { signal } = message.payload
-        setSignals(prev => [signal, ...prev].slice(0, 20))
-        onSignal?.(signal)
-      }
-    }
-
-    chrome.runtime.onMessage.addListener(handleMessage)
-    return () => chrome.runtime.onMessage.removeListener(handleMessage)
-  }, [onSignal])
 
   if (error) {
     return (

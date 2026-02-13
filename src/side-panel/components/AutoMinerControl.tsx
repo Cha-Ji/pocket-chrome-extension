@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { usePortSubscription } from '../hooks/usePortSubscription'
 
 interface AssetProgress {
   asset: string
@@ -50,23 +51,26 @@ function formatNumber(n: number): string {
 export function AutoMinerControl() {
   const [status, setStatus] = useState<MinerStatus>(DEFAULT_STATUS)
 
+  // Subscribe to miner status pushes via port (replaces 1s polling)
+  const handleStatusPush = useCallback((payload: unknown) => {
+    if (payload) setStatus(prev => ({ ...DEFAULT_STATUS, ...prev, ...(payload as Partial<MinerStatus>) }))
+  }, [])
+  usePortSubscription('MINER_STATUS_PUSH', handleStatusPush)
+
+  // Fetch initial status once on mount
   useEffect(() => {
-    const fetchStatus = () => {
-      try {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-          if (tabs[0]?.id) {
-            chrome.tabs.sendMessage(tabs[0].id, { type: 'GET_MINER_STATUS' }, (res) => {
-              if (chrome.runtime.lastError) return
-              if (res) setStatus(prev => ({ ...DEFAULT_STATUS, ...prev, ...res }))
-            })
-          }
-        })
-      } catch (e) {
-        console.error('AutoMinerControl error:', e)
-      }
+    try {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) {
+          chrome.tabs.sendMessage(tabs[0].id, { type: 'GET_MINER_STATUS' }, (res) => {
+            if (chrome.runtime.lastError) return
+            if (res) setStatus(prev => ({ ...DEFAULT_STATUS, ...prev, ...res }))
+          })
+        }
+      })
+    } catch (e) {
+      console.error('AutoMinerControl error:', e)
     }
-    const interval = setInterval(fetchStatus, 1000)
-    return () => clearInterval(interval)
   }, [])
 
   const toggleMiner = () => {

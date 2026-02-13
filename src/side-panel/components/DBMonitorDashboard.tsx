@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { CandleRepository } from '../../lib/db'
 import type { DataSenderStats } from '../../lib/data-sender'
 
+const IS_DEV_MODE = import.meta.env.DEV
 const SERVER_URL = 'http://localhost:3001'
 const POLL_SENDER_MS = 5000
 const POLL_SERVER_MS = 10000
@@ -81,8 +82,12 @@ export function DBMonitorDashboard() {
     } catch {}
   }, [])
 
-  // 소스 2: 서버 health + stats 폴링 (10초)
+  // 소스 2: 서버 health + stats 폴링 (10초) — dev 전용
   const fetchServerStats = useCallback(async () => {
+    if (!IS_DEV_MODE) {
+      setServerOnline(false)
+      return
+    }
     try {
       const healthRes = await fetch(`${SERVER_URL}/health`, { signal: AbortSignal.timeout(3000) })
       if (healthRes.ok) {
@@ -114,23 +119,36 @@ export function DBMonitorDashboard() {
     } catch {}
   }, [])
 
-  // 폴링 시작 (collapsed 상태면 중지)
+  // 폴링 시작 (collapsed 상태면 중지, visibility-aware)
   useEffect(() => {
     if (collapsed) return
+
+    const isVisible = () => document.visibilityState === 'visible'
 
     // 즉시 한번 실행
     fetchSenderStats()
     fetchServerStats()
     fetchIndexedDBStats()
 
-    const senderInterval = setInterval(fetchSenderStats, POLL_SENDER_MS)
-    const serverInterval = setInterval(fetchServerStats, POLL_SERVER_MS)
-    const dbInterval = setInterval(fetchIndexedDBStats, POLL_INDEXEDDB_MS)
+    const senderInterval = setInterval(() => { if (isVisible()) fetchSenderStats() }, POLL_SENDER_MS)
+    const serverInterval = setInterval(() => { if (isVisible()) fetchServerStats() }, POLL_SERVER_MS)
+    const dbInterval = setInterval(() => { if (isVisible()) fetchIndexedDBStats() }, POLL_INDEXEDDB_MS)
+
+    // Refresh immediately when becoming visible again
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchSenderStats()
+        fetchServerStats()
+        fetchIndexedDBStats()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
 
     return () => {
       clearInterval(senderInterval)
       clearInterval(serverInterval)
       clearInterval(dbInterval)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [collapsed, fetchSenderStats, fetchServerStats, fetchIndexedDBStats])
 

@@ -15,6 +15,7 @@ import {
   tryCatchAsync,
   ignoreError,
 } from '../lib/errors'
+import { PORT_CHANNEL, RELAY_MESSAGE_TYPES, THROTTLE_CONFIG } from '../lib/port-channel'
 
 // ============================================================
 // Error Handler Setup
@@ -47,6 +48,52 @@ let tradingStatus: TradingStatus = {
 // Storage Access Level (Content Script에서 session storage 접근 허용)
 // ============================================================
 chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' })
+
+// ============================================================
+// Port-based Side Panel Communication
+// ============================================================
+
+const connectedPorts = new Set<chrome.runtime.Port>()
+const lastRelayedAt = new Map<string, number>()
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== PORT_CHANNEL) return
+
+  console.log('[Background] Side panel port connected')
+  connectedPorts.add(port)
+
+  port.onDisconnect.addListener(() => {
+    connectedPorts.delete(port)
+    console.log('[Background] Side panel port disconnected')
+  })
+})
+
+/**
+ * Relay a message from content script to all connected side panel ports.
+ * Only relays types listed in RELAY_MESSAGE_TYPES.
+ * Throttles high-frequency messages per THROTTLE_CONFIG.
+ */
+function relayToSidePanels(message: { type: string; payload?: unknown }): void {
+  if (connectedPorts.size === 0) return
+  if (!RELAY_MESSAGE_TYPES.has(message.type)) return
+
+  // Throttle high-frequency messages
+  const throttleMs = THROTTLE_CONFIG[message.type]
+  if (throttleMs) {
+    const now = Date.now()
+    const last = lastRelayedAt.get(message.type) || 0
+    if (now - last < throttleMs) return
+    lastRelayedAt.set(message.type, now)
+  }
+
+  for (const port of connectedPorts) {
+    try {
+      port.postMessage(message)
+    } catch {
+      connectedPorts.delete(port)
+    }
+  }
+}
 
 // ============================================================
 // Extension Lifecycle
@@ -92,6 +139,9 @@ async function handleMessage(
 ): Promise<unknown> {
   const ctx = { module: 'background' as const, function: 'handleMessage' }
 
+  // Relay eligible messages to connected side panel ports
+  relayToSidePanels(message as { type: string; payload?: unknown })
+
   // Ensure Telegram service is initialized (singleton will handle it)
   await ignoreError(
     () => getTelegramService(),
@@ -106,6 +156,9 @@ async function handleMessage(
     case 'TRADE_EXECUTED':
       return handleTradeExecuted(message.payload)
 
+    case 'GET_TRADES':
+      return handleGetTrades(message.payload)
+
     case 'GET_STATUS':
       return tradingStatus
 
@@ -118,6 +171,10 @@ async function handleMessage(
     case 'STATUS_UPDATE':
       return updateStatus(message.payload)
 
+    case 'TRADE_LOGGED':
+      // Broadcast-only message consumed by side panel; no-op in background
+      return null
+
     case 'GET_ERROR_STATS':
       return errorHandler.getStats()
 
@@ -128,13 +185,16 @@ async function handleMessage(
       return handleReloadTelegramConfig(message.payload)
 
     default:
-      errorHandler.handle(
-        new POError({
-          code: ErrorCode.MSG_INVALID_TYPE,
-          message: `Unknown message type: ${(message as { type: string }).type}`,
-          context: ctx,
-        })
-      )
+      // Don't log errors for relay-only messages (already forwarded via port)
+      if (!RELAY_MESSAGE_TYPES.has((message as { type: string }).type)) {
+        errorHandler.handle(
+          new POError({
+            code: ErrorCode.MSG_INVALID_TYPE,
+            message: `Unknown message type: ${(message as { type: string }).type}`,
+            context: ctx,
+          })
+        )
+      }
       return null
   }
 }
@@ -301,7 +361,16 @@ async function handleTradeExecuted(payload: MessagePayloadMap['TRADE_EXECUTED'])
         amount: payload.amount ?? 0,
       }
 
-      await TradeRepository.create(trade)
+      const id = await TradeRepository.create(trade)
+
+      // Broadcast normalized Trade to UI (side panel)
+      const savedTrade: Trade = { ...trade, id }
+      chrome.runtime.sendMessage({
+        type: 'TRADE_LOGGED',
+        payload: savedTrade,
+      }).catch(() => {
+        // Side panel may not be open - this is expected
+      })
     },
     ctx,
     ErrorCode.DB_WRITE_FAILED
@@ -318,6 +387,27 @@ async function handleTradeExecuted(payload: MessagePayloadMap['TRADE_EXECUTED'])
       })
     )
   }
+}
+
+async function handleGetTrades(payload: {
+  sessionId?: number
+  limit?: number
+}): Promise<Trade[]> {
+  const ctx = { module: 'background' as const, function: 'handleGetTrades' }
+
+  const result = await tryCatchAsync(
+    async () => {
+      if (payload.sessionId !== undefined) {
+        return await TradeRepository.getBySession(payload.sessionId)
+      }
+      // Return recent trades across all sessions
+      return await TradeRepository.getRecent(payload.limit ?? 50)
+    },
+    ctx,
+    ErrorCode.DB_READ_FAILED
+  )
+
+  return result.success ? result.data : []
 }
 
 // ============================================================

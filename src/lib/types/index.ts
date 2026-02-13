@@ -191,6 +191,8 @@ export interface MessagePayloadMap {
     ticker?: string
     entryPrice?: number
   }
+  TRADE_LOGGED: Trade
+  GET_TRADES: { sessionId?: number; limit?: number }
   STATUS_UPDATE: TradingStatus
   GET_STATUS: undefined
   // V2 API
@@ -238,6 +240,7 @@ export interface MessagePayloadMap {
   TOGGLE_MINING: { active: boolean }
   MINING_STATS: { collected: number }
   MINING_STOPPED: undefined
+  MINER_STATUS_PUSH: Record<string, unknown>
   // Telegram
   RELOAD_TELEGRAM_CONFIG: TelegramConfig
   // Error Handling
