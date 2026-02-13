@@ -3,6 +3,7 @@ import { CandleRepository } from '../../lib/db'
 import type { DataSenderStats } from '../../lib/data-sender'
 import { sendTabMessageCallback } from '../infrastructure/extension-client'
 
+const IS_DEV_MODE = import.meta.env.DEV
 const SERVER_URL = 'http://localhost:3001'
 const POLL_SENDER_MS = 5000
 const POLL_SERVER_MS = 10000
@@ -76,8 +77,12 @@ export function DBMonitorDashboard() {
     })
   }, [])
 
-  // 소스 2: 서버 health + stats 폴링 (10초)
+  // 소스 2: 서버 health + stats 폴링 (10초) — dev 전용
   const fetchServerStats = useCallback(async () => {
+    if (!IS_DEV_MODE) {
+      setServerOnline(false)
+      return
+    }
     try {
       const healthRes = await fetch(`${SERVER_URL}/health`, { signal: AbortSignal.timeout(3000) })
       if (healthRes.ok) {

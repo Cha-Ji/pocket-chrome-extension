@@ -15,10 +15,16 @@ import {
   StrategyResult,
   HighWinRateConfig,
 } from '../backtest/strategies/high-winrate'
+import {
+  zmr60WithHighWinRateConfig,
+  ZMR60Config,
+} from '../backtest/strategies/zmr-60'
 
 // ============================================================
 // Configuration
 // ============================================================
+
+export type ZMR60MergeMode = 'consensus' | 'best' | 'off'
 
 export interface SignalGeneratorV2Config {
   symbols: string[]
@@ -28,6 +34,8 @@ export interface SignalGeneratorV2Config {
   useTrendFilter: boolean
   minVotesForSignal: number
   highWinRateConfig: Partial<HighWinRateConfig>
+  zmr60MergeMode: ZMR60MergeMode
+  zmr60Config: Partial<ZMR60Config>
 }
 
 const DEFAULT_CONFIG: SignalGeneratorV2Config = {
@@ -42,6 +50,8 @@ const DEFAULT_CONFIG: SignalGeneratorV2Config = {
     rsiOversold: 25,
     rsiOverbought: 75,
   },
+  zmr60MergeMode: 'consensus',
+  zmr60Config: {},
 }
 
 // ============================================================
@@ -203,18 +213,67 @@ export class SignalGeneratorV2 {
     // 백테스트 결과 기반 전략 선택 (보수적 접근):
     // - ranging: 54.0% ✅ (RSI+BB 전략) - 유일하게 목표 달성
     // - 다른 레짐: 신호 생성 안함 (성과 저조)
-    
+
     // 횡보장에서만 신호 생성 (ADX < 25)
     // ADX 25-40: 약한 추세 → 신호 생성 안함
     // ADX > 40: 강한 추세 → 신호 생성 안함
-    
+
     if (regime !== 'ranging' && adx >= 25) {
       // 추세가 있으면 신호 생성 안함
       return null
     }
 
-    // 횡보장 또는 매우 약한 추세 (ADX < 25)에서만 RSI+BB 전략 사용
-    return rsiBBBounceStrategy(candles, this.config.highWinRateConfig)
+    // RSI+BB 전략 (기본)
+    const rsiBBResult = rsiBBBounceStrategy(candles, this.config.highWinRateConfig)
+    const noSignal: StrategyResult = { signal: null, confidence: 0, reason: 'No signal', indicators: {} }
+
+    // ZMR-60 통합 모드 체크
+    const mergeMode = this.config.zmr60MergeMode
+    if (mergeMode === 'off') {
+      return rsiBBResult ?? noSignal
+    }
+
+    // ZMR-60 전략 실행
+    const zmr60Result = zmr60WithHighWinRateConfig(candles, this.config.highWinRateConfig)
+
+    // null-guard: 전략이 null을 반환할 수 있음
+    const rsi = rsiBBResult ?? noSignal
+    const zmr = zmr60Result ?? noSignal
+
+    if (mergeMode === 'consensus') {
+      // 둘 다 같은 방향의 신호를 낼 때만 반환 (승률 극대화)
+      if (
+        rsi.signal &&
+        zmr.signal &&
+        rsi.signal === zmr.signal
+      ) {
+        // 더 높은 confidence를 선택하되, reason에 consensus 표기
+        const chosen = rsi.confidence >= zmr.confidence ? rsi : zmr
+        return {
+          ...chosen,
+          reason: `[consensus] ${chosen.reason}`,
+          indicators: {
+            ...rsi.indicators,
+            ...zmr.indicators,
+            zmr60_z: zmr.indicators.z ?? 0,
+            rsiBB_confidence: rsi.confidence,
+            zmr60_confidence: zmr.confidence,
+          },
+        }
+      }
+      // 둘이 다른 방향이거나 하나만 신호 → 신호 없음
+      return { signal: null, confidence: 0, reason: 'No consensus between RSI+BB and ZMR-60', indicators: {} }
+    }
+
+    // mergeMode === 'best': 높은 confidence 선택
+    if (rsi.signal && zmr.signal) {
+      return rsi.confidence >= zmr.confidence ? rsi : zmr
+    }
+    // 하나만 신호가 있으면 그것을 반환
+    if (rsi.signal) return rsi
+    if (zmr.signal) return zmr
+
+    return rsi // 둘 다 null → null 반환
   }
 
   private passesTrendFilter(

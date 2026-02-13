@@ -15,6 +15,11 @@ vi.mock('../backtest/strategies/high-winrate', () => ({
   tripleConfirmationStrategy: vi.fn().mockReturnValue(null),
 }))
 
+// zmr-60 전략을 모킹
+vi.mock('../backtest/strategies/zmr-60', () => ({
+  zmr60WithHighWinRateConfig: vi.fn().mockReturnValue({ signal: null, confidence: 0, reason: 'No signal', indicators: {} }),
+}))
+
 // ============================================================
 // 헬퍼: 테스트용 캔들 데이터 생성
 // ============================================================
