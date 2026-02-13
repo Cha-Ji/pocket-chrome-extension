@@ -1,6 +1,18 @@
 # Pocket Quant Trader - Progress
 
-**최종 업데이트:** 2026-02-08 KST
+**최종 업데이트:** 2026-02-12 KST
+
+## (2026-02-12) Tick/Candle 테이블 분리 + Timestamp 정규화
+
+- **Tick 전용 테이블**: ticks (symbol, ts_ms, price, source) — 원본 고빈도 데이터
+- **1분봉 캐시 테이블**: candles_1m (symbol, ts_ms, OHLCV, source) — 리샘플 결과
+- **Timestamp 정규화**: toEpochMs() 유틸 함수로 모든 입력을 ms 정수로 통일
+- **수집 서버**: candles + ticks 이중 저장, 신규 API 9개 추가
+- **백테스트**: candles_1m 캐시 우선 → ticks 폴백 → candles(레거시) 폴백
+- **진단/마이그레이션**: scripts/diagnose-timestamps.ts (--migrate 플래그)
+- 테스트: 65개 통과 (time: 32, tick-resampler: 33)
+- 다음 행동: 실환경 데이터 수집 → 마이그레이션 → 백테스트 캐시 성능 확인
+- 상세: `docs/features/tick-candle-separation/`
 
 ## (2026-02-08) Bulk History Mining — Fix 7 코드 적용, 실환경 검증 대기
 
