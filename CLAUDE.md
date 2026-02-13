@@ -384,11 +384,30 @@ gh pr create --title "제목" --body "Closes #10"
 
 **개발 명령어**:
 ```bash
-npm run dev        # 개발 서버 시작
-npm run build      # 프로덕션 빌드
+npm run dev        # 개발 서버 시작 (localhost 권한 포함)
+npm run build      # 프로덕션 빌드 (최소 권한)
+npm run build:dev  # 개발용 빌드 (localhost 권한 포함)
 npm test           # 테스트 실행
 npm run lint       # 린트 체크
 ```
+
+### 개발/배포 환경 권한 분리
+
+Chrome Extension의 `host_permissions`를 빌드 모드에 따라 분리합니다.
+
+**프로덕션 빌드** (`npm run build`):
+- `manifest.json`에 명시된 권한만 포함 (PO 도메인 + Telegram API)
+- `DataSender` (localhost:3001 전송)는 no-op 처리
+- `DBMonitorDashboard`의 서버 연결 섹션 비활성화
+
+**개발 빌드** (`npm run dev` / `npm run build:dev`):
+- `http://localhost:3001/*` 권한 자동 추가
+- `DataSender`, `DBMonitorDashboard` 서버 연결 정상 동작
+- 로컬 데이터 수집 서버 실행 필요: `npm run collector`
+
+**권한 구성 파일**: `vite.config.ts`의 `DEV_HOST_PERMISSIONS` 배열에서 개발 전용 권한 관리.
+
+**환경 변수**: Vite의 `import.meta.env.DEV`를 사용하여 런타임 dev/prod 분기. 빌드 타임에 정적 치환되어 프로덕션에서는 dead code elimination됨.
 
 ---
 
