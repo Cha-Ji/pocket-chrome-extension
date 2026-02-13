@@ -66,9 +66,15 @@ class WebSocketInterceptor {
   /**
    * Main World Bridge 메시지 핸들러
    * boundHandler를 통해 addEventListener/removeEventListener에서 동일한 참조 사용
+   * [#47] event.origin 검증으로 신뢰할 수 없는 출처의 메시지 차단
    */
   private handleBridgeMessage(event: MessageEvent): void {
+    // [#47] Origin 검증: 같은 페이지(Main World ↔ Isolated World)만 허용
+    if (event.origin !== window.location.origin) return;
     if (event.data?.source !== 'pq-bridge') return;
+    // [#47] 메시지 구조 검증: type 필드 화이트리스트
+    const validBridgeTypes = ['ws-message', 'ws-asset-change', 'bridge-ready'];
+    if (!validBridgeTypes.includes(event.data.type)) return;
     if (event.data.type === 'ws-message') {
       const data = event.data.data || {};
       const message: WebSocketMessage = {
@@ -168,12 +174,13 @@ class WebSocketInterceptor {
    * [PO-17] WebSocket을 통해 직접 메시지 전송 (Bridge 경유)
    */
   send(payload: any, urlPart?: string): void {
+    // [#47] targetOrigin을 명시하여 의도한 페이지에서만 수신 가능하도록
     window.postMessage({
       source: 'pq-content',
       type: 'ws-send',
       payload,
       urlPart
-    }, '*');
+    }, window.location.origin);
   }
 
   /**
