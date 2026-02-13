@@ -76,6 +76,7 @@
                 lastMessageInfo = null;
             }
 
+            // [#47] targetOrigin을 명시하여 같은 origin에서만 수신 가능하도록
             window.postMessage({
                 source: 'pq-bridge',
                 type: 'ws-message',
@@ -87,7 +88,7 @@
                     dataType: decoded.type,
                     timestamp: Date.now()
                 }
-            }, '*');
+            }, window.location.origin);
         });
     };
 
@@ -123,11 +124,12 @@
             if (typeof data === 'string') {
                 var assetMatch = data.match(/"asset"\s*:\s*"([^"]+)"/);
                 if (assetMatch) {
+                    // [#47] targetOrigin 명시
                     window.postMessage({
                         source: 'pq-bridge',
                         type: 'ws-asset-change',
                         data: { asset: assetMatch[1], text: data.substring(0, 200), timestamp: Date.now() }
-                    }, '*');
+                    }, window.location.origin);
                 }
             }
             return originalSend(data);
@@ -152,11 +154,14 @@
     Object.assign(window.WebSocket, OldWebSocket);
 
     console.log('%c[PO-Spy] ✅ Hooking Complete', 'color: #00ff00; font-weight: bold;');
-    window.postMessage({ source: 'pq-bridge', type: 'bridge-ready' }, '*');
+    // [#47] targetOrigin 명시
+    window.postMessage({ source: 'pq-bridge', type: 'bridge-ready' }, window.location.origin);
 
     // ── Extension → WS 전송 핸들러 ──────────────────────
 
     window.addEventListener('message', function(event) {
+        // [#47] Origin 검증: 같은 페이지에서만 수신
+        if (event.origin !== window.location.origin) return;
         if (!event.data || event.data.source !== 'pq-content' || event.data.type !== 'ws-send') return;
 
         var payload = event.data.payload;
@@ -178,6 +183,8 @@
     // ── Remote Click (forceClick 지원) ───────────────────
 
     window.addEventListener('message', function(event) {
+        // [#47] Origin 검증: 같은 페이지에서만 수신
+        if (event.origin !== window.location.origin) return;
         if (!event.data || event.data.source !== 'pq-isolated' || event.data.type !== 'remote-click') return;
         var selector = event.data.payload && event.data.payload.selector;
         if (selector) {
