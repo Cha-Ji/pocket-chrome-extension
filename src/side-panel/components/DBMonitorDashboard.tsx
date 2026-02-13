@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { CandleRepository } from '../../lib/db'
 import type { DataSenderStats } from '../../lib/data-sender'
 
-const IS_DEV_MODE = import.meta.env.DEV
+// NOTE: 서버는 로컬(collector)로만 붙는다. 프로덕션 빌드에서도 상태 확인이 필요해서 DEV 가드 제거.
 const SERVER_URL = 'http://localhost:3001'
 const POLL_SENDER_MS = 5000
 const POLL_SERVER_MS = 10000
@@ -82,14 +82,27 @@ export function DBMonitorDashboard() {
     } catch {}
   }, [])
 
-  // 소스 2: 서버 health + stats 폴링 (10초) — dev 전용
-  const fetchServerStats = useCallback(async () => {
-    if (!IS_DEV_MODE) {
-      setServerOnline(false)
-      return
+  // 소스 2: 서버 health + stats 폴링 (10초)
+  // NOTE: Chrome/확장 환경에서는 AbortSignal.timeout 미지원(또는 제한)일 수 있어 수동 타임아웃을 사용한다.
+  const fetchWithTimeout = useCallback(async (url: string, timeoutMs: number) => {
+    // AbortSignal.timeout이 있으면 사용
+    const anyAbortSignal = AbortSignal as any
+    if (anyAbortSignal?.timeout) {
+      return fetch(url, { signal: anyAbortSignal.timeout(timeoutMs) })
     }
+
+    const controller = new AbortController()
+    const t = setTimeout(() => controller.abort(), timeoutMs)
     try {
-      const healthRes = await fetch(`${SERVER_URL}/health`, { signal: AbortSignal.timeout(3000) })
+      return await fetch(url, { signal: controller.signal })
+    } finally {
+      clearTimeout(t)
+    }
+  }, [])
+
+  const fetchServerStats = useCallback(async () => {
+    try {
+      const healthRes = await fetchWithTimeout(`${SERVER_URL}/health`, 3000)
       if (healthRes.ok) {
         const data = await healthRes.json()
         setServerOnline(true)
@@ -103,13 +116,13 @@ export function DBMonitorDashboard() {
     setLastServerCheck(Date.now())
 
     try {
-      const statsRes = await fetch(`${SERVER_URL}/api/candles/stats`, { signal: AbortSignal.timeout(5000) })
+      const statsRes = await fetchWithTimeout(`${SERVER_URL}/api/candles/stats`, 5000)
       if (statsRes.ok) {
         const data = await statsRes.json()
         setServerAssets(Array.isArray(data) ? data : [])
       }
     } catch {}
-  }, [])
+  }, [fetchWithTimeout])
 
   // 소스 3: IndexedDB 통계 폴링 (10초)
   const fetchIndexedDBStats = useCallback(async () => {
