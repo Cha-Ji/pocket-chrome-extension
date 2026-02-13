@@ -25,8 +25,8 @@ jobs:
       - name: Lint
         run: npx eslint src
 
-      - name: Test (business logic only)
-        run: npx vitest run --exclude='src/lib/backtest/**'
+      - name: Test (CI — excludes heavy backtest suite)
+        run: npm run test:ci
 
       - name: Build
         run: npx vite build
