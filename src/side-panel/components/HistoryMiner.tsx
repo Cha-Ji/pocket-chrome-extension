@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { DataSender } from '../../lib/data-sender'
+import { usePortSubscription } from '../hooks/usePortSubscription'
 
 // ============================================================
 // History Miner Component
@@ -13,15 +14,25 @@ export function HistoryMiner() {
   const [stats, setStats] = useState({ collected: 0, total: 0 })
   const [serverHealth, setServerHealth] = useState(false)
 
-  // 서버 상태 주기적 체크
+  // 서버 상태 주기적 체크 (visibility-aware)
   useEffect(() => {
     const check = async () => {
+      if (document.visibilityState === 'hidden') return
       const healthy = await DataSender.checkHealth()
       setServerHealth(healthy)
     }
     check()
     const interval = setInterval(check, 5000)
-    return () => clearInterval(interval)
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') check()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [])
 
   // 채굴 시작/중지 핸들러
@@ -33,7 +44,7 @@ export function HistoryMiner() {
 
     const newState = !isActive
     setIsActive(newState)
-    
+
     // Content Script로 메시지 전송
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]?.id) {
@@ -45,22 +56,21 @@ export function HistoryMiner() {
     })
   }
 
-  // 채굴 진행상황 리스너
-  useEffect(() => {
-    const handleMessage = (message: any) => {
-      if (message.type === 'MINING_STATS') {
-        setStats(message.payload)
-        setStatus(`Mining... Collected: ${message.payload.collected}`)
-      }
-      if (message.type === 'MINING_STOPPED') {
-        setIsActive(false)
-        setStatus('Stopped')
-      }
+  // 채굴 진행상황 리스너 (via port push, replaces onMessage listener)
+  const handleMiningStats = useCallback((payload: unknown) => {
+    if (payload) {
+      const p = payload as { collected: number; total?: number }
+      setStats({ collected: p.collected, total: p.total ?? 0 })
+      setStatus(`Mining... Collected: ${p.collected}`)
     }
-
-    chrome.runtime.onMessage.addListener(handleMessage)
-    return () => chrome.runtime.onMessage.removeListener(handleMessage)
   }, [])
+  usePortSubscription('MINING_STATS', handleMiningStats)
+
+  const handleMiningStopped = useCallback(() => {
+    setIsActive(false)
+    setStatus('Stopped')
+  }, [])
+  usePortSubscription('MINING_STOPPED', handleMiningStopped)
 
   return (
     <div className="p-4 bg-gray-800 rounded-lg mt-4">

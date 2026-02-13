@@ -11,6 +11,7 @@ import { DBMonitorDashboard } from './components/DBMonitorDashboard'
 import { useTradingStatus } from './hooks/useTradingStatus'
 import { useLogs } from './hooks/useLogs'
 import { useTrades } from './hooks/useTrades'
+import { usePortConnection } from './hooks/usePortSubscription'
 import { Signal } from '../lib/signals/types'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Leaderboard } from './components/Leaderboard'
@@ -27,6 +28,9 @@ export default function App() {
 }
 
 function AppContent() {
+  // Establish port connection for push-based state sync
+  usePortConnection()
+
   const { status, startTrading, stopTrading, isLoading } = useTradingStatus()
   const { logs, addLog, clearLogs } = useLogs()
   const { trades } = useTrades()

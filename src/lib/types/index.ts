@@ -157,6 +157,7 @@ export interface MessagePayloadMap {
   TOGGLE_MINING: { active: boolean }
   MINING_STATS: { collected: number }
   MINING_STOPPED: undefined
+  MINER_STATUS_PUSH: Record<string, unknown>
   // Telegram
   RELOAD_TELEGRAM_CONFIG: undefined
   // Error Handling
