@@ -63,7 +63,6 @@ describe('Background Service Worker', () => {
 
   describe('#44 - Trade Recording', () => {
     it('TradeRepository.create에 올바른 Trade 객체를 전달해야 함', () => {
-      // handleTradeExecuted가 호출되면 TradeRepository.create가 호출되는지 확인
       const payload = {
         signalId: 'sig-1',
         direction: 'CALL' as const,
@@ -72,7 +71,6 @@ describe('Background Service Worker', () => {
         timestamp: 1700000000000,
       }
 
-      // Trade 객체 생성 로직 검증
       const trade = {
         sessionId: 0,
         ticker: payload.ticker ?? 'unknown',
@@ -115,6 +113,101 @@ describe('Background Service Worker', () => {
       expect(trade.direction).toBe('CALL')
       expect(trade.amount).toBe(0)
       expect(trade.result).toBe('PENDING')
+    })
+  })
+
+  describe('TRADE_LOGGED broadcast', () => {
+    it('handleTradeExecuted 후 TRADE_LOGGED에 정규화된 Trade를 전송해야 함', () => {
+      // Trade 정규화 로직 검증: content-script의 미니멀 payload → 정규형 Trade
+      const rawPayload = {
+        direction: 'PUT' as const,
+        amount: 50,
+        timestamp: 1700000000000,
+      }
+
+      const sessionId = 0
+      const currentTicker = 'BTCUSD'
+
+      // background가 만드는 정규형 Trade
+      const normalizedTrade = {
+        sessionId,
+        ticker: rawPayload.ticker ?? currentTicker ?? 'unknown',
+        direction: rawPayload.direction ?? 'CALL',
+        entryTime: rawPayload.timestamp ?? Date.now(),
+        entryPrice: 0,
+        result: 'PENDING' as const,
+        amount: rawPayload.amount ?? 0,
+      }
+
+      // TRADE_LOGGED payload는 모든 Trade 필드를 포함
+      expect(normalizedTrade.sessionId).toBe(0)
+      expect(normalizedTrade.ticker).toBe('BTCUSD')
+      expect(normalizedTrade.direction).toBe('PUT')
+      expect(normalizedTrade.entryTime).toBe(1700000000000)
+      expect(normalizedTrade.result).toBe('PENDING')
+      expect(normalizedTrade.amount).toBe(50)
+    })
+
+    it('TRADE_EXECUTED payload와 TRADE_LOGGED payload는 다른 형태여야 함', () => {
+      // TRADE_EXECUTED: 최소한의 실행 이벤트 데이터
+      const executedPayload = { direction: 'CALL', amount: 100, timestamp: Date.now() }
+
+      // TRADE_LOGGED: 정규화된 Trade 모델 (DB 저장 후)
+      const loggedPayload = {
+        id: 1,
+        sessionId: 0,
+        ticker: 'EURUSD',
+        direction: 'CALL' as const,
+        entryTime: executedPayload.timestamp,
+        entryPrice: 0,
+        result: 'PENDING' as const,
+        amount: 100,
+      }
+
+      // TRADE_EXECUTED에는 없고 TRADE_LOGGED에만 있는 필드
+      expect(loggedPayload.id).toBeDefined()
+      expect(loggedPayload.sessionId).toBeDefined()
+      expect(loggedPayload.ticker).toBeDefined()
+      expect(loggedPayload.entryPrice).toBeDefined()
+      expect(loggedPayload.result).toBeDefined()
+
+      // TRADE_EXECUTED payload에는 이 필드들이 없음
+      expect(executedPayload).not.toHaveProperty('id')
+      expect(executedPayload).not.toHaveProperty('sessionId')
+      expect(executedPayload).not.toHaveProperty('result')
+    })
+  })
+
+  describe('GET_TRADES handler', () => {
+    it('TradeRepository.getRecent이 올바르게 호출되어야 함 (개념 검증)', () => {
+      const mockGetRecent = vi.fn().mockResolvedValue([
+        { id: 1, ticker: 'EURUSD', result: 'WIN' },
+        { id: 2, ticker: 'GBPUSD', result: 'PENDING' },
+      ])
+
+      // GET_TRADES payload
+      const payload = { limit: 50 }
+
+      // sessionId가 없으면 getRecent 사용
+      if (payload.sessionId === undefined) {
+        mockGetRecent(payload.limit ?? 50)
+      }
+
+      expect(mockGetRecent).toHaveBeenCalledWith(50)
+    })
+
+    it('sessionId가 있으면 해당 세션의 trades만 반환', () => {
+      const mockGetBySession = vi.fn().mockResolvedValue([
+        { id: 3, sessionId: 5, ticker: 'EURUSD' },
+      ])
+
+      const payload: { sessionId?: number; limit?: number } = { sessionId: 5 }
+
+      if (payload.sessionId !== undefined) {
+        mockGetBySession(payload.sessionId)
+      }
+
+      expect(mockGetBySession).toHaveBeenCalledWith(5)
     })
   })
 

@@ -106,6 +106,9 @@ async function handleMessage(
     case 'TRADE_EXECUTED':
       return handleTradeExecuted(message.payload)
 
+    case 'GET_TRADES':
+      return handleGetTrades(message.payload)
+
     case 'GET_STATUS':
       return tradingStatus
 
@@ -117,6 +120,10 @@ async function handleMessage(
 
     case 'STATUS_UPDATE':
       return updateStatus(message.payload)
+
+    case 'TRADE_LOGGED':
+      // Broadcast-only message consumed by side panel; no-op in background
+      return null
 
     case 'GET_ERROR_STATS':
       return errorHandler.getStats()
@@ -306,7 +313,16 @@ async function handleTradeExecuted(payload: {
         amount: payload.amount ?? 0,
       }
 
-      await TradeRepository.create(trade)
+      const id = await TradeRepository.create(trade)
+
+      // Broadcast normalized Trade to UI (side panel)
+      const savedTrade: Trade = { ...trade, id }
+      chrome.runtime.sendMessage({
+        type: 'TRADE_LOGGED',
+        payload: savedTrade,
+      }).catch(() => {
+        // Side panel may not be open - this is expected
+      })
     },
     ctx,
     ErrorCode.DB_WRITE_FAILED
@@ -323,6 +339,27 @@ async function handleTradeExecuted(payload: {
       })
     )
   }
+}
+
+async function handleGetTrades(payload: {
+  sessionId?: number
+  limit?: number
+}): Promise<Trade[]> {
+  const ctx = { module: 'background' as const, function: 'handleGetTrades' }
+
+  const result = await tryCatchAsync(
+    async () => {
+      if (payload.sessionId !== undefined) {
+        return await TradeRepository.getBySession(payload.sessionId)
+      }
+      // Return recent trades across all sessions
+      return await TradeRepository.getRecent(payload.limit ?? 50)
+    },
+    ctx,
+    ErrorCode.DB_READ_FAILED
+  )
+
+  return result.success ? result.data : []
 }
 
 // ============================================================
