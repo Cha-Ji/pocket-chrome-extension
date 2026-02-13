@@ -2,6 +2,18 @@
 
 **최종 업데이트:** 2026-02-13 KST
 
+## (2026-02-13) Side Panel 아키텍처 리팩토링 — extensionClient 추출
+
+- **목표**: Chrome API 호출을 side-panel 컴포넌트/훅에서 분리하여 테스트/목킹 용이한 구조로 전환
+- **새 모듈**: `src/side-panel/infrastructure/extension-client.ts` — 모든 Chrome 메시징 추상화
+- **새 훅**: `src/side-panel/hooks/useSignalStatus.ts` — SignalPanel에서 상태 로직 추출
+- **리팩토링 대상**: useTradingStatus, useTrades, SignalPanel, AutoMinerControl, HistoryMiner, DBMonitorDashboard, SettingsPanel
+- **결과**: side-panel 내 직접 `chrome.*` 호출 14건 → 0건 (infrastructure 레이어만 보유)
+- **테스트**: 기존 39개 통과 + extensionClient 10개 테스트 추가 (총 49개)
+- **TypeScript**: 컴파일 에러 0건
+- 다음 행동: 필요시 useAutoMiner, useDBMonitor 등 추가 훅 추출
+- 상세: `docs/features/side-panel-refactor/`
+
 ## (2026-02-13) TIF-60 (Tick Imbalance Fade) 전략 구현
 
 - **새 전략**: TIF-60 — 틱 불균형 기반 역추세(되돌림) 매매

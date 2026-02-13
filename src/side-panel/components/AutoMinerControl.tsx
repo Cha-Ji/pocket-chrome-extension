@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { sendTabMessageCallback, sendTabMessageSafe } from '../infrastructure/extension-client'
 
 interface AssetProgress {
   asset: string
@@ -52,18 +53,9 @@ export function AutoMinerControl() {
 
   useEffect(() => {
     const fetchStatus = () => {
-      try {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-          if (tabs[0]?.id) {
-            chrome.tabs.sendMessage(tabs[0].id, { type: 'GET_MINER_STATUS' }, (res) => {
-              if (chrome.runtime.lastError) return
-              if (res) setStatus(prev => ({ ...DEFAULT_STATUS, ...prev, ...res }))
-            })
-          }
-        })
-      } catch (e) {
-        console.error('AutoMinerControl error:', e)
-      }
+      sendTabMessageCallback('GET_MINER_STATUS', (res) => {
+        if (res) setStatus(prev => ({ ...DEFAULT_STATUS, ...prev, ...(res as Partial<MinerStatus>) }))
+      })
     }
     const interval = setInterval(fetchStatus, 1000)
     return () => clearInterval(interval)
@@ -71,11 +63,7 @@ export function AutoMinerControl() {
 
   const toggleMiner = () => {
     const action = status.isActive ? 'STOP_AUTO_MINER' : 'START_AUTO_MINER'
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]?.id) {
-        chrome.tabs.sendMessage(tabs[0].id, { type: action })
-      }
-    })
+    sendTabMessageSafe(action)
   }
 
   const completedAssets = status.assetProgress?.filter(a => a.isComplete) || []

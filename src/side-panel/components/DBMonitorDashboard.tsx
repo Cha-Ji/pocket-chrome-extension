@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { CandleRepository } from '../../lib/db'
 import type { DataSenderStats } from '../../lib/data-sender'
+import { sendTabMessageCallback } from '../infrastructure/extension-client'
 
 const SERVER_URL = 'http://localhost:3001'
 const POLL_SENDER_MS = 5000
@@ -69,16 +70,10 @@ export function DBMonitorDashboard() {
 
   // 소스 1: DataSender 통계 폴링 (5초)
   const fetchSenderStats = useCallback(() => {
-    try {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]?.id) {
-          chrome.tabs.sendMessage(tabs[0].id, { type: 'GET_DB_MONITOR_STATUS' }, (res) => {
-            if (chrome.runtime.lastError) return
-            if (res?.sender) setSenderStats(res.sender)
-          })
-        }
-      })
-    } catch {}
+    sendTabMessageCallback('GET_DB_MONITOR_STATUS', (res) => {
+      const typed = res as { sender?: DataSenderStats } | null
+      if (typed?.sender) setSenderStats(typed.sender)
+    })
   }, [])
 
   // 소스 2: 서버 health + stats 폴링 (10초)

@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { TelegramConfig, DEFAULT_TELEGRAM_CONFIG, TelegramService } from '../../lib/notifications/telegram'
 import { loadTelegramConfig, saveTelegramConfig } from '../../lib/config'
+import { sendRuntimeMessage } from '../infrastructure/extension-client'
 
 export function SettingsPanel() {
   const [config, setConfig] = useState<TelegramConfig>(DEFAULT_TELEGRAM_CONFIG)
@@ -23,7 +24,7 @@ export function SettingsPanel() {
     await saveTelegramConfig(newConfig)
 
     // Notify background/content scripts to reload config
-    chrome.runtime.sendMessage({ type: 'RELOAD_TELEGRAM_CONFIG', payload: newConfig })
+    sendRuntimeMessage('RELOAD_TELEGRAM_CONFIG', newConfig)
   }
 
   const handleChange = (key: keyof TelegramConfig, value: any) => {
