@@ -1,10 +1,11 @@
 import { forceClick } from '../lib/dom-utils'
 import { loggers } from '../lib/logger'
 import { PO_PAYOUT_SELECTORS } from '../lib/platform/adapters/pocket-option/selectors'
+import type { AssetPayout } from '../lib/types'
+
+export type { AssetPayout }
 
 const log = loggers.monitor
-
-export interface AssetPayout { name: string; payout: number; isOTC: boolean; lastUpdated: number; }
 export interface PayoutFilter { minPayout: number; onlyOTC: boolean; }
 export interface UnavailableAsset { name: string; failedAt: number; retryCount: number; }
 const DEFAULT_FILTER: PayoutFilter = { minPayout: 92, onlyOTC: true, }

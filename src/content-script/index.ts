@@ -4,7 +4,7 @@
 
 console.log('[PO] >>> SCRIPT LOADED <<<');
 
-import { DOMSelectors, DEFAULT_SELECTORS, ExtensionMessage } from '../lib/types'
+import { DOMSelectors, DEFAULT_SELECTORS, ExtensionMessage, TradingConfigV2 } from '../lib/types'
 import { DataCollector } from './data-collector'
 import { TradeExecutor } from './executor'
 import { getCandleCollector, CandleCollector, Candle } from './candle-collector'
@@ -28,16 +28,6 @@ let signalGenerator: SignalGeneratorV2 | null = null
 let telegramService: TelegramService | null = null
 let wsInterceptor: ReturnType<typeof getWebSocketInterceptor> | null = null
 let isInitialized = false
-
-interface TradingConfigV2 {
-  enabled: boolean
-  autoAssetSwitch: boolean
-  minPayout: number
-  tradeAmount: number
-  maxDrawdown: number
-  maxConsecutiveLosses: number
-  onlyRSI: boolean
-}
 
 const DEFAULT_CONFIG: TradingConfigV2 = {
   enabled: false,
@@ -292,12 +282,13 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
     case 'STOP_AUTO_MINER': AutoMiner.stop(); return { success: true, message: 'Auto Miner Stopped' };
     case 'GET_MINER_STATUS': return AutoMiner.getStatus();
     case 'GET_DB_MONITOR_STATUS': return { sender: DataSender.getStats() };
-    case 'SET_MINER_CONFIG': AutoMiner.updateConfig(message.payload as { offsetSeconds?: number; maxDaysBack?: number; requestDelayMs?: number }); return { success: true, config: AutoMiner.getConfig() };
+    case 'SET_MINER_CONFIG': AutoMiner.updateConfig(message.payload); return { success: true, config: AutoMiner.getConfig() };
     case 'GET_STATUS_V2': return getSystemStatus();
     case 'GET_LLM_REPORT': return getLLMReport();
-    case 'SET_CONFIG_V2': tradingConfig = { ...tradingConfig, ...(message.payload as unknown as Partial<TradingConfigV2>) }; return { success: true, config: tradingConfig };
+    case 'SET_CONFIG_V2': tradingConfig = { ...tradingConfig, ...message.payload }; return { success: true, config: tradingConfig };
     case 'START_TRADING_V2': tradingConfig.enabled = true; return { success: true };
     case 'STOP_TRADING_V2': tradingConfig.enabled = false; return { success: true };
+    case 'GET_SIGNALS': return signalGenerator?.getSignals(message.payload.limit ?? 20) ?? [];
     case 'GET_HIGH_PAYOUT_ASSETS': return payoutMonitor?.getHighPayoutAssets() ?? [];
     case 'SWITCH_ASSET': return switchToAsset(message.payload.assetName);
     case 'EXPORT_CANDLES': return candleCollector?.exportCandles(message.payload.ticker) ?? null;

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { ExtensionMessage } from '../../lib/types'
 import { DataSender } from '../../lib/data-sender'
 
 // ============================================================
@@ -47,9 +48,9 @@ export function HistoryMiner() {
 
   // 채굴 진행상황 리스너
   useEffect(() => {
-    const handleMessage = (message: any) => {
+    const handleMessage = (message: ExtensionMessage) => {
       if (message.type === 'MINING_STATS') {
-        setStats(message.payload)
+        setStats({ ...stats, collected: message.payload.collected })
         setStatus(`Mining... Collected: ${message.payload.collected}`)
       }
       if (message.type === 'MINING_STOPPED') {

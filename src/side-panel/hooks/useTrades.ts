@@ -1,18 +1,27 @@
 
 import { useState, useEffect } from 'react'
-import { Trade, ExtensionMessage } from '../../lib/types'
+import { Trade, ExtensionMessage, MessagePayloadMap } from '../../lib/types'
+
+/** Build a Trade from TRADE_EXECUTED payload, filling defaults for missing fields */
+function payloadToTrade(payload: MessagePayloadMap['TRADE_EXECUTED']): Trade {
+  return {
+    sessionId: 0,
+    ticker: payload.ticker ?? 'unknown',
+    direction: payload.direction ?? 'CALL',
+    entryTime: payload.timestamp,
+    entryPrice: payload.entryPrice ?? 0,
+    result: 'PENDING',
+    amount: payload.amount ?? 0,
+  }
+}
 
 export function useTrades() {
   const [trades, setTrades] = useState<Trade[]>([])
 
   useEffect(() => {
-    // Initial fetch (if we had a GET_TRADES message)
-    // For now we listen for new trades
     const handleMessage = (message: ExtensionMessage) => {
       if (message.type === 'TRADE_EXECUTED' && message.payload) {
-        // TRADE_EXECUTED payload is { signalId?, result?, timestamp? }
-        // Map to Trade shape for display
-        const trade = message.payload as unknown as Trade
+        const trade = payloadToTrade(message.payload)
         setTrades(prev => [...prev, trade])
       }
     }

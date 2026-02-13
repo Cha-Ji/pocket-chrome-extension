@@ -98,6 +98,81 @@ export interface ErrorLog {
 }
 
 // ============================================================
+// Shared Types for Message Contracts
+// ============================================================
+// These types are used across module boundaries (content-script,
+// background, side-panel) and serve as the single source of truth
+// for message payloads.
+// ============================================================
+
+import type { Signal } from '../signals/types'
+
+/** V2 자동매매 설정 */
+export interface TradingConfigV2 {
+  enabled: boolean
+  autoAssetSwitch: boolean
+  minPayout: number
+  tradeAmount: number
+  maxDrawdown: number
+  maxConsecutiveLosses: number
+  onlyRSI: boolean
+}
+
+/** 자산 페이아웃 정보 */
+export interface AssetPayout {
+  name: string
+  payout: number
+  isOTC: boolean
+  lastUpdated: number
+}
+
+/** 기술적 지표 값 */
+export interface IndicatorValues {
+  rsi?: number
+  stochasticK?: number
+  stochasticD?: number
+  macd?: {
+    macd: number
+    signal: number
+    histogram: number
+  }
+  bollingerBands?: {
+    upper: number
+    middle: number
+    lower: number
+  }
+  timestamp: number
+}
+
+/** 텔레그램 알림 설정 */
+export interface TelegramConfig {
+  botToken: string
+  chatId: string
+  enabled: boolean
+  notifySignals: boolean
+  notifyTrades: boolean
+  notifyErrors: boolean
+}
+
+/** WebSocket 가격 업데이트 */
+export interface PriceUpdate {
+  symbol: string
+  price: number
+  timestamp: number
+  source: 'websocket'
+}
+
+/** WebSocket 연결 상태 */
+export interface WebSocketConnection {
+  id: string
+  url: string
+  isPriceRelated: boolean
+  readyState: 'connecting' | 'open' | 'closing' | 'closed'
+  messageCount: number
+  lastMessageAt: number | null
+}
+
+// ============================================================
 // Message Types for Extension Communication
 // ============================================================
 
@@ -107,39 +182,47 @@ export interface MessagePayloadMap {
   START_TRADING: undefined
   STOP_TRADING: undefined
   TICK_DATA: Tick
-  TRADE_EXECUTED: { signalId?: string; result?: unknown; timestamp?: number }
+  TRADE_EXECUTED: {
+    signalId?: string
+    result?: boolean
+    timestamp: number
+    direction?: Direction
+    amount?: number
+    ticker?: string
+    entryPrice?: number
+  }
   STATUS_UPDATE: TradingStatus
   GET_STATUS: undefined
   // V2 API
   GET_STATUS_V2: undefined
   GET_LLM_REPORT: undefined
-  SET_CONFIG_V2: Record<string, unknown>
+  SET_CONFIG_V2: Partial<TradingConfigV2>
   START_TRADING_V2: undefined
   STOP_TRADING_V2: undefined
-  GET_SIGNALS: undefined
+  GET_SIGNALS: { limit?: number }
   GET_HIGH_PAYOUT_ASSETS: undefined
   SWITCH_ASSET: { assetName: string }
   EXPORT_CANDLES: { ticker: string }
   UPDATE_SIGNAL_RESULT: { signalId: string; result: string }
-  NEW_SIGNAL_V2: { signal: unknown; config: unknown }
-  PAYOUT_UPDATE: unknown[]
-  BEST_ASSET: { name: string; payout: number }
+  NEW_SIGNAL_V2: { signal: Signal; config: TradingConfigV2 }
+  PAYOUT_UPDATE: { highPayoutAssets: AssetPayout[]; totalAssets: number }
+  BEST_ASSET: AssetPayout
   // Indicator API
   GET_PAGE_INDICATORS: undefined
   GET_PAGE_RSI: undefined
   GET_PAGE_STOCHASTIC: undefined
   READ_INDICATORS_NOW: undefined
-  INDICATOR_UPDATE: Record<string, unknown>
-  INDICATOR_VALUES: Record<string, unknown>
+  INDICATOR_UPDATE: IndicatorValues
+  INDICATOR_VALUES: IndicatorValues
   // WebSocket Interceptor API
   GET_WS_STATUS: undefined
   GET_WS_CONNECTIONS: undefined
   GET_WS_MESSAGES: undefined
   SET_WS_ANALYSIS_MODE: { enabled: boolean }
   CLEAR_WS_MESSAGES: undefined
-  WS_PRICE_UPDATE: { symbol: string; price: number; timestamp: number }
+  WS_PRICE_UPDATE: PriceUpdate
   WS_MESSAGE: { connectionId: string; parsed: unknown; timestamp: number }
-  WS_CONNECTION: { id: string; url: string; readyState: string }
+  WS_CONNECTION: WebSocketConnection
   // Auto Miner
   START_AUTO_MINER: undefined
   STOP_AUTO_MINER: undefined
@@ -156,7 +239,7 @@ export interface MessagePayloadMap {
   MINING_STATS: { collected: number }
   MINING_STOPPED: undefined
   // Telegram
-  RELOAD_TELEGRAM_CONFIG: undefined
+  RELOAD_TELEGRAM_CONFIG: TelegramConfig
   // Error Handling
   GET_ERROR_STATS: undefined
   GET_ERROR_HISTORY: { limit?: number }
@@ -174,6 +257,21 @@ export type ExtensionMessage = {
     ? { type: K; payload?: undefined }
     : { type: K; payload: MessagePayloadMap[K] }
 }[MessageType]
+
+/**
+ * Type-safe message sender. Use to construct messages with correct payloads.
+ *
+ * @example
+ * ```typescript
+ * const msg: TypedMessage<'TRADE_EXECUTED'> = {
+ *   type: 'TRADE_EXECUTED',
+ *   payload: { signalId: 'abc', timestamp: Date.now() }
+ * }
+ * ```
+ */
+export type TypedMessage<K extends MessageType> = MessagePayloadMap[K] extends undefined
+  ? { type: K; payload?: undefined }
+  : { type: K; payload: MessagePayloadMap[K] }
 
 export interface TradingStatus {
   isRunning: boolean

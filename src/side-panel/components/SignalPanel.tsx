@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Signal } from '../../lib/signals/types'
+import { AssetPayout, ExtensionMessage, MessageType } from '../../lib/types'
 import { formatMoney, formatPercent, formatNumber } from '../utils/format'
 
 interface SignalPanelProps {
@@ -31,12 +32,6 @@ interface SystemStatus {
   candleCount: Array<{ ticker: string; count: number }>
 }
 
-interface AssetPayout {
-  name: string
-  payout: number
-  isOTC: boolean
-}
-
 export function SignalPanel({ onSignal }: SignalPanelProps) {
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [signals, setSignals] = useState<Signal[]>([])
@@ -45,12 +40,12 @@ export function SignalPanel({ onSignal }: SignalPanelProps) {
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Send message to content script
-  const sendMessage = useCallback(async (type: string, payload?: unknown) => {
+  // Send message to content script (type-safe)
+  const sendMessage = useCallback(async (type: MessageType, payload?: unknown) => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
       if (!tab?.id) throw new Error('No active tab')
-      
+
       return await chrome.tabs.sendMessage(tab.id, { type, payload })
     } catch (err) {
       console.error('Message error:', err)
@@ -106,14 +101,14 @@ export function SignalPanel({ onSignal }: SignalPanelProps) {
 
   // Listen for new signals from content script
   useEffect(() => {
-    const handleMessage = (message: { type: string; payload?: unknown }) => {
+    const handleMessage = (message: ExtensionMessage) => {
       if (message.type === 'NEW_SIGNAL_V2' && message.payload) {
-        const { signal } = message.payload as { signal: Signal }
+        const { signal } = message.payload
         setSignals(prev => [signal, ...prev].slice(0, 20))
         onSignal?.(signal)
       }
     }
-    
+
     chrome.runtime.onMessage.addListener(handleMessage)
     return () => chrome.runtime.onMessage.removeListener(handleMessage)
   }, [onSignal])
