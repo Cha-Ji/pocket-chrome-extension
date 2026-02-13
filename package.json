@@ -19,7 +19,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\"",
     "type-check": "tsc --noEmit",
-    "collector": "npx ts-node scripts/data-collector-server.ts",
+    "collector": "npx tsx scripts/data-collector-server.ts",
     "collector:start": "pm2 start scripts/ecosystem.config.cjs",
     "collector:stop": "pm2 stop data-collector",
     "collector:logs": "pm2 logs data-collector"

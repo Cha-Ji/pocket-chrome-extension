@@ -24,6 +24,8 @@ export interface StrategyResult {
   confidence: number
   reason: string
   indicators: Record<string, number>
+  /** 전략이 제안하는 만기 시간(초). 설정 시 config.expirySeconds 대신 사용. */
+  expiryOverride?: number
 }
 
 export interface HighWinRateConfig {

@@ -3,7 +3,7 @@ import { CandleRepository } from '../../lib/db'
 import type { DataSenderStats } from '../../lib/data-sender'
 import { sendTabMessageCallback } from '../infrastructure/extension-client'
 
-const IS_DEV_MODE = import.meta.env.DEV
+// NOTE: 서버는 로컬(collector)로만 붙는다. 프로덕션 빌드에서도 상태 확인이 필요해서 DEV 가드 제거.
 const SERVER_URL = 'http://localhost:3001'
 const POLL_SENDER_MS = 5000
 const POLL_SERVER_MS = 10000
@@ -77,14 +77,27 @@ export function DBMonitorDashboard() {
     })
   }, [])
 
-  // 소스 2: 서버 health + stats 폴링 (10초) — dev 전용
-  const fetchServerStats = useCallback(async () => {
-    if (!IS_DEV_MODE) {
-      setServerOnline(false)
-      return
+  // 소스 2: 서버 health + stats 폴링 (10초)
+  // NOTE: Chrome/확장 환경에서는 AbortSignal.timeout 미지원(또는 제한)일 수 있어 수동 타임아웃을 사용한다.
+  const fetchWithTimeout = useCallback(async (url: string, timeoutMs: number) => {
+    // AbortSignal.timeout이 있으면 사용
+    const anyAbortSignal = AbortSignal as any
+    if (anyAbortSignal?.timeout) {
+      return fetch(url, { signal: anyAbortSignal.timeout(timeoutMs) })
     }
+
+    const controller = new AbortController()
+    const t = setTimeout(() => controller.abort(), timeoutMs)
     try {
-      const healthRes = await fetch(`${SERVER_URL}/health`, { signal: AbortSignal.timeout(3000) })
+      return await fetch(url, { signal: controller.signal })
+    } finally {
+      clearTimeout(t)
+    }
+  }, [])
+
+  const fetchServerStats = useCallback(async () => {
+    try {
+      const healthRes = await fetchWithTimeout(`${SERVER_URL}/health`, 3000)
       if (healthRes.ok) {
         const data = await healthRes.json()
         setServerOnline(true)
@@ -98,13 +111,13 @@ export function DBMonitorDashboard() {
     setLastServerCheck(Date.now())
 
     try {
-      const statsRes = await fetch(`${SERVER_URL}/api/candles/stats`, { signal: AbortSignal.timeout(5000) })
+      const statsRes = await fetchWithTimeout(`${SERVER_URL}/api/candles/stats`, 5000)
       if (statsRes.ok) {
         const data = await statsRes.json()
         setServerAssets(Array.isArray(data) ? data : [])
       }
     } catch {}
-  }, [])
+  }, [fetchWithTimeout])
 
   // 소스 3: IndexedDB 통계 폴링 (10초)
   const fetchIndexedDBStats = useCallback(async () => {
@@ -114,23 +127,36 @@ export function DBMonitorDashboard() {
     } catch {}
   }, [])
 
-  // 폴링 시작 (collapsed 상태면 중지)
+  // 폴링 시작 (collapsed 상태면 중지, visibility-aware)
   useEffect(() => {
     if (collapsed) return
+
+    const isVisible = () => document.visibilityState === 'visible'
 
     // 즉시 한번 실행
     fetchSenderStats()
     fetchServerStats()
     fetchIndexedDBStats()
 
-    const senderInterval = setInterval(fetchSenderStats, POLL_SENDER_MS)
-    const serverInterval = setInterval(fetchServerStats, POLL_SERVER_MS)
-    const dbInterval = setInterval(fetchIndexedDBStats, POLL_INDEXEDDB_MS)
+    const senderInterval = setInterval(() => { if (isVisible()) fetchSenderStats() }, POLL_SENDER_MS)
+    const serverInterval = setInterval(() => { if (isVisible()) fetchServerStats() }, POLL_SERVER_MS)
+    const dbInterval = setInterval(() => { if (isVisible()) fetchIndexedDBStats() }, POLL_INDEXEDDB_MS)
+
+    // Refresh immediately when becoming visible again
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchSenderStats()
+        fetchServerStats()
+        fetchIndexedDBStats()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
 
     return () => {
       clearInterval(senderInterval)
       clearInterval(serverInterval)
       clearInterval(dbInterval)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [collapsed, fetchSenderStats, fetchServerStats, fetchIndexedDBStats])
 

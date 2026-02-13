@@ -83,6 +83,15 @@ export type {
   StrategyName,
 } from './high-winrate'
 
+// SBB-120 (Squeeze Bollinger Breakout) strategy
+export {
+  sbb120Strategy,
+  DEFAULT_SBB120_CONFIG,
+} from './sbb-120'
+export type {
+  SBB120Config,
+} from './sbb-120'
+
 // ZMR-60 (Z-score Mean Reversion) strategy
 export {
   zmr60Strategy,

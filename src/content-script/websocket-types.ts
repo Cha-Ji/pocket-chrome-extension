@@ -3,14 +3,12 @@
 // ============================================================
 // websocket-parser.ts와 websocket-interceptor.ts 간
 // 순환 의존을 방지하기 위해 공유 타입을 분리한 파일입니다.
+// 메시지 계약에 사용되는 타입은 lib/types에서 정의되며 여기서 re-export합니다.
 // ============================================================
 
-export interface PriceUpdate {
-  symbol: string
-  price: number
-  timestamp: number
-  source: 'websocket'
-}
+import type { PriceUpdate, WebSocketConnection } from '../lib/types'
+
+export type { PriceUpdate, WebSocketConnection }
 
 export interface CandleData {
   symbol: string
@@ -35,15 +33,6 @@ export interface TradeData {
   quantity: number
   side: 'buy' | 'sell'
   timestamp: number
-}
-
-export interface WebSocketConnection {
-  id: string
-  url: string
-  isPriceRelated: boolean
-  readyState: 'connecting' | 'open' | 'closing' | 'closed'
-  messageCount: number
-  lastMessageAt: number | null
 }
 
 export interface WebSocketMessage {

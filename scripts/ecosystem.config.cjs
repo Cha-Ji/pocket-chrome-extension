@@ -7,7 +7,7 @@ module.exports = {
     {
       name: 'data-collector',
       script: 'npx',
-      args: 'ts-node scripts/data-collector-server.ts',
+      args: 'tsx scripts/data-collector-server.ts',
       cwd: process.env.PROJECT_ROOT || __dirname.replace('/scripts', ''),
 
       // Restart policy

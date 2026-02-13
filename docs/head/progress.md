@@ -14,6 +14,19 @@
 - 다음 행동: 필요시 useAutoMiner, useDBMonitor 등 추가 훅 추출
 - 상세: `docs/features/side-panel-refactor/`
 
+## (2026-02-13) SBB-120 (Squeeze Bollinger Breakout) 전략 구현
+
+- **전략**: Bollinger BandWidth squeeze 감지 후 breakout 방향으로 120초 만기 거래
+- **신규 파일**: `src/lib/backtest/strategies/sbb-120.ts`
+- **타입 확장**: `StrategyResult.expiryOverride?: number` 추가 (하위호환)
+- **SignalGeneratorV2 통합**:
+  - `createSignal`에서 `expiryOverride` 우선 적용
+  - `selectStrategy`에서 ranging 구간 SBB-120 우선 → rsiBBBounce 폴백
+- **가짜돌파 방어 3가지**: breakoutMargin, bodyRatio, volatility expansion
+- **테스트**: 17개 테스트 통과, 기존 125개 전략 테스트 통과
+- 다음 행동: 실데이터 백테스트로 승률 52.1%+ 검증
+- 상세: `docs/features/sbb-120-strategy/`
+
 ## (2026-02-13) TIF-60 (Tick Imbalance Fade) 전략 구현
 
 - **새 전략**: TIF-60 — 틱 불균형 기반 역추세(되돌림) 매매

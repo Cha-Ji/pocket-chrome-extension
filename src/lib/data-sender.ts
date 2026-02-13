@@ -10,10 +10,11 @@ const log = loggers.dataSender
 const SERVER_URL = 'http://localhost:3001'
 
 /**
- * Dev-only 가드: production 빌드에서는 DataSender가 no-op이 됨.
- * Vite가 빌드 타임에 import.meta.env.DEV를 false로 치환하여 dead code elimination 수행.
+ * NOTE:
+ * - 초기 구현은 DEV 모드에서만 로컬 collector(localhost:3001)로 전송하도록 가드가 있었음.
+ * - 현재는 실사용에서도 수집/모니터링이 필요하므로 production 빌드에서도 전송을 허용한다.
+ * - 로컬 서버가 꺼져있으면 네트워크 에러로만 처리되고 기능은 자동으로 degrade 된다.
  */
-const IS_DEV_MODE = import.meta.env.DEV
 
 /** DataSender 전송 통계 */
 export interface DataSenderStats {
@@ -59,13 +60,12 @@ export const DataSender = {
    * 서버 상태 확인
    */
   async checkHealth(): Promise<boolean> {
-    if (!IS_DEV_MODE) return false
     try {
       const res = await fetch(`${SERVER_URL}/health`)
       senderStats.serverOnline = res.ok
       senderStats.lastHealthCheck = Date.now()
       return res.ok
-    } catch (e) {
+    } catch {
       senderStats.serverOnline = false
       senderStats.lastHealthCheck = Date.now()
       return false
@@ -76,7 +76,6 @@ export const DataSender = {
    * 실시간 캔들 전송
    */
   async sendCandle(candle: CandleLike): Promise<void> {
-    if (!IS_DEV_MODE) return
     senderStats.realtimeSendCount++
     try {
       const payload = {
@@ -88,7 +87,7 @@ export const DataSender = {
         low: candle.low,
         close: candle.close,
         volume: candle.volume || 0,
-        source: 'realtime'
+        source: 'realtime',
       }
 
       log.debug(`Sending candle: ${payload.symbol} @ ${payload.timestamp}`)
@@ -96,17 +95,16 @@ export const DataSender = {
       const response = await fetch(`${SERVER_URL}/api/candle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+        body: JSON.stringify(payload),
+      })
 
       if (response.ok) {
         senderStats.realtimeSuccessCount++
       } else {
         senderStats.realtimeFailCount++
-        const errorText = await response.text();
+        const errorText = await response.text()
         log.error(`Server error (${response.status}): ${errorText}`)
       }
-
     } catch (error: unknown) {
       senderStats.realtimeFailCount++
       log.error(`Network error: ${error instanceof Error ? error.message : String(error)}`)
@@ -117,37 +115,44 @@ export const DataSender = {
    * 과거 데이터 Bulk 전송
    */
   async sendHistory(candles: CandleLike[]): Promise<void> {
-    if (!IS_DEV_MODE) return
     if (candles.length === 0) return
 
     senderStats.bulkSendCount++
+
     try {
-      const firstCandle = candles[0];
-      const symbol = firstCandle.symbol || firstCandle.ticker || 'UNKNOWN';
+      const firstCandle = candles[0]
+      const symbol = firstCandle.symbol || firstCandle.ticker || 'UNKNOWN'
       log.data(`Attempting bulk send: ${candles.length} candles for ${symbol}`)
 
-      const mapped = candles.map(c => ({
-        symbol: (c.symbol || c.ticker || symbol).toUpperCase().replace(/\s+/g, '-'),
-        interval: '1m',
-        timestamp: Number(c.timestamp),
-        open: Number(c.open),
-        high: Number(c.high),
-        low: Number(c.low),
-        close: Number(c.close),
-        volume: Number(c.volume || 0),
-        source: 'history'
-      })).filter(c =>
-        c.symbol && c.symbol !== 'UNKNOWN' &&
-        !isNaN(c.timestamp) && c.timestamp > 0 &&
-        !isNaN(c.open) &&
-        !isNaN(c.high) &&
-        !isNaN(c.low) &&
-        !isNaN(c.close)
-      )
+      const mapped = candles
+        .map((c) => ({
+          symbol: (c.symbol || c.ticker || symbol).toUpperCase().replace(/\s+/g, '-'),
+          interval: '1m',
+          timestamp: Number(c.timestamp),
+          open: Number(c.open),
+          high: Number(c.high),
+          low: Number(c.low),
+          close: Number(c.close),
+          volume: Number(c.volume || 0),
+          source: 'history',
+        }))
+        .filter(
+          (c) =>
+            c.symbol &&
+            c.symbol !== 'UNKNOWN' &&
+            !isNaN(c.timestamp) &&
+            c.timestamp > 0 &&
+            !isNaN(c.open) &&
+            !isNaN(c.high) &&
+            !isNaN(c.low) &&
+            !isNaN(c.close)
+        )
 
       if (mapped.length === 0) {
         senderStats.bulkFailCount++
-        log.fail(`All ${candles.length} candles filtered out during validation. Sample: ${JSON.stringify(candles[0])}`)
+        log.fail(
+          `All ${candles.length} candles filtered out during validation. Sample: ${JSON.stringify(candles[0])}`
+        )
         return
       }
 
@@ -162,18 +167,18 @@ export const DataSender = {
       const response = await fetch(`${SERVER_URL}/api/candles/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: bodyStr
+        body: bodyStr,
       })
 
       if (response.ok) {
-        const result = await response.json();
+        const result = await response.json()
         senderStats.bulkSuccessCount++
         senderStats.bulkTotalCandles += result.count
         senderStats.lastBulkSendAt = Date.now()
         log.success(`Bulk saved: ${result.count} candles (symbol: ${mapped[0].symbol})`)
       } else {
         senderStats.bulkFailCount++
-        const errorText = await response.text();
+        const errorText = await response.text()
         log.fail(`Bulk send failed (HTTP ${response.status}): ${errorText}`)
       }
     } catch (error: unknown) {

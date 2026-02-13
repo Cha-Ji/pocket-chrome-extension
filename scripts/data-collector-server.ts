@@ -5,7 +5,7 @@ import bodyParser from 'body-parser'
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
-import { toEpochMs } from '../src/lib/utils/time'
+import { toEpochMs } from '../src/lib/utils/time.ts'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)

@@ -5,22 +5,9 @@
 // DOM에서 직접 읽어오는 모듈
 // ============================================================
 
-export interface IndicatorValues {
-  rsi?: number
-  stochasticK?: number
-  stochasticD?: number
-  macd?: {
-    macd: number
-    signal: number
-    histogram: number
-  }
-  bollingerBands?: {
-    upper: number
-    middle: number
-    lower: number
-  }
-  timestamp: number
-}
+import type { IndicatorValues } from '../lib/types'
+
+export type { IndicatorValues }
 
 // Pocket Option 인디케이터 DOM 셀렉터
 // 실제 사이트 구조에 따라 조정 필요

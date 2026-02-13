@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { usePortSubscription } from '../hooks/usePortSubscription'
 import { sendTabMessageCallback, sendTabMessageSafe } from '../infrastructure/extension-client'
 
 interface AssetProgress {
@@ -51,14 +52,17 @@ function formatNumber(n: number): string {
 export function AutoMinerControl() {
   const [status, setStatus] = useState<MinerStatus>(DEFAULT_STATUS)
 
+  // Subscribe to miner status pushes via port (replaces 1s polling)
+  const handleStatusPush = useCallback((payload: unknown) => {
+    if (payload) setStatus(prev => ({ ...DEFAULT_STATUS, ...prev, ...(payload as Partial<MinerStatus>) }))
+  }, [])
+  usePortSubscription('MINER_STATUS_PUSH', handleStatusPush)
+
+  // Fetch initial status once on mount
   useEffect(() => {
-    const fetchStatus = () => {
-      sendTabMessageCallback('GET_MINER_STATUS', (res) => {
-        if (res) setStatus(prev => ({ ...DEFAULT_STATUS, ...prev, ...(res as Partial<MinerStatus>) }))
-      })
-    }
-    const interval = setInterval(fetchStatus, 1000)
-    return () => clearInterval(interval)
+    sendTabMessageCallback('GET_MINER_STATUS', (res) => {
+      if (res) setStatus(prev => ({ ...DEFAULT_STATUS, ...prev, ...(res as Partial<MinerStatus>) }))
+    })
   }, [])
 
   const toggleMiner = () => {
