@@ -108,6 +108,8 @@ export interface MessagePayloadMap {
   STOP_TRADING: undefined
   TICK_DATA: Tick
   TRADE_EXECUTED: { signalId?: string; result?: unknown; timestamp?: number }
+  TRADE_LOGGED: Trade
+  GET_TRADES: { sessionId?: number; limit?: number }
   STATUS_UPDATE: TradingStatus
   GET_STATUS: undefined
   // V2 API

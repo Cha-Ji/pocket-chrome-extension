@@ -254,6 +254,10 @@ export const TradeRepository = {
     return await db.trades.where('sessionId').equals(sessionId).toArray()
   },
 
+  async getRecent(limit = 50): Promise<Trade[]> {
+    return await db.trades.orderBy('entryTime').reverse().limit(limit).toArray()
+  },
+
   async getPending(): Promise<Trade[]> {
     return await db.trades.where('result').equals('PENDING').toArray()
   },
