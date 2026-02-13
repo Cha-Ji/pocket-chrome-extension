@@ -16,7 +16,68 @@ export interface StoredCandle {
   low: number
   close: number
   volume?: number
+  source?: CandleSource // 데이터 출처
   createdAt: number
+}
+
+// ============================================================
+// Candle Source Type
+// ============================================================
+
+export type CandleSource = 'websocket' | 'import' | 'api' | 'manual'
+
+// ============================================================
+// Backtest Result Type (IndexedDB 저장용)
+// ============================================================
+
+export interface StoredBacktestResult {
+  id?: number
+  strategyId: string
+  strategyName: string
+  strategyParams: Record<string, number>
+  symbol: string
+  startTime: number
+  endTime: number
+  candleCount: number
+  // 핵심 지표
+  totalTrades: number
+  wins: number
+  losses: number
+  ties: number
+  winRate: number
+  netProfit: number
+  netProfitPercent: number
+  maxDrawdown: number
+  maxDrawdownPercent: number
+  profitFactor: number
+  expectancy: number
+  sharpeRatio: number
+  sortinoRatio: number
+  // 데이터 퀄리티
+  coveragePercent: number
+  gapCount: number
+  // 거래 내역 (JSON)
+  trades: string // JSON serialized BacktestTrade[]
+  equityCurve: string // JSON serialized {timestamp, balance}[]
+  // 설정 (JSON)
+  config: string // JSON serialized BacktestConfig
+  // 메타
+  createdAt: number
+}
+
+// ============================================================
+// Candle Dataset Meta Type
+// ============================================================
+
+export interface CandleDataset {
+  id?: number
+  ticker: string
+  interval: number // seconds
+  startTime: number
+  endTime: number
+  candleCount: number
+  source: CandleSource
+  lastUpdated: number
 }
 
 // ============================================================
@@ -30,6 +91,8 @@ export class PocketDB extends Dexie {
   trades!: EntityTable<Trade, 'id'>
   candles!: EntityTable<StoredCandle, 'id'>
   leaderboardEntries!: EntityTable<LeaderboardEntry, 'id'>
+  backtestResults!: EntityTable<StoredBacktestResult, 'id'>
+  candleDatasets!: EntityTable<CandleDataset, 'id'>
 
   constructor() {
     super('PocketQuantTrader')
@@ -59,6 +122,18 @@ export class PocketDB extends Dexie {
       trades: '++id, sessionId, ticker, entryTime, result',
       candles: '++id, ticker, interval, timestamp, [ticker+interval], [ticker+interval+timestamp]',
       leaderboardEntries: '++id, strategyId, compositeScore, winRate, rank, createdAt',
+    })
+
+    // Version 4: 백테스트 결과 + 캔들 데이터셋 메타 + source 필드
+    this.version(4).stores({
+      ticks: '++id, ticker, timestamp, [ticker+timestamp]',
+      strategies: '++id, name, createdAt',
+      sessions: '++id, type, strategyId, startTime',
+      trades: '++id, sessionId, ticker, entryTime, result',
+      candles: '++id, ticker, interval, timestamp, [ticker+interval], [ticker+interval+timestamp], source',
+      leaderboardEntries: '++id, strategyId, compositeScore, winRate, rank, createdAt',
+      backtestResults: '++id, strategyId, symbol, createdAt, winRate, netProfit',
+      candleDatasets: '++id, ticker, interval, source, [ticker+interval], lastUpdated',
     })
   }
 }
@@ -224,9 +299,10 @@ export const CandleRepository = {
   /**
    * 캔들 bulk 저장 (중복 무시)
    */
-  async bulkAdd(candles: Omit<StoredCandle, 'id' | 'createdAt'>[]): Promise<number> {
+  async bulkAdd(candles: Omit<StoredCandle, 'id' | 'createdAt'>[], source?: CandleSource): Promise<number> {
     const withCreatedAt = candles.map(c => ({
       ...c,
+      source: c.source || source,
       createdAt: Date.now()
     }))
 
@@ -489,5 +565,164 @@ export const LeaderboardRepository = {
    */
   async count(): Promise<number> {
     return await db.leaderboardEntries.count()
+  },
+}
+
+// ============================================================
+// Backtest Result Repository - 백테스트 결과 영속화
+// ============================================================
+
+export const BacktestResultRepository = {
+  /**
+   * 백테스트 결과 저장
+   */
+  async save(result: Omit<StoredBacktestResult, 'id'>): Promise<number | undefined> {
+    return await db.backtestResults.add({
+      ...result,
+      createdAt: Date.now(),
+    })
+  },
+
+  /**
+   * ID로 조회
+   */
+  async getById(id: number): Promise<StoredBacktestResult | undefined> {
+    return await db.backtestResults.get(id)
+  },
+
+  /**
+   * 전략별 결과 조회
+   */
+  async getByStrategy(strategyId: string): Promise<StoredBacktestResult[]> {
+    return await db.backtestResults
+      .where('strategyId')
+      .equals(strategyId)
+      .reverse()
+      .toArray()
+  },
+
+  /**
+   * 최근 결과 조회
+   */
+  async getRecent(limit = 20): Promise<StoredBacktestResult[]> {
+    return await db.backtestResults
+      .orderBy('createdAt')
+      .reverse()
+      .limit(limit)
+      .toArray()
+  },
+
+  /**
+   * 심볼별 결과 조회
+   */
+  async getBySymbol(symbol: string): Promise<StoredBacktestResult[]> {
+    return await db.backtestResults
+      .where('symbol')
+      .equals(symbol)
+      .reverse()
+      .toArray()
+  },
+
+  /**
+   * 결과 삭제
+   */
+  async delete(id: number): Promise<void> {
+    await db.backtestResults.delete(id)
+  },
+
+  /**
+   * 전체 삭제
+   */
+  async clear(): Promise<void> {
+    await db.backtestResults.clear()
+  },
+
+  /**
+   * 결과 개수
+   */
+  async count(): Promise<number> {
+    return await db.backtestResults.count()
+  },
+}
+
+// ============================================================
+// Candle Dataset Repository - 캔들 데이터셋 메타 관리
+// ============================================================
+
+export const CandleDatasetRepository = {
+  /**
+   * 데이터셋 메타 추가/갱신 (upsert)
+   */
+  async upsert(dataset: Omit<CandleDataset, 'id'>): Promise<void> {
+    const existing = await db.candleDatasets
+      .where('[ticker+interval]')
+      .equals([dataset.ticker, dataset.interval])
+      .first()
+
+    if (existing) {
+      await db.candleDatasets.update(existing.id!, {
+        startTime: Math.min(existing.startTime, dataset.startTime),
+        endTime: Math.max(existing.endTime, dataset.endTime),
+        candleCount: dataset.candleCount,
+        source: dataset.source,
+        lastUpdated: Date.now(),
+      })
+    } else {
+      await db.candleDatasets.add({
+        ...dataset,
+        lastUpdated: Date.now(),
+      })
+    }
+  },
+
+  /**
+   * 모든 데이터셋 조회
+   */
+  async getAll(): Promise<CandleDataset[]> {
+    return await db.candleDatasets
+      .orderBy('lastUpdated')
+      .reverse()
+      .toArray()
+  },
+
+  /**
+   * 티커별 데이터셋 조회
+   */
+  async getByTicker(ticker: string): Promise<CandleDataset[]> {
+    return await db.candleDatasets
+      .where('ticker')
+      .equals(ticker)
+      .toArray()
+  },
+
+  /**
+   * 특정 데이터셋 조회
+   */
+  async get(ticker: string, interval: number): Promise<CandleDataset | undefined> {
+    return await db.candleDatasets
+      .where('[ticker+interval]')
+      .equals([ticker, interval])
+      .first()
+  },
+
+  /**
+   * 데이터셋 삭제
+   */
+  async delete(id: number): Promise<void> {
+    await db.candleDatasets.delete(id)
+  },
+
+  /**
+   * 전체 삭제
+   */
+  async clear(): Promise<void> {
+    await db.candleDatasets.clear()
+  },
+
+  /**
+   * 데이터셋 개수
+   */
+  async count(): Promise<number> {
+    return await db.candleDatasets.count()
   },
 }
