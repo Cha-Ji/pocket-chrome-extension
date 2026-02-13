@@ -27,6 +27,20 @@
 - 다음 행동: 실환경 틱 데이터로 승률 검증, 자산별 파라미터 튜닝
 - 상세: `docs/features/tif-60-strategy/`
 
+## (2026-02-13) ZMR-60 전략 구현 및 SignalGeneratorV2 통합
+
+- **ZMR-60 전략 모듈**: `src/lib/backtest/strategies/zmr-60.ts`
+  - 1분 로그수익률 Z-score 기반 평균회귀 전략
+  - 다중 확인 필터: RSI(7) + BB(20,2) + Candle wick rejection
+  - 이론적 근거: Heston/Korajczyk/Sadka(2010), Rif/Utz(2021)
+- **SignalGeneratorV2 통합**: 횡보장(ADX<25)에서 RSI+BB와 이중 확인
+  - 3가지 모드: consensus(기본, 동일 방향만), best(높은 confidence), off
+  - zmr60MergeMode + zmr60Config 설정 추가
+- **테스트**: 16개 통과 (전체 strategy 테스트 124개 통과)
+- **문서**: 3-file-pattern 완비 (`docs/features/zmr-60-strategy/`)
+- 다음 행동: 실환경 데이터로 forward test, walk-forward 검증
+- 상세: `docs/features/zmr-60-strategy/`
+
 ## (2026-02-12) Tick/Candle 테이블 분리 + Timestamp 정규화
 
 - **Tick 전용 테이블**: ticks (symbol, ts_ms, price, source) — 원본 고빈도 데이터
@@ -150,6 +164,7 @@
 - [x] Triple Confirmation (RSI + Stoch + MACD)
 - [x] EMA Trend + RSI Pullback → **54.5% 달성** 🏆
 - [x] Vote 시스템 (다중 전략 합의)
+- [x] ZMR-60 (Z-score Mean Reversion) 전략 + SignalGeneratorV2 이중 확인 통합
 - [x] 합성 데이터로 52.1%+ 검증 완료
 - [ ] 실제 데이터로 Forward Test 검증
 

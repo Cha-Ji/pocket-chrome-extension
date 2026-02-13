@@ -92,6 +92,16 @@ export type {
   SBB120Config,
 } from './sbb-120'
 
+// ZMR-60 (Z-score Mean Reversion) strategy
+export {
+  zmr60Strategy,
+  zmr60WithHighWinRateConfig,
+  DEFAULT_ZMR60_CONFIG,
+} from './zmr-60'
+export type {
+  ZMR60Config,
+} from './zmr-60'
+
 // Trend following strategies
 export {
   adxDiCrossoverStrategy,

@@ -135,9 +135,6 @@ export function sbb120Strategy(
   const breakBelowLower = currentClose < currentBB.lower - breakoutMargin
 
   if (!breakAboveUpper && !breakBelowLower) {
-    const breakoutDistance = breakAboveUpper
-      ? currentClose - currentBB.upper
-      : currentBB.lower - currentClose
     indicators.breakoutDistance = Math.max(
       currentClose - currentBB.upper,
       currentBB.lower - currentClose
