@@ -15,6 +15,7 @@ import {
   StrategyResult,
   HighWinRateConfig,
 } from '../backtest/strategies/high-winrate'
+import { sbb120Strategy } from '../backtest/strategies/sbb-120'
 
 // ============================================================
 // Configuration
@@ -201,19 +202,26 @@ export class SignalGeneratorV2 {
     const { regime, adx } = regimeInfo
 
     // 백테스트 결과 기반 전략 선택 (보수적 접근):
-    // - ranging: 54.0% ✅ (RSI+BB 전략) - 유일하게 목표 달성
+    // - ranging: RSI+BB 54.0% ✅ + SBB-120 (squeeze breakout)
     // - 다른 레짐: 신호 생성 안함 (성과 저조)
-    
+
     // 횡보장에서만 신호 생성 (ADX < 25)
     // ADX 25-40: 약한 추세 → 신호 생성 안함
     // ADX > 40: 강한 추세 → 신호 생성 안함
-    
+
     if (regime !== 'ranging' && adx >= 25) {
       // 추세가 있으면 신호 생성 안함
       return null
     }
 
-    // 횡보장 또는 매우 약한 추세 (ADX < 25)에서만 RSI+BB 전략 사용
+    // 횡보장 (ADX < 25)에서 전략 선택:
+    // 1차: SBB-120 (squeeze breakout) — 조건이 까다로워 빈도 낮지만 승률 우선
+    // 2차: RSI+BB Bounce — SBB-120 조건 불충족 시 폴백
+    const sbbResult = sbb120Strategy(candles)
+    if (sbbResult.signal) {
+      return sbbResult
+    }
+
     return rsiBBBounceStrategy(candles, this.config.highWinRateConfig)
   }
 
@@ -258,7 +266,7 @@ export class SignalGeneratorV2 {
       strategy: strategyResult.reason,
       regime: regimeInfo.regime,
       confidence: strategyResult.confidence,
-      expiry: this.config.expirySeconds,
+      expiry: strategyResult.expiryOverride ?? this.config.expirySeconds,
       entryPrice: lastCandle.close,
       indicators: {
         adx: regimeInfo.adx,
