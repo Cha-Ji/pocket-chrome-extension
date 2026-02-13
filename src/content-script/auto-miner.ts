@@ -71,6 +71,7 @@ const minerState: MiningState = {
 
 let rotationTimeout: ReturnType<typeof setTimeout> | null = null
 let responseTimeout: ReturnType<typeof setTimeout> | null = null
+let statusPushInterval: ReturnType<typeof setInterval> | null = null
 let payoutMonitorRef: PayoutMonitor | null = null
 
 // ============================================================
@@ -161,6 +162,12 @@ export const AutoMiner = {
     minerState.payoutWaitAttempts = 0
     minerState.progress.clear()
     minerState.startedAt = Date.now()
+
+    // Push status to side panel every 2s while mining
+    if (statusPushInterval) clearInterval(statusPushInterval)
+    statusPushInterval = setInterval(() => this.pushStatus(), 2000)
+    this.pushStatus()
+
     this.scanAndMineNext()
   },
 
@@ -170,6 +177,20 @@ export const AutoMiner = {
     minerState.pendingRequest = false
     minerState.retryCount = 0
     this.clearTimers()
+
+    // Stop status push and send final state
+    if (statusPushInterval) { clearInterval(statusPushInterval); statusPushInterval = null }
+    this.pushStatus()
+  },
+
+  /** Push current miner status to background for side panel relay. */
+  pushStatus() {
+    try {
+      chrome.runtime.sendMessage({
+        type: 'MINER_STATUS_PUSH',
+        payload: this.getStatus(),
+      }).catch(() => {})
+    } catch { /* extension context may be lost */ }
   },
 
   // ── 설정 변경 ──────────────────────────────────────────
