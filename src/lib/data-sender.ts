@@ -9,6 +9,12 @@ import { loggers } from './logger'
 const log = loggers.dataSender
 const SERVER_URL = 'http://localhost:3001'
 
+/**
+ * Dev-only 가드: production 빌드에서는 DataSender가 no-op이 됨.
+ * Vite가 빌드 타임에 import.meta.env.DEV를 false로 치환하여 dead code elimination 수행.
+ */
+const IS_DEV_MODE = import.meta.env.DEV
+
 /** DataSender 전송 통계 */
 export interface DataSenderStats {
   serverOnline: boolean
@@ -53,6 +59,7 @@ export const DataSender = {
    * 서버 상태 확인
    */
   async checkHealth(): Promise<boolean> {
+    if (!IS_DEV_MODE) return false
     try {
       const res = await fetch(`${SERVER_URL}/health`)
       senderStats.serverOnline = res.ok
@@ -69,6 +76,7 @@ export const DataSender = {
    * 실시간 캔들 전송
    */
   async sendCandle(candle: CandleLike): Promise<void> {
+    if (!IS_DEV_MODE) return
     senderStats.realtimeSendCount++
     try {
       const payload = {
@@ -109,6 +117,7 @@ export const DataSender = {
    * 과거 데이터 Bulk 전송
    */
   async sendHistory(candles: CandleLike[]): Promise<void> {
+    if (!IS_DEV_MODE) return
     if (candles.length === 0) return
 
     senderStats.bulkSendCount++
