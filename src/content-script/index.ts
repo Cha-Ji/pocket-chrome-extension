@@ -17,6 +17,7 @@ import { getWebSocketInterceptor, PriceUpdate, WebSocketMessage, WebSocketConnec
 import { CandleData } from './websocket-parser'
 import { AutoMiner } from './auto-miner'
 import { DataSender } from '../lib/data-sender'
+import { tickImbalanceFadeStrategy, TIF60Config } from './tick-strategies'
 
 let dataCollector: DataCollector | null = null
 let tradeExecutor: TradeExecutor | null = null
@@ -82,11 +83,70 @@ async function initialize(): Promise<void> {
   } catch (error) { console.error('[PO] [FATAL] Initialization failed:', error); }
 }
 
+/** TIF-60 설정: requireConsensus=true면 SignalGeneratorV2와 방향 합의 필요 */
+interface TIF60Integration {
+  enabled: boolean
+  requireConsensus: boolean
+  config: Partial<TIF60Config>
+}
+
+const tif60Integration: TIF60Integration = {
+  enabled: true,
+  requireConsensus: false,
+  config: {},
+}
+
 function setupCandleHandler(): void {
   if (!candleCollector || !signalGenerator) return
   candleCollector.onCandle((ticker: string, candle: Candle) => {
-    const signal = signalGenerator!.addCandle(ticker, candle)
-    if (signal) { console.log(`[PO] 🎯 Signal: ${signal.direction} (${signal.strategy})`); handleNewSignal(signal); }
+    const v2Signal = signalGenerator!.addCandle(ticker, candle)
+
+    // TIF-60: 틱 기반 전략 평가
+    if (tif60Integration.enabled && candleCollector) {
+      const allTicks = candleCollector.getTickHistory()
+      const candles = candleCollector.getCandles(ticker)
+      const tickerTicks = allTicks.filter(t => t.ticker === ticker)
+
+      const tifResult = tickImbalanceFadeStrategy(tickerTicks, candles, tif60Integration.config)
+
+      if (tifResult.signal) {
+        // 방향 합의 모드: V2 신호와 같은 방향일 때만
+        if (tif60Integration.requireConsensus) {
+          if (v2Signal && v2Signal.direction === tifResult.signal) {
+            console.log(`[PO] 🎯 TIF-60 + V2 consensus: ${tifResult.signal}`)
+            // V2 신호의 confidence를 TIF-60으로 강화
+            v2Signal.confidence = Math.min(v2Signal.confidence + 0.05, 0.95)
+            v2Signal.strategy = `${v2Signal.strategy} + TIF-60`
+            v2Signal.indicators = { ...v2Signal.indicators, ...tifResult.indicators }
+            handleNewSignal(v2Signal)
+          }
+        } else {
+          // 독립 모드: TIF-60 단독으로 Signal 생성
+          const tifSignal: Signal = {
+            id: `${ticker}-tif60-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            timestamp: Date.now(),
+            symbol: ticker,
+            direction: tifResult.signal,
+            strategy: tifResult.reason,
+            regime: signalGenerator!.getRegime(ticker)?.regime ?? 'unknown',
+            confidence: tifResult.confidence,
+            expiry: 60,
+            entryPrice: candle.close,
+            indicators: tifResult.indicators,
+            status: 'pending',
+          }
+          console.log(`[PO] 🎯 TIF-60 Signal: ${tifSignal.direction} (${tifSignal.strategy})`)
+          handleNewSignal(tifSignal)
+        }
+      }
+    }
+
+    // 기존 V2 신호 처리 (TIF-60 합의 모드가 아닐 때)
+    if (v2Signal && !tif60Integration.requireConsensus) {
+      console.log(`[PO] 🎯 Signal: ${v2Signal.direction} (${v2Signal.strategy})`)
+      handleNewSignal(v2Signal)
+    }
+
     DataSender.sendCandle({ ...candle, ticker })
   })
 }
