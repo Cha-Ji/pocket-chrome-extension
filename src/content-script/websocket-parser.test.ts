@@ -3,7 +3,7 @@
 // ============================================================
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { WebSocketParser, getWebSocketParser } from './websocket-parser'
+import { WebSocketParser, getWebSocketParser, registerPocketOptionPattern } from './websocket-parser'
 
 describe('WebSocketParser', () => {
   let parser: WebSocketParser
@@ -297,5 +297,261 @@ describe('Singleton getWebSocketParser', () => {
     const parser2 = getWebSocketParser()
 
     expect(parser1).toBe(parser2)
+  })
+})
+
+// ============================================================
+// Extended coverage: validation, edge cases, history parsing
+// ============================================================
+describe('WebSocketParser - extended coverage', () => {
+  let parser: WebSocketParser
+
+  beforeEach(() => {
+    parser = new WebSocketParser()
+  })
+
+  describe('validation edge cases', () => {
+    it('should reject price_update with non-string symbol via custom pattern', () => {
+      parser.registerPattern({
+        name: 'bad_symbol',
+        detect: (d) => d?._badSymbol,
+        parse: () => ({
+          type: 'price_update' as const,
+          data: { symbol: 123 as any, price: 50000, timestamp: Date.now(), source: 'websocket' as const },
+          raw: {},
+          confidence: 0.9,
+        }),
+      })
+      const result = parser.parse({ _badSymbol: true })
+      expect(result.type).toBe('unknown')
+    })
+
+    it('should reject candle_data with non-number OHLC', () => {
+      parser.registerPattern({
+        name: 'bad_candle',
+        detect: (d) => d?._badCandle,
+        parse: () => ({
+          type: 'candle_data' as const,
+          data: { symbol: 'X', open: 'bad' as any, high: 1, low: 1, close: 1, timestamp: 1 },
+          raw: {},
+          confidence: 0.9,
+        }),
+      })
+      const result = parser.parse({ _badCandle: true })
+      expect(result.type).toBe('unknown')
+    })
+
+    it('should reject orderbook with non-number bid', () => {
+      parser.registerPattern({
+        name: 'bad_ob',
+        detect: (d) => d?._badOB,
+        parse: () => ({
+          type: 'orderbook' as const,
+          data: { symbol: 'X', bid: 'bad' as any, ask: 100, timestamp: 1 },
+          raw: {},
+          confidence: 0.9,
+        }),
+      })
+      const result = parser.parse({ _badOB: true })
+      expect(result.type).toBe('unknown')
+    })
+
+    it('should reject trade with non-number price', () => {
+      parser.registerPattern({
+        name: 'bad_trade',
+        detect: (d) => d?._badTrade,
+        parse: () => ({
+          type: 'trade' as const,
+          data: { symbol: 'X', price: 'bad' as any, quantity: 1, side: 'buy' as const, timestamp: 1 },
+          raw: {},
+          confidence: 0.9,
+        }),
+      })
+      const result = parser.parse({ _badTrade: true })
+      expect(result.type).toBe('unknown')
+    })
+
+    it('should pass heartbeat with null data', () => {
+      const result = parser.parse({ action: 'heartbeat' })
+      expect(result.type).toBe('heartbeat')
+    })
+  })
+
+  describe('candle_history data validation', () => {
+    it('should handle candles with NaN timestamp in history', () => {
+      const result = parser.parse([
+        'updateHistoryNewFast',
+        {
+          data: [
+            { open: 100, high: 110, low: 90, close: 105, timestamp: NaN },
+            { open: 100, high: 110, low: 90, close: 105, timestamp: 1700000000000 },
+          ],
+        },
+      ])
+      expect(result.type).toBe('candle_history')
+      const data = result.data as any[]
+      // The valid candle with timestamp 1700000000000 should be present
+      expect(data.some((c: any) => c.timestamp === 1700000000000)).toBe(true)
+    })
+
+    it('should handle history with zero timestamp candles', () => {
+      const result = parser.parse([
+        'history',
+        {
+          history: [
+            { open: 100, high: 110, low: 90, close: 105, timestamp: 0 },
+          ],
+        },
+      ])
+      // Zero timestamp candle is filtered by timestamp > 0 condition
+      // If no valid candles remain, result falls through but event was still recognized
+      expect(['candle_history', 'unknown']).toContain(result.type)
+    })
+
+    it('should parse candles with alternate field names (o, h, l, c)', () => {
+      const result = parser.parse([
+        'history',
+        {
+          data: [
+            { o: 100, h: 110, l: 90, c: 105, t: 1700000000000 },
+          ],
+        },
+      ])
+      expect(result.type).toBe('candle_history')
+      const data = result.data as any[]
+      expect(data[0].open).toBe(100)
+      expect(data[0].high).toBe(110)
+    })
+  })
+
+  describe('registerPattern priority', () => {
+    it('custom patterns run before defaults', () => {
+      parser.registerPattern({
+        name: 'override',
+        detect: (d) => d?.symbol === 'OVERRIDE',
+        parse: (d) => ({
+          type: 'heartbeat' as const,
+          data: null,
+          raw: d,
+          confidence: 1.0,
+        }),
+      })
+      // Even though it has symbol+price, custom pattern intercepts first
+      const result = parser.parse({ symbol: 'OVERRIDE', price: 100 })
+      expect(result.type).toBe('heartbeat')
+    })
+  })
+
+  describe('action pattern with rate field in payload', () => {
+    it('extracts price from rate field', () => {
+      const result = parser.parse({
+        action: 'stream',
+        payload: { rate: 1.0856 },
+      })
+      expect(result.type).toBe('price_update')
+    })
+
+    it('extracts price from last field', () => {
+      const result = parser.parse({
+        cmd: 'price_update',
+        body: { last: 50000 },
+      })
+      expect(result.type).toBe('price_update')
+    })
+  })
+
+  describe('signals/stats event', () => {
+    it('parses multi-asset stats', () => {
+      const result = parser.parse([
+        'signals/stats',
+        [
+          [1700000, [['#aapl_otc', 175.5], ['#goog_otc', 140.0]]],
+          [1700001, [['#msft_otc', 380.0]]],
+        ],
+      ])
+      expect(result.type).toBe('candle_history')
+      const data = result.data as any[]
+      expect(data).toHaveLength(3)
+      expect(data[0].symbol).toBe('AAPL-OTC')
+      expect(data[1].symbol).toBe('GOOG-OTC')
+      expect(data[2].symbol).toBe('MSFT-OTC')
+    })
+  })
+
+  describe('binary_payload with ArrayBuffer', () => {
+    it('decodes JSON from ArrayBuffer', () => {
+      const candles = [{ open: 50, high: 55, low: 48, close: 52, timestamp: 1700000000000 }]
+      const uint8 = new TextEncoder().encode(JSON.stringify(candles))
+
+      const result = parser.parse({
+        type: 'binary_payload',
+        event: 'updateHistoryNewFast',
+        data: uint8,
+      })
+      expect(result.type).toBe('candle_history')
+    })
+
+    it('handles non-JSON binary as raw data', () => {
+      const uint8 = new Uint8Array([0x00, 0x01, 0x02])
+      const result = parser.parse({
+        type: 'binary_payload',
+        event: 'someEvent',
+        data: uint8,
+      })
+      expect(result.type).toBe('unknown')
+    })
+  })
+
+  describe('edge cases', () => {
+    it('null input returns unknown', () => {
+      expect(parser.parse(null).type).toBe('unknown')
+    })
+
+    it('undefined input returns unknown', () => {
+      expect(parser.parse(undefined).type).toBe('unknown')
+    })
+
+    it('numeric input returns unknown', () => {
+      expect(parser.parse(42).type).toBe('unknown')
+    })
+
+    it('boolean input returns unknown', () => {
+      expect(parser.parse(true).type).toBe('unknown')
+    })
+
+    it('empty string returns unknown', () => {
+      expect(parser.parse('').type).toBe('unknown')
+    })
+
+    it('Socket.IO probe "2" returns unknown', () => {
+      expect(parser.parse('2').type).toBe('unknown')
+    })
+  })
+})
+
+// ============================================================
+// registerPocketOptionPattern
+// ============================================================
+describe('registerPocketOptionPattern', () => {
+  it('registers custom pattern that returns price_update', () => {
+    registerPocketOptionPattern(
+      'test_po',
+      (d) => d?._testPO === true,
+      (d) => ({ symbol: d.s, price: d.p, timestamp: 1700000000000 })
+    )
+    const p = getWebSocketParser()
+    const result = p.parse({ _testPO: true, s: 'ETH', p: 3000 })
+    expect(result.type).toBe('price_update')
+  })
+
+  it('returns unknown when extractPrice returns null', () => {
+    registerPocketOptionPattern(
+      'test_null',
+      (d) => d?._testNull === true,
+      () => null
+    )
+    const p = getWebSocketParser()
+    const result = p.parse({ _testNull: true })
+    expect(result.type).toBe('unknown')
   })
 })
