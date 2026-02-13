@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { TelegramConfig, DEFAULT_TELEGRAM_CONFIG, TelegramService } from '../../lib/notifications/telegram'
 import { loadTelegramConfig, saveTelegramConfig } from '../../lib/config'
+import { sendRuntimeMessage } from '../infrastructure/extension-client'
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
@@ -74,7 +75,7 @@ export function SettingsPanel() {
     showSaveStatus('saving')
     try {
       await saveTelegramConfig(newConfig)
-      chrome.runtime.sendMessage({ type: 'RELOAD_TELEGRAM_CONFIG', payload: newConfig })
+      sendRuntimeMessage('RELOAD_TELEGRAM_CONFIG', newConfig)
       setSavedConfig(newConfig)
       showSaveStatus('saved')
       console.log('[Settings] Telegram config saved')

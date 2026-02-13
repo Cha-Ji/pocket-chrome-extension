@@ -1,6 +1,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
-import { Trade, ExtensionMessage } from '../../lib/types'
+import { Trade } from '../../lib/types'
+import { sendRuntimeMessage, onRuntimeMessage } from '../infrastructure/extension-client'
 
 export function useTrades() {
   const [trades, setTrades] = useState<Trade[]>([])
@@ -8,10 +9,7 @@ export function useTrades() {
 
   const fetchTrades = useCallback(async () => {
     try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'GET_TRADES',
-        payload: { limit: 50 },
-      })
+      const response = await sendRuntimeMessage('GET_TRADES', { limit: 50 })
       if (Array.isArray(response)) {
         setTrades(response)
       }
@@ -25,9 +23,9 @@ export function useTrades() {
   useEffect(() => {
     fetchTrades()
 
-    const handleMessage = (message: ExtensionMessage) => {
+    return onRuntimeMessage((message) => {
       if (message.type === 'TRADE_LOGGED' && message.payload) {
-        const trade: Trade = message.payload
+        const trade = message.payload as Trade
         setTrades(prev => {
           // Deduplicate by id
           if (trade.id !== undefined && prev.some(t => t.id === trade.id)) {
@@ -36,10 +34,7 @@ export function useTrades() {
           return [...prev, trade]
         })
       }
-    }
-
-    chrome.runtime.onMessage.addListener(handleMessage)
-    return () => chrome.runtime.onMessage.removeListener(handleMessage)
+    })
   }, [fetchTrades])
 
   return { trades, isLoading, refetch: fetchTrades }

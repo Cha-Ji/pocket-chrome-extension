@@ -1,127 +1,23 @@
-import { useState, useEffect, useCallback } from 'react'
 import { Signal } from '../../lib/signals/types'
-import { AssetPayout, MessageType } from '../../lib/types'
 import { formatMoney, formatPercent, formatNumber } from '../utils/format'
-import { usePortSubscription } from '../hooks/usePortSubscription'
+import { useSignalStatus } from '../hooks/useSignalStatus'
 
 interface SignalPanelProps {
   onSignal?: (signal: Signal) => void
 }
 
-interface SystemStatus {
-  initialized: boolean
-  modules: {
-    dataCollector: boolean
-    candleCollector: boolean
-    payoutMonitor: boolean
-  }
-  config: {
-    enabled: boolean
-    autoAssetSwitch: boolean
-    minPayout: number
-    tradeAmount: number
-    onlyRSI: boolean
-  }
-  signals: {
-    total: number
-    wins: number
-    losses: number
-    pending: number
-    winRate: number
-  } | null
-  highPayoutAssets: number
-  candleCount: Array<{ ticker: string; count: number }>
-}
-
 export function SignalPanel({ onSignal }: SignalPanelProps) {
-  const [status, setStatus] = useState<SystemStatus | null>(null)
-  const [signals, setSignals] = useState<Signal[]>([])
-  const [highPayoutAssets, setHighPayoutAssets] = useState<AssetPayout[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [autoRefresh, setAutoRefresh] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  // Send message to content script (type-safe)
-  const sendMessage = useCallback(async (type: MessageType, payload?: unknown) => {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-      if (!tab?.id) throw new Error('No active tab')
-
-      return await chrome.tabs.sendMessage(tab.id, { type, payload })
-    } catch (err) {
-      console.error('Message error:', err)
-      throw err
-    }
-  }, [])
-
-  // Fetch V2 status
-  const fetchStatus = useCallback(async () => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      const result = await sendMessage('GET_STATUS_V2') as SystemStatus
-      setStatus(result)
-      
-      // Fetch signals
-      const signalList = await sendMessage('GET_SIGNALS', { limit: 20 }) as Signal[]
-      setSignals(signalList || [])
-      
-      // Fetch high payout assets
-      const assets = await sendMessage('GET_HIGH_PAYOUT_ASSETS') as AssetPayout[]
-      setHighPayoutAssets(assets || [])
-    } catch (err) {
-      setError('확장 프로그램 연결 실패. 페이지를 새로고침하거나 Pocket Option 탭을 활성화하세요.')
-      console.error('Failed to fetch status:', err)
-    }
-    setIsLoading(false)
-  }, [sendMessage])
-
-  // Start/Stop trading
-  const toggleTrading = async () => {
-    try {
-      const type = status?.config.enabled ? 'STOP_TRADING_V2' : 'START_TRADING_V2'
-      await sendMessage(type)
-      await fetchStatus()
-    } catch (err) {
-      setError('Failed to toggle trading')
-    }
-  }
-
-  // Initial fetch
-  useEffect(() => {
-    fetchStatus()
-  }, [fetchStatus])
-
-  // Subscribe to new signals via port (replaces onMessage listener + autoRefresh polling)
-  const handleNewSignal = useCallback((payload: unknown) => {
-    if (payload) {
-      const { signal } = payload as { signal: Signal }
-      setSignals(prev => [signal, ...prev].slice(0, 20))
-      onSignal?.(signal)
-    }
-  }, [onSignal])
-  usePortSubscription('NEW_SIGNAL_V2', handleNewSignal)
-
-  // Subscribe to payout updates via port
-  const handlePayoutUpdate = useCallback((payload: unknown) => {
-    if (payload) {
-      const { name, payout } = payload as { name: string; payout: number }
-      setHighPayoutAssets(prev => {
-        const exists = prev.some(a => a.name === name)
-        if (exists) return prev.map(a => a.name === name ? { ...a, payout } : a)
-        return [...prev, { name, payout, isOTC: name.includes('OTC'), lastUpdated: Date.now() }].slice(0, 10)
-      })
-    }
-  }, [])
-  usePortSubscription('BEST_ASSET', handlePayoutUpdate)
-
-  // Fallback: auto refresh for full status sync (optional, off by default)
-  useEffect(() => {
-    if (!autoRefresh) return
-
-    const interval = setInterval(fetchStatus, 10000) // Reduced from 5s to 10s
-    return () => clearInterval(interval)
-  }, [autoRefresh, fetchStatus])
+  const {
+    status,
+    signals,
+    highPayoutAssets,
+    isLoading,
+    autoRefresh,
+    error,
+    fetchStatus,
+    toggleTrading,
+    toggleAutoRefresh,
+  } = useSignalStatus(onSignal)
 
   if (error) {
     return (
@@ -207,10 +103,10 @@ export function SignalPanel({ onSignal }: SignalPanelProps) {
           {status?.config.enabled ? '⏹️ Stop' : '▶️ Start'} Trading
         </button>
         <button
-          onClick={() => setAutoRefresh(!autoRefresh)}
+          onClick={toggleAutoRefresh}
           className={`px-4 py-2 rounded-lg font-medium transition ${
-            autoRefresh 
-              ? 'bg-pocket-green text-white' 
+            autoRefresh
+              ? 'bg-pocket-green text-white'
               : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
           }`}
         >
@@ -258,7 +154,7 @@ export function SignalPanel({ onSignal }: SignalPanelProps) {
       {/* Signal List */}
       <div className="space-y-2">
         <h3 className="text-sm font-medium text-gray-400">Recent Signals</h3>
-        
+
         {signals.length === 0 ? (
           <div className="text-center text-gray-500 py-4">
             No signals yet. Collecting data...
@@ -277,11 +173,11 @@ export function SignalPanel({ onSignal }: SignalPanelProps) {
 
 function SignalCard({ signal }: { signal: Signal }) {
   const isCall = signal.direction === 'CALL'
-  
+
   return (
     <div className={`rounded-lg p-3 border ${
-      isCall 
-        ? 'bg-green-500/10 border-green-500/30' 
+      isCall
+        ? 'bg-green-500/10 border-green-500/30'
         : 'bg-red-500/10 border-red-500/30'
     }`}>
       <div className="flex items-center justify-between">

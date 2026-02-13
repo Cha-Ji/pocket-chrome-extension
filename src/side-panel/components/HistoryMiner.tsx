@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { DataSender } from '../../lib/data-sender'
 import { usePortSubscription } from '../hooks/usePortSubscription'
+import { sendTabMessageSafe } from '../infrastructure/extension-client'
 
 // ============================================================
 // History Miner Component
@@ -45,15 +46,7 @@ export function HistoryMiner() {
     const newState = !isActive
     setIsActive(newState)
 
-    // Content Script로 메시지 전송
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]?.id) {
-        chrome.tabs.sendMessage(tabs[0].id, {
-          type: 'TOGGLE_MINING',
-          payload: { active: newState }
-        })
-      }
-    })
+    sendTabMessageSafe('TOGGLE_MINING', { active: newState })
   }
 
   // 채굴 진행상황 리스너 (via port push, replaces onMessage listener)
@@ -75,7 +68,7 @@ export function HistoryMiner() {
   return (
     <div className="p-4 bg-gray-800 rounded-lg mt-4">
       <h3 className="text-lg font-bold text-white mb-2">⛏️ History Miner</h3>
-      
+
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <div className={`w-3 h-3 rounded-full ${serverHealth ? 'bg-green-500' : 'bg-red-500'}`} />
@@ -95,15 +88,15 @@ export function HistoryMiner() {
       <button
         onClick={toggleMining}
         className={`w-full py-2 rounded font-bold transition-colors ${
-          isActive 
-            ? 'bg-red-600 hover:bg-red-700 text-white' 
+          isActive
+            ? 'bg-red-600 hover:bg-red-700 text-white'
             : 'bg-blue-600 hover:bg-blue-700 text-white'
         } ${!serverHealth && 'opacity-50 cursor-not-allowed'}`}
         disabled={!serverHealth}
       >
         {isActive ? '⏹ Stop Mining' : '▶ Start Mining'}
       </button>
-      
+
       <p className="text-xs text-gray-500 mt-2 text-center">
         *Scrolls chart automatically to load history
       </p>
