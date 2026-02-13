@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Signal } from '../../lib/signals/types'
+import { AssetPayout, MessageType } from '../../lib/types'
 import { formatMoney, formatPercent, formatNumber } from '../utils/format'
 import { usePortSubscription } from '../hooks/usePortSubscription'
 
@@ -32,12 +33,6 @@ interface SystemStatus {
   candleCount: Array<{ ticker: string; count: number }>
 }
 
-interface AssetPayout {
-  name: string
-  payout: number
-  isOTC: boolean
-}
-
 export function SignalPanel({ onSignal }: SignalPanelProps) {
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [signals, setSignals] = useState<Signal[]>([])
@@ -46,12 +41,12 @@ export function SignalPanel({ onSignal }: SignalPanelProps) {
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Send message to content script
-  const sendMessage = useCallback(async (type: string, payload?: unknown) => {
+  // Send message to content script (type-safe)
+  const sendMessage = useCallback(async (type: MessageType, payload?: unknown) => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
       if (!tab?.id) throw new Error('No active tab')
-      
+
       return await chrome.tabs.sendMessage(tab.id, { type, payload })
     } catch (err) {
       console.error('Message error:', err)
@@ -114,7 +109,7 @@ export function SignalPanel({ onSignal }: SignalPanelProps) {
       setHighPayoutAssets(prev => {
         const exists = prev.some(a => a.name === name)
         if (exists) return prev.map(a => a.name === name ? { ...a, payout } : a)
-        return [...prev, { name, payout, isOTC: name.includes('OTC') }].slice(0, 10)
+        return [...prev, { name, payout, isOTC: name.includes('OTC'), lastUpdated: Date.now() }].slice(0, 10)
       })
     }
   }, [])

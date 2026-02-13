@@ -3,7 +3,7 @@
 // Manages trading state and coordinates between components
 // ============================================================
 
-import { ExtensionMessage, Tick, Trade, TradingStatus } from '../lib/types'
+import { ExtensionMessage, MessagePayloadMap, Tick, Trade, TradingStatus, TelegramConfig } from '../lib/types'
 import { TickRepository, TradeRepository } from '../lib/db'
 import { getTelegramService } from '../lib/notifications/telegram'
 import {
@@ -181,6 +181,9 @@ async function handleMessage(
     case 'GET_ERROR_HISTORY':
       return errorHandler.getHistory(message.payload?.limit ?? 20)
 
+    case 'RELOAD_TELEGRAM_CONFIG':
+      return handleReloadTelegramConfig(message.payload)
+
     default:
       // Don't log errors for relay-only messages (already forwarded via port)
       if (!RELAY_MESSAGE_TYPES.has((message as { type: string }).type)) {
@@ -341,15 +344,7 @@ async function handleTickData(tick: Tick): Promise<void> {
   }
 }
 
-async function handleTradeExecuted(payload: {
-  signalId?: string
-  result?: unknown
-  timestamp?: number
-  direction?: Trade['direction']
-  amount?: number
-  ticker?: string
-  entryPrice?: number
-}): Promise<void> {
+async function handleTradeExecuted(payload: MessagePayloadMap['TRADE_EXECUTED']): Promise<void> {
   const ctx = { module: 'background' as const, function: 'handleTradeExecuted' }
 
   console.log('[Background] Trade executed:', payload)
@@ -360,7 +355,7 @@ async function handleTradeExecuted(payload: {
         sessionId: tradingStatus.sessionId ?? 0,
         ticker: payload.ticker ?? tradingStatus.currentTicker ?? 'unknown',
         direction: payload.direction ?? 'CALL',
-        entryTime: payload.timestamp ?? Date.now(),
+        entryTime: payload.timestamp,
         entryPrice: payload.entryPrice ?? 0,
         result: 'PENDING',
         amount: payload.amount ?? 0,
@@ -428,6 +423,28 @@ function notifyStatusChange(): void {
   }).catch(() => {
     // Side panel may not be open - this is expected
   })
+}
+
+// ============================================================
+// Telegram Config Reload
+// ============================================================
+
+async function handleReloadTelegramConfig(_config: TelegramConfig): Promise<{ success: boolean }> {
+  const ctx = { module: 'background' as const, function: 'handleReloadTelegramConfig' }
+
+  // Re-initialize Telegram service with new config
+  // The getTelegramService() singleton will pick up the latest config from storage
+  // on next initialization, so we just need to force a refresh
+  await ignoreError(
+    async () => {
+      const telegram = await getTelegramService()
+      await telegram.notifyStatus('Telegram config reloaded')
+    },
+    ctx,
+    { logLevel: 'warn' }
+  )
+
+  return { success: true }
 }
 
 // ============================================================

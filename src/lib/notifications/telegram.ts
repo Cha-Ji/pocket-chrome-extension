@@ -3,14 +3,9 @@
 // Telegram Notification Service
 // ============================================================
 
-export interface TelegramConfig {
-  botToken: string
-  chatId: string
-  enabled: boolean
-  notifySignals: boolean
-  notifyTrades: boolean
-  notifyErrors: boolean
-}
+import type { TelegramConfig } from '../types'
+
+export type { TelegramConfig }
 
 export const DEFAULT_TELEGRAM_CONFIG: TelegramConfig = {
   botToken: '',
