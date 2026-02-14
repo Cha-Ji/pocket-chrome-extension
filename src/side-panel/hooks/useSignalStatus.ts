@@ -22,6 +22,7 @@ export interface SystemStatus {
     total: number
     wins: number
     losses: number
+    ties: number
     pending: number
     winRate: number
   } | null

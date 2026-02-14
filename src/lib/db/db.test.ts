@@ -135,6 +135,7 @@ describe('Database Operations', () => {
       totalTrades: 0,
       wins: 0,
       losses: 0,
+      ties: 0,
     }
 
     it('should create a session', async () => {
@@ -148,6 +149,7 @@ describe('Database Operations', () => {
         totalTrades: 10,
         wins: 6,
         losses: 4,
+        ties: 0,
       })
       
       await SessionRepository.finalize(id, 10500)
@@ -267,6 +269,42 @@ describe('Database Operations', () => {
       expect(session?.totalTrades).toBe(1)
       expect(session?.wins).toBe(1)
       expect(session?.losses).toBe(0)
+    })
+
+    it('should correctly track TIE in session stats', async () => {
+      const sessionId = await SessionRepository.create({
+        type: 'LIVE',
+        strategyId: 1,
+        startTime: Date.now(),
+        initialBalance: 10000,
+        totalTrades: 0,
+        wins: 0,
+        losses: 0,
+        ties: 0,
+      })
+
+      const tradeId = await TradeRepository.create({
+        sessionId,
+        ticker: 'EURUSD',
+        direction: 'CALL',
+        entryTime: Date.now(),
+        entryPrice: 1.0850,
+        result: 'PENDING',
+        amount: 100,
+      })
+
+      // Finalize as TIE
+      const result = await TradeRepository.finalize(tradeId, 1.0850, 'TIE', 0)
+      expect(result.updated).toBe(true)
+      expect(result.trade?.result).toBe('TIE')
+      expect(result.trade?.profit).toBe(0)
+
+      // Session should show 1 trade, 0 wins, 0 losses, 1 tie
+      const session = await SessionRepository.getById(sessionId)
+      expect(session?.totalTrades).toBe(1)
+      expect(session?.wins).toBe(0)
+      expect(session?.losses).toBe(0)
+      expect(session?.ties).toBe(1)
     })
 
     it('should return updated=false for non-existent trade', async () => {
