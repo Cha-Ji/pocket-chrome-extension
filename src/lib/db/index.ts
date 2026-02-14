@@ -394,7 +394,7 @@ export const CandleRepository = {
 
         const existingTs = new Set<number>()
         for (const k of existingKeys) {
-          if (Array.isArray(k)) existingTs.add(k[2] as number)
+          if (Array.isArray(k)) existingTs.add((k as unknown as [string, number, number])[2])
         }
 
         const newItems = group.filter(c => !existingTs.has(c.timestamp))
@@ -537,7 +537,7 @@ export const CandleRepository = {
 
     const tickers: { ticker: string; interval: number; count: number }[] = []
     for (const pair of uniquePairs) {
-      const [ticker, interval] = pair as [string, number]
+      const [ticker, interval] = pair as unknown as [string, number]
       const count = await db.candles
         .where('[ticker+interval]')
         .equals([ticker, interval])
