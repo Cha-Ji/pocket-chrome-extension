@@ -5,7 +5,7 @@
 
 import { ExtensionMessage, MessagePayloadMap, Tick, Trade, TradingStatus, TelegramConfig } from '../lib/types'
 import { TickRepository, TradeRepository } from '../lib/db'
-import { getTelegramService } from '../lib/notifications/telegram'
+import { getTelegramService, resetTelegramService } from '../lib/notifications/telegram'
 import {
   POError,
   ErrorCode,
@@ -48,6 +48,26 @@ let tradingStatus: TradingStatus = {
 // Storage Access Level (Content Script에서 session storage 접근 허용)
 // ============================================================
 chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' })
+
+// ============================================================
+// Auto-reset Telegram singleton on storage changes
+// ============================================================
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'local' && changes.appConfig) {
+    const oldTelegram = changes.appConfig.oldValue?.telegram
+    const newTelegram = changes.appConfig.newValue?.telegram
+    // telegram 섹션이 실제로 변경된 경우에만 리셋
+    if (JSON.stringify(oldTelegram) !== JSON.stringify(newTelegram)) {
+      console.log('[Background] Telegram config changed in storage.local — resetting singleton')
+      resetTelegramService()
+    }
+  }
+  if (areaName === 'session' && changes.telegramSecure) {
+    console.log('[Background] Telegram secure data changed in storage.session — resetting singleton')
+    resetTelegramService()
+  }
+})
 
 // ============================================================
 // Port-based Side Panel Communication
@@ -432,9 +452,10 @@ function notifyStatusChange(): void {
 async function handleReloadTelegramConfig(_config: TelegramConfig): Promise<{ success: boolean }> {
   const ctx = { module: 'background' as const, function: 'handleReloadTelegramConfig' }
 
-  // Re-initialize Telegram service with new config
-  // The getTelegramService() singleton will pick up the latest config from storage
-  // on next initialization, so we just need to force a refresh
+  // 싱글톤 무효화 → 다음 getTelegramService()가 storage에서 최신 설정 로드
+  resetTelegramService()
+  console.log('[Background] Telegram service singleton reset')
+
   await ignoreError(
     async () => {
       const telegram = await getTelegramService()

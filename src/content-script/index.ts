@@ -12,7 +12,7 @@ import { getPayoutMonitor, PayoutMonitor, AssetPayout } from './payout-monitor'
 import { getIndicatorReader, IndicatorReader, IndicatorValues } from './indicator-reader'
 import { getSignalGeneratorV2, SignalGeneratorV2, generateLLMReport } from '../lib/signals/signal-generator-v2'
 import { Signal } from '../lib/signals/types'
-import { getTelegramService, TelegramService } from '../lib/notifications/telegram'
+import { getTelegramService, resetTelegramService, TelegramService } from '../lib/notifications/telegram'
 import { getWebSocketInterceptor, PriceUpdate, WebSocketMessage, WebSocketConnection } from './websocket-interceptor'
 import { CandleData } from './websocket-parser'
 import { AutoMiner } from './auto-miner'
@@ -325,6 +325,29 @@ function waitForElement(selector: string, timeout = 10000): Promise<Element | nu
     setTimeout(() => { observer.disconnect(); resolve(null) }, timeout)
   })
 }
+
+// ============================================================
+// Auto-reset Telegram service on storage changes
+// ============================================================
+
+try {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.appConfig) {
+      const oldTelegram = changes.appConfig.oldValue?.telegram
+      const newTelegram = changes.appConfig.newValue?.telegram
+      if (JSON.stringify(oldTelegram) !== JSON.stringify(newTelegram)) {
+        console.log('[PO] Telegram config changed in storage — resetting service')
+        resetTelegramService()
+        getTelegramService().then(svc => { telegramService = svc }).catch(() => {})
+      }
+    }
+    if (areaName === 'session' && changes.telegramSecure) {
+      console.log('[PO] Telegram secure data changed — resetting service')
+      resetTelegramService()
+      getTelegramService().then(svc => { telegramService = svc }).catch(() => {})
+    }
+  })
+} catch { /* Extension context may be lost */ }
 
 export { getSystemStatus, getLLMReport }
 if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', initialize) } else { initialize() }
