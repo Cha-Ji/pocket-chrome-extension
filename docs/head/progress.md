@@ -1,6 +1,17 @@
 # Pocket Quant Trader - Progress
 
-**최종 업데이트:** 2026-02-13 KST
+**최종 업데이트:** 2026-02-14 KST
+
+## (2026-02-14) Tick DB 안정성 개선 — 배치 저장 + 샘플링 + 강제 retention
+
+- **TickRepository 강화**: `bulkPut` (upsert), `deleteOldestToLimit` (count cap), `getStats` (관측성) 추가
+- **TickStoragePolicy 타입**: `sampleIntervalMs`, `batchSize`, `flushIntervalMs`, `maxTicks`, `maxAgeMs` 정책 인터페이스
+- **TickBuffer 모듈**: `src/background/tick-buffer.ts` — 티커별 샘플링 + 배치 flush + 주기적 retention
+- **Background 통합**: `handleTickData` → `TickBuffer.ingest()`로 교체, `cleanupOldData` → `TickBuffer.runRetention()`
+- **관측성**: `GET_TICK_BUFFER_STATS` 메시지 타입 추가 (buffer + DB 통합 stats)
+- **테스트**: 26개 신규 (TickRepository 10 + TickBuffer 16), 전체 752개 통과
+- 다음 행동: 실환경 고빈도 tick 시 모니터링, DBMonitorDashboard에 tick stats UI 연동 검토
+- 상세: `docs/features/tick-db-stability/`
 
 ## (2026-02-13) Side Panel 아키텍처 리팩토링 — extensionClient 추출
 

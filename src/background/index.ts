@@ -16,6 +16,7 @@ import {
   ignoreError,
 } from '../lib/errors'
 import { PORT_CHANNEL, RELAY_MESSAGE_TYPES, THROTTLE_CONFIG } from '../lib/port-channel'
+import { TickBuffer } from './tick-buffer'
 
 // ============================================================
 // Error Handler Setup
@@ -202,6 +203,9 @@ async function handleMessage(
       // Broadcast-only message consumed by side panel; no-op in background
       return null
 
+    case 'GET_TICK_BUFFER_STATS':
+      return handleGetTickBufferStats()
+
     case 'GET_ERROR_STATS':
       return errorHandler.getStats()
 
@@ -305,70 +309,44 @@ function updateStatus(updates: Partial<TradingStatus>): void {
 }
 
 // ============================================================
-// Data Handling
+// Data Handling — TickBuffer (batch + sampling + retention)
 // ============================================================
 
-// Tick 저장 실패 시 재시도를 위한 메모리 버퍼
-const failedTickBuffer: Tick[] = []
-const MAX_FAILED_TICK_BUFFER = 100
-let consecutiveTickFailures = 0
-
-async function handleTickData(tick: Tick): Promise<void> {
-  if (!tick) return
-
-  const ctx = { module: 'background' as const, function: 'handleTickData' }
-
-  // 이전에 실패한 tick이 있으면 함께 재시도
-  const ticksToSave = [...failedTickBuffer, tick]
-  failedTickBuffer.length = 0
-
-  const result = await tryCatchAsync(
-    async () => {
-      if (ticksToSave.length === 1) {
-        await TickRepository.add(ticksToSave[0])
-      } else {
-        await TickRepository.bulkAdd(ticksToSave)
-      }
-
-      // 저장 성공 시 연속 실패 카운터 리셋
-      consecutiveTickFailures = 0
-
-      // 현재 티커 업데이트
-      tradingStatus.currentTicker = tick.ticker
-
-      // 주기적으로 오래된 데이터 정리 (10000개 초과 시)
-      const count = (await TickRepository.count()) || 0
-      if (count > 10000) {
-        const cutoff = Date.now() - 24 * 60 * 60 * 1000 // 24시간
-        await TickRepository.deleteOlderThan(cutoff)
-      }
-    },
-    ctx,
-    ErrorCode.DB_WRITE_FAILED
-  )
-
-  if (!result.success) {
-    consecutiveTickFailures++
-
-    // 실패한 tick을 버퍼에 보관 (버퍼 크기 제한)
-    for (const t of ticksToSave) {
-      if (failedTickBuffer.length < MAX_FAILED_TICK_BUFFER) {
-        failedTickBuffer.push(t)
-      }
-    }
-
-    // 연속 5회 실패 시 경고 알림
-    if (consecutiveTickFailures === 5) {
+const tickBuffer = new TickBuffer(
+  // Policy can be tuned via TickStoragePolicy fields
+  {},
+  {
+    onFlushError(error, tickCount) {
       errorHandler.handle(
         new POError({
           code: ErrorCode.DB_WRITE_FAILED,
-          message: `Tick 데이터 연속 ${consecutiveTickFailures}회 저장 실패 (버퍼: ${failedTickBuffer.length}건)`,
+          message: `Tick batch flush 실패 (${tickCount}건): ${error}`,
           severity: ErrorSeverity.WARNING,
-          context: ctx,
+          context: { module: 'background', function: 'tickBuffer.flush' },
         })
       )
-    }
-  }
+    },
+  },
+)
+
+// Start the retention sweep timer
+tickBuffer.start()
+
+function handleTickData(tick: Tick): void {
+  if (!tick) return
+  tickBuffer.ingest(tick)
+  tradingStatus.currentTicker = tick.ticker
+}
+
+async function handleGetTickBufferStats(): Promise<{
+  buffer: ReturnType<TickBuffer['getStats']>
+  db: { count: number; oldestTimestamp: number | null; newestTimestamp: number | null }
+}> {
+  const [bufferStats, dbStats] = await Promise.all([
+    Promise.resolve(tickBuffer.getStats()),
+    TickRepository.getStats(),
+  ])
+  return { buffer: bufferStats, db: dbStats }
 }
 
 async function handleTradeExecuted(
@@ -576,8 +554,10 @@ async function cleanupOldData(): Promise<void> {
 
   await tryCatchAsync(
     async () => {
-      const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000 // 7 days
-      await TickRepository.deleteOlderThan(cutoff)
+      // Flush any pending ticks before cleanup
+      await tickBuffer.flush()
+      // Run retention (age + count cap)
+      await tickBuffer.runRetention()
     },
     ctx,
     ErrorCode.DB_DELETE_FAILED

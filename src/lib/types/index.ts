@@ -11,6 +11,26 @@ export interface Tick {
   serverTime?: number
 }
 
+/**
+ * Configuration for tick storage policy.
+ * Controls sampling, batching, and retention to prevent
+ * IndexedDB bloat under high-frequency tick ingestion.
+ */
+export interface TickStoragePolicy {
+  /** Minimum ms between stored ticks for the same ticker (sampling). Default 500. */
+  sampleIntervalMs: number
+  /** Max ticks to buffer before flushing to DB. Default 100. */
+  batchSize: number
+  /** Max ms to hold buffered ticks before flushing. Default 500. */
+  flushIntervalMs: number
+  /** Hard cap on total tick rows in DB. Default 5000. */
+  maxTicks: number
+  /** Max age in ms for ticks. Ticks older than this are deleted. Default 2h. */
+  maxAgeMs: number
+  /** How often (ms) to run the retention sweep. Default 30000. */
+  retentionIntervalMs: number
+}
+
 /** Trading direction */
 export type Direction = 'CALL' | 'PUT'
 
@@ -252,6 +272,7 @@ export interface MessagePayloadMap {
   }
   // DB Monitor
   GET_DB_MONITOR_STATUS: undefined
+  GET_TICK_BUFFER_STATS: undefined
   // Mining Status
   TOGGLE_MINING: { active: boolean }
   MINING_STATS: { collected: number }
