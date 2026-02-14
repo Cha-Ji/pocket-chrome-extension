@@ -215,7 +215,7 @@ export class SignalGeneratorV2 {
     candles: Candle[],
     regimeInfo: { regime: MarketRegime; adx: number; direction: number }
   ): StrategyResult | null {
-    const { regime, adx } = regimeInfo
+    const { regime } = regimeInfo
 
     // 백테스트 결과 기반 전략 선택 (보수적 접근):
     // - ranging (ADX < 25): RSI+BB 54.0% ✅ + SBB-120 (squeeze breakout)
