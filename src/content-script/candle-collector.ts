@@ -448,7 +448,6 @@ export class CandleCollector {
       low: candle.low,
       close: candle.close,
       volume: candle.volume,
-      createdAt: Date.now()
     }).catch(e => console.error('[CandleCollector] DB Save Error:', e))
     
     // 리스너 알림

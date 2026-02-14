@@ -1,4 +1,4 @@
-import Dexie, { type EntityTable } from 'dexie'
+import Dexie, { type EntityTable, type Table } from 'dexie'
 import type { Tick, Strategy, Session, Trade } from '../types'
 import type { LeaderboardEntry } from '../backtest/leaderboard-types'
 
@@ -7,7 +7,6 @@ import type { LeaderboardEntry } from '../backtest/leaderboard-types'
 // ============================================================
 
 export interface StoredCandle {
-  id?: number
   ticker: string
   interval: number // seconds
   timestamp: number // candle start time
@@ -89,7 +88,7 @@ export class PocketDB extends Dexie {
   strategies!: EntityTable<Strategy, 'id'>
   sessions!: EntityTable<Session, 'id'>
   trades!: EntityTable<Trade, 'id'>
-  candles!: EntityTable<StoredCandle, 'id'>
+  candles!: Table<StoredCandle, [string, number, number]>
   leaderboardEntries!: EntityTable<LeaderboardEntry, 'id'>
   backtestResults!: EntityTable<StoredBacktestResult, 'id'>
   candleDatasets!: EntityTable<CandleDataset, 'id'>
@@ -174,6 +173,43 @@ export class PocketDB extends Dexie {
       leaderboardEntries: '++id, strategyId, compositeScore, winRate, rank, createdAt',
       backtestResults: '++id, strategyId, symbol, createdAt, winRate, netProfit',
       candleDatasets: '++id, ticker, interval, source, [ticker+interval], lastUpdated',
+    })
+
+    // Version 7: 캔들 PK 변경 준비 — 기존 데이터를 임시 테이블에 백업
+    this.version(7).stores({
+      _candleBackup: '[ticker+interval+timestamp]',
+    }).upgrade(async tx => {
+      const candles = await tx.table('candles').toArray()
+      if (candles.length === 0) return
+      const items = candles.map((c: Record<string, unknown>) => ({
+        ticker: c.ticker,
+        interval: c.interval,
+        timestamp: c.timestamp,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume,
+        source: c.source,
+        createdAt: c.createdAt,
+      }))
+      await tx.table('_candleBackup').bulkPut(items)
+    })
+
+    // Version 8: 캔들 PK를 [ticker+interval+timestamp] 복합키로 변경
+    // (Dexie가 PK 변경 시 기존 objectStore를 삭제 후 재생성하므로 백업에서 복원)
+    this.version(8).stores({
+      candles: '[ticker+interval+timestamp], ticker, interval, timestamp, [ticker+interval], source',
+    }).upgrade(async tx => {
+      const backup = await tx.table('_candleBackup').toArray()
+      if (backup.length > 0) {
+        await tx.table('candles').bulkAdd(backup)
+      }
+    })
+
+    // Version 9: 임시 백업 테이블 제거
+    this.version(9).stores({
+      _candleBackup: null,
     })
   }
 }
@@ -331,39 +367,28 @@ export const TradeRepository = {
 
 export const CandleRepository = {
   /**
-   * 캔들 저장 (중복 시 무시)
+   * 캔들 저장 (중복 시 upsert)
    */
-  async add(candle: Omit<StoredCandle, 'id'>): Promise<number | undefined> {
-    try {
-      return await db.candles.add({
-        ...candle,
-        createdAt: Date.now()
-      })
-    } catch (error: unknown) {
-      // unique 인덱스 위반 — 중복 캔들, 무시
-      if (error instanceof Error && error.name === 'ConstraintError') {
-        return undefined
-      }
-      throw error
-    }
+  async add(candle: Omit<StoredCandle, 'createdAt'>): Promise<void> {
+    await db.candles.put({
+      ...candle,
+      createdAt: Date.now()
+    })
   },
 
   /**
-   * 캔들 bulk 저장 (중복 무시)
+   * 캔들 bulk 저장 (bulkPut upsert — 중복은 자동 덮어쓰기)
    *
-   * 최적화: 배치 내 중복 제거 → ticker+interval 그룹별 기존 키 일괄 조회
-   * → 신규 캔들만 bulkAdd (단일 트랜잭션)
-   *
-   * Before: O(N) DB reads + O(N) DB writes (캔들마다 중복 체크 + add)
-   * After:  O(G) 키 조회 + O(M) bulkAdd (G=그룹 수, M=신규 캔들 수)
+   * 복합 PK [ticker+interval+timestamp] 덕분에 per-group exists 체크 불필요.
+   * 배치 내 중복 제거 → 단일 bulkPut → count 차이로 신규 건수 반환.
    */
-  async bulkAdd(candles: Omit<StoredCandle, 'id' | 'createdAt'>[], source?: CandleSource): Promise<number> {
+  async bulkAdd(candles: Omit<StoredCandle, 'createdAt'>[], source?: CandleSource): Promise<number> {
     if (candles.length === 0) return 0
 
     const now = Date.now()
 
-    // 1) 배치 내 중복 제거 (같은 ticker+interval+timestamp → 첫 번째만 유지)
-    const dedup = new Map<string, Omit<StoredCandle, 'id'>>()
+    // 배치 내 중복 제거 (같은 ticker+interval+timestamp → 첫 번째만 유지)
+    const dedup = new Map<string, StoredCandle>()
     for (const c of candles) {
       const key = `${c.ticker}|${c.interval}|${c.timestamp}`
       if (!dedup.has(key)) {
@@ -373,44 +398,13 @@ export const CandleRepository = {
 
     const items = Array.from(dedup.values())
 
-    // 2) ticker+interval 그룹별 기존 키 일괄 조회 → 신규만 bulkAdd
-    const groups = new Map<string, Omit<StoredCandle, 'id'>[]>()
-    for (const c of items) {
-      const gk = `${c.ticker}|${c.interval}`
-      if (!groups.has(gk)) groups.set(gk, [])
-      groups.get(gk)!.push(c)
-    }
-
-    let totalAdded = 0
-
-    await db.transaction('rw', db.candles, async () => {
-      for (const [, group] of groups) {
-        const { ticker, interval } = group[0]
-        const timestamps = group.map(c => c.timestamp)
-        const minTs = Math.min(...timestamps)
-        const maxTs = Math.max(...timestamps)
-
-        // 기존 캔들의 인덱스 키만 조회 (전체 레코드 로드 X)
-        const existingKeys = await db.candles
-          .where('[ticker+interval+timestamp]')
-          .between([ticker, interval, minTs], [ticker, interval, maxTs], true, true)
-          .keys()
-
-        const existingTs = new Set<number>()
-        for (const k of existingKeys) {
-          if (Array.isArray(k)) existingTs.add((k as unknown as [string, number, number])[2])
-        }
-
-        const newItems = group.filter(c => !existingTs.has(c.timestamp))
-
-        if (newItems.length > 0) {
-          await db.candles.bulkAdd(newItems)
-          totalAdded += newItems.length
-        }
-      }
+    // 단일 트랜잭션: count → bulkPut → count 차이 = 신규 건수
+    return await db.transaction('rw', db.candles, async () => {
+      const before = await db.candles.count()
+      await db.candles.bulkPut(items)
+      const after = await db.candles.count()
+      return after - before
     })
-
-    return totalAdded
   },
 
   /**
@@ -483,26 +477,20 @@ export const CandleRepository = {
    * 오래된 캔들 삭제
    */
   async deleteOlderThan(ticker: string, interval: number, timestamp: number): Promise<number> {
-    const toDelete = await db.candles
+    return await db.candles
       .where('[ticker+interval+timestamp]')
-      .below([ticker, interval, timestamp])
-      .primaryKeys()
-
-    await db.candles.bulkDelete(toDelete)
-    return toDelete.length
+      .between([ticker, interval, 0], [ticker, interval, timestamp])
+      .delete()
   },
 
   /**
    * 특정 티커의 모든 캔들 삭제
    */
   async deleteTicker(ticker: string): Promise<number> {
-    const toDelete = await db.candles
+    return await db.candles
       .where('ticker')
       .equals(ticker)
-      .primaryKeys()
-
-    await db.candles.bulkDelete(toDelete)
-    return toDelete.length
+      .delete()
   },
 
   /**
