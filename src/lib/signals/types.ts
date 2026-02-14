@@ -16,6 +16,9 @@ export interface Signal {
   timestamp: number
   symbol: string
   direction: 'CALL' | 'PUT'
+  /** Machine-readable strategy identifier for aggregation (e.g. 'SBB-120', 'RSI-BB', 'TIF-60') */
+  strategyId: string
+  /** Human-readable description / reason for the signal */
   strategy: string
   regime: MarketRegime
   confidence: number

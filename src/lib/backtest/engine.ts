@@ -101,15 +101,31 @@ export class BacktestEngine {
       
       if (signal && signal.direction) {
         // Calculate bet amount
-        const betAmount = config.betType === 'fixed' 
-          ? config.betAmount 
+        const betAmount = config.betType === 'fixed'
+          ? config.betAmount
           : balance * (config.betAmount / 100)
 
         // Skip if not enough balance
         if (betAmount > balance) continue
 
-        // Find exit candle (based on expiry)
-        const expiryTime = currentCandle.timestamp + config.expirySeconds * 1000
+        // Latency simulation: actual entry happens latencyMs after signal
+        const latencyMs = config.latencyMs || 0
+        const entryTime = currentCandle.timestamp + latencyMs
+
+        // Find the candle closest to actual entry time (latency-adjusted)
+        let entryCandle = currentCandle
+        if (latencyMs > 0) {
+          const entryCandleIndex = filteredCandles.findIndex(
+            (c, idx) => idx >= i && c.timestamp >= entryTime
+          )
+          if (entryCandleIndex !== -1) {
+            entryCandle = filteredCandles[entryCandleIndex]
+          }
+          // If latency pushes entry beyond available data, use the signal candle
+        }
+
+        // Find exit candle (based on expiry from actual entry time)
+        const expiryTime = entryTime + config.expirySeconds * 1000
         const exitCandleIndex = filteredCandles.findIndex(
           c => c.timestamp >= expiryTime
         )
@@ -124,9 +140,9 @@ export class BacktestEngine {
         const maxExitSlippage = config.expirySeconds * 1000 * 2
         if (exitTimeDiff > maxExitSlippage) continue
 
-        // Determine result with slippage/latency simulation
-        const entryPrice = currentCandle.close + (config.slippage || 0) * (signal.direction === 'CALL' ? 1 : -1)
-        
+        // Entry price uses the latency-adjusted candle's close + slippage
+        const entryPrice = entryCandle.close + (config.slippage || 0) * (signal.direction === 'CALL' ? 1 : -1)
+
         const result = this.determineResult(
           signal.direction,
           entryPrice,
@@ -139,8 +155,8 @@ export class BacktestEngine {
 
         // Track trade
         const trade: BacktestTrade = {
-          entryTime: currentCandle.timestamp + (config.latencyMs || 0),
-          entryPrice: entryPrice,
+          entryTime,
+          entryPrice,
           exitTime: exitCandle.timestamp,
           exitPrice: exitCandle.close,
           direction: signal.direction,
@@ -215,11 +231,14 @@ export class BacktestEngine {
 
   /**
    * Run multiple backtests with different parameters (optimization)
+   * @param sortBy - Sorting criteria: 'netProfit' (default), 'expectancy', 'scorecard'
+   *   scorecard = composite score: expectancy * profitFactor / (1 + maxDrawdownPercent/100)
    */
   optimize(
     baseConfig: BacktestConfig,
     candles: Candle[],
-    paramRanges: Record<string, { min: number; max: number; step: number }>
+    paramRanges: Record<string, { min: number; max: number; step: number }>,
+    sortBy: 'netProfit' | 'expectancy' | 'scorecard' = 'netProfit'
   ): BacktestResult[] {
     const results: BacktestResult[] = []
     const paramCombinations = this.generateParamCombinations(paramRanges)
@@ -236,8 +255,23 @@ export class BacktestEngine {
       }
     }
 
-    // Sort by net profit
-    results.sort((a, b) => b.netProfit - a.netProfit)
+    // Sort by selected criteria
+    switch (sortBy) {
+      case 'expectancy':
+        results.sort((a, b) => b.expectancy - a.expectancy)
+        break
+      case 'scorecard':
+        // Composite score: expectancy * profitFactor / (1 + maxDrawdownPercent/100)
+        // Balances profit, consistency, and risk
+        results.sort((a, b) => {
+          const scoreA = a.expectancy * Math.min(a.profitFactor, 10) / (1 + a.maxDrawdownPercent / 100)
+          const scoreB = b.expectancy * Math.min(b.profitFactor, 10) / (1 + b.maxDrawdownPercent / 100)
+          return scoreB - scoreA
+        })
+        break
+      default:
+        results.sort((a, b) => b.netProfit - a.netProfit)
+    }
 
     return results
   }
