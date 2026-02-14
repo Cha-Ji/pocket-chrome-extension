@@ -36,6 +36,38 @@
 - (2026-01-26) 포워드 테스트 흐름: 실시간 수집 -> 가상 주문 -> 만기 결과 업데이트
 - (2026-01-26) 로드맵(요약): 기반 구축 -> 데이터 파이프라인 -> 분석/시각화 -> 자동화 -> 안정화/최적화
 
+## 전략 실행 아키텍처 (2026-02-14)
+
+### SBB-120 최소 캔들 요구량
+- SBB-120은 `bbPeriod(20) + lookbackSqueeze(120) = 최소 140 candles` 필요
+- SignalGeneratorV2의 candleBuffer 상한을 250으로 설정 (`MAX_CANDLE_BUFFER`)
+- 100개 제한 시 SBB-120은 절대 발동 불가
+
+### V2 히스토리 시딩
+- WebSocket history 수신 시 `signalGenerator.setHistory(symbol, candles)` 호출
+- 이를 통해 초기 50~140분 대기 없이 즉시 전략 평가 가능
+- symbol 키 정규화는 `onHistoryReceived` 내 3-level fallback 로직 재사용
+
+### V2 신호 실행 경로 단일화
+- V2 신호: `addCandle()` → 내부 `onSignal` 리스너 → `executeSignal()` (단일 경로)
+- TIF-60 외부 신호: `evaluateTIF60()` → `handleNewSignal()` → `executeSignal()` (별도 경로)
+- 중복 실행 방지: V2 신호는 `handleNewSignal()`을 거치지 않음
+
+### TIF-60 평가 타이밍
+- 기존: 캔들 이벤트(1분 1회) → 개선: 틱 이벤트(wsInterceptor.onPriceUpdate)에서 300ms throttle
+- `now` 계산: `ticks[last].timestamp` → `Math.max(all timestamps)` (비순서 틱 대응)
+
+### Signal.strategyId 구조
+- `strategyId`: 기계 집계용 고정 문자열 (e.g. 'SBB-120', 'RSI-BB', 'ZMR-60', 'TIF-60')
+- `strategy`: 사람이 읽는 reason 텍스트 (기존 필드, 하위 호환)
+- `generateLLMReport`는 `strategyId` 기준 집계 (기존 `split(':')` 휴리스틱 제거)
+
+### 백테스트 latency 반영
+- `latencyMs`가 entryTime과 entryPrice 모두에 영향
+- 진입 시점(signal + latency)에서 가장 가까운 캔들의 close를 entryPrice로 사용
+- 만기(expiry) 기준도 latency-adjusted entryTime 기준으로 계산
+- optimize 정렬: 'netProfit'(기본), 'expectancy', 'scorecard'(복합 점수) 옵션 추가
+
 ## 관련 참조
 
 | 주제 | 문서 위치 |

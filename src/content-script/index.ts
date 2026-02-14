@@ -91,57 +91,62 @@ const tif60Integration: TIF60Integration = {
   config: {},
 }
 
+// TIF-60 throttle state: evaluate at most once per 300ms per symbol
+const TIF60_THROTTLE_MS = 300
+const tif60LastEval: Map<string, number> = new Map()
+
+function evaluateTIF60(ticker: string, price: number): void {
+  if (!tif60Integration.enabled || !candleCollector || !signalGenerator) return
+
+  const now = Date.now()
+  const lastEval = tif60LastEval.get(ticker) || 0
+  if (now - lastEval < TIF60_THROTTLE_MS) return
+  tif60LastEval.set(ticker, now)
+
+  const allTicks = candleCollector.getTickHistory()
+  const candles = candleCollector.getCandles(ticker)
+  const tickerTicks = allTicks.filter(t => t.ticker === ticker)
+
+  const tifResult = tickImbalanceFadeStrategy(tickerTicks, candles, tif60Integration.config)
+
+  if (tifResult.signal) {
+    const tifSignal: Signal = {
+      id: `${ticker}-tif60-${now}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: now,
+      symbol: ticker,
+      direction: tifResult.signal,
+      strategyId: 'TIF-60',
+      strategy: tifResult.reason,
+      regime: signalGenerator!.getRegime(ticker)?.regime ?? 'unknown',
+      confidence: tifResult.confidence,
+      expiry: 60,
+      entryPrice: price,
+      indicators: tifResult.indicators,
+      status: 'pending',
+    }
+    if (tif60Integration.requireConsensus) {
+      // Consensus mode: check last V2 signal for this symbol
+      const recentSignals = signalGenerator!.getSignals(5)
+      const v2Signal = recentSignals.filter(s => s.symbol === ticker).pop()
+      if (v2Signal && v2Signal.direction === tifResult.signal) {
+        tifSignal.confidence = Math.min(tifSignal.confidence + 0.05, 0.95)
+        tifSignal.strategy = `${tifSignal.strategy} + V2 consensus`
+        tifSignal.indicators = { ...tifSignal.indicators, ...v2Signal.indicators }
+        console.log(`[PO] 🎯 TIF-60 + V2 consensus: ${tifResult.signal}`)
+        handleNewSignal(tifSignal)
+      }
+    } else {
+      console.log(`[PO] 🎯 TIF-60 Signal: ${tifSignal.direction} (${tifSignal.strategy})`)
+      handleNewSignal(tifSignal)
+    }
+  }
+}
+
 function setupCandleHandler(): void {
   if (!candleCollector || !signalGenerator) return
   candleCollector.onCandle((ticker: string, candle: Candle) => {
-    const v2Signal = signalGenerator!.addCandle(ticker, candle)
-
-    // TIF-60: 틱 기반 전략 평가
-    if (tif60Integration.enabled && candleCollector) {
-      const allTicks = candleCollector.getTickHistory()
-      const candles = candleCollector.getCandles(ticker)
-      const tickerTicks = allTicks.filter(t => t.ticker === ticker)
-
-      const tifResult = tickImbalanceFadeStrategy(tickerTicks, candles, tif60Integration.config)
-
-      if (tifResult.signal) {
-        // 방향 합의 모드: V2 신호와 같은 방향일 때만
-        if (tif60Integration.requireConsensus) {
-          if (v2Signal && v2Signal.direction === tifResult.signal) {
-            console.log(`[PO] 🎯 TIF-60 + V2 consensus: ${tifResult.signal}`)
-            // V2 신호의 confidence를 TIF-60으로 강화
-            v2Signal.confidence = Math.min(v2Signal.confidence + 0.05, 0.95)
-            v2Signal.strategy = `${v2Signal.strategy} + TIF-60`
-            v2Signal.indicators = { ...v2Signal.indicators, ...tifResult.indicators }
-            handleNewSignal(v2Signal)
-          }
-        } else {
-          // 독립 모드: TIF-60 단독으로 Signal 생성
-          const tifSignal: Signal = {
-            id: `${ticker}-tif60-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            timestamp: Date.now(),
-            symbol: ticker,
-            direction: tifResult.signal,
-            strategy: tifResult.reason,
-            regime: signalGenerator!.getRegime(ticker)?.regime ?? 'unknown',
-            confidence: tifResult.confidence,
-            expiry: 60,
-            entryPrice: candle.close,
-            indicators: tifResult.indicators,
-            status: 'pending',
-          }
-          console.log(`[PO] 🎯 TIF-60 Signal: ${tifSignal.direction} (${tifSignal.strategy})`)
-          handleNewSignal(tifSignal)
-        }
-      }
-    }
-
-    // 기존 V2 신호 처리 (TIF-60 합의 모드가 아닐 때)
-    if (v2Signal && !tif60Integration.requireConsensus) {
-      console.log(`[PO] 🎯 Signal: ${v2Signal.direction} (${v2Signal.strategy})`)
-      handleNewSignal(v2Signal)
-    }
-
+    // V2 signal generation — execution happens via onSignal listener (setupSignalHandler).
+    signalGenerator!.addCandle(ticker, candle)
     DataSender.sendCandle({ ...candle, ticker })
   })
 }
@@ -176,9 +181,10 @@ function setupSignalHandler(): void {
 function setupWebSocketHandler(): void {
   if (!wsInterceptor || !candleCollector) return
   wsInterceptor.onPriceUpdate((update: PriceUpdate) => {
-    // console.log(`[PO] 🔌 WS Price: ${update.symbol} = ${update.price}`);
     try { chrome.runtime.sendMessage({ type: 'WS_PRICE_UPDATE', payload: update }).catch(() => {}) } catch {}
     if (candleCollector) candleCollector.addTickFromWebSocket(update.symbol, update.price, update.timestamp);
+    // TIF-60: evaluate on tick events with throttle (300ms) instead of candle events (1min)
+    evaluateTIF60(update.symbol, update.price)
   })
   wsInterceptor.onHistoryReceived((candles: CandleData[]) => {
       if (!candles || candles.length === 0) return
@@ -210,6 +216,26 @@ function setupWebSocketHandler(): void {
       }));
       DataSender.sendHistory(payload).catch(err => console.error('[PO] History send failed:', err));
 
+      // Seed SignalGeneratorV2 with history so strategies can evaluate immediately
+      // without waiting 50~140 minutes for buffer to fill via addCandle()
+      if (signalGenerator && currentSymbol !== 'UNKNOWN-ASSET') {
+        const seedCandles: Candle[] = payload
+          .filter(c => c.timestamp > 0 && c.open > 0 && c.close > 0)
+          .map(c => ({
+            timestamp: c.timestamp,
+            open: c.open,
+            high: c.high,
+            low: c.low,
+            close: c.close,
+            volume: c.volume,
+          }))
+          .sort((a, b) => a.timestamp - b.timestamp)
+        if (seedCandles.length > 0) {
+          signalGenerator.setHistory(currentSymbol, seedCandles)
+          console.log(`[PO] 🌱 Seeded ${seedCandles.length} candles to SignalGeneratorV2 for ${currentSymbol}`)
+        }
+      }
+
       // AutoMiner에게 응답 수신 알림 (응답 기반 연쇄 요청 트리거)
       AutoMiner.onHistoryResponse(candles);
   })
@@ -234,7 +260,7 @@ function setupWebSocketHandler(): void {
 
 async function handleNewSignal(signal: Signal): Promise<void> {
   const bestAsset = payoutMonitor?.getBestAsset(); if (bestAsset && bestAsset.payout < tradingConfig.minPayout) return;
-  if (tradingConfig.onlyRSI && !signal.strategy.includes('RSI')) return;
+  if (tradingConfig.onlyRSI && !(signal.strategyId || signal.strategy).includes('RSI')) return;
   if (tradingConfig.enabled) await executeSignal(signal);
 }
 

@@ -22,6 +22,8 @@ import { zmr60WithHighWinRateConfig } from './zmr-60'
 export interface StrategyResult {
   signal: 'CALL' | 'PUT' | null
   confidence: number
+  /** Machine-readable strategy identifier for aggregation */
+  strategyId?: string
   reason: string
   indicators: Record<string, number>
   /** 전략이 제안하는 만기 시간(초). 설정 시 config.expirySeconds 대신 사용. */

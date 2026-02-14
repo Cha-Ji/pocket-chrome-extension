@@ -77,7 +77,10 @@ export function tickImbalanceFadeStrategy(
   })
 
   // ── 1. 윈도우 필터 ──
-  const now = ticks.length > 0 ? ticks[ticks.length - 1].timestamp : Date.now()
+  // Use max timestamp instead of assuming last element is newest (ticks may arrive out-of-order)
+  const now = ticks.length > 0
+    ? ticks.reduce((max, t) => t.timestamp > max ? t.timestamp : max, ticks[0].timestamp)
+    : Date.now()
   const windowMs = cfg.windowSec * 1000
   const windowTicks = ticks
     .filter(t => t.timestamp >= now - windowMs && t.timestamp <= now)

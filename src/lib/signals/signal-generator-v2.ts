@@ -59,6 +59,10 @@ const DEFAULT_CONFIG: SignalGeneratorV2Config = {
 // Signal Generator V2 Class
 // ============================================================
 
+// SBB-120 requires bbPeriod(20) + lookbackSqueeze(120) = 140 candles minimum.
+// Use 250 to allow headroom for all strategies.
+const MAX_CANDLE_BUFFER = 250
+
 export class SignalGeneratorV2 {
   private config: SignalGeneratorV2Config
   private candleBuffer: Map<string, Candle[]> = new Map()
@@ -89,8 +93,8 @@ export class SignalGeneratorV2 {
     const buffer = this.candleBuffer.get(symbol)!
     buffer.push(candle)
 
-    if (buffer.length > 100) {
-      buffer.shift()
+    if (buffer.length > MAX_CANDLE_BUFFER) {
+      buffer.splice(0, buffer.length - MAX_CANDLE_BUFFER)
     }
 
     if (buffer.length < 50) {
@@ -104,7 +108,7 @@ export class SignalGeneratorV2 {
    * Set candle history
    */
   setHistory(symbol: string, candles: Candle[]): void {
-    this.candleBuffer.set(symbol, candles.slice(-100))
+    this.candleBuffer.set(symbol, candles.slice(-MAX_CANDLE_BUFFER))
   }
 
   /**
@@ -152,10 +156,11 @@ export class SignalGeneratorV2 {
       signal.status = result
       
       // Update stats
-      const stratStats = this.stats.byStrategy.get(signal.strategy) || { count: 0, wins: 0, losses: 0 }
+      const stratKey = signal.strategyId || 'UNKNOWN'
+      const stratStats = this.stats.byStrategy.get(stratKey) || { count: 0, wins: 0, losses: 0 }
       if (result === 'win') stratStats.wins++
       else stratStats.losses++
-      this.stats.byStrategy.set(signal.strategy, stratStats)
+      this.stats.byStrategy.set(stratKey, stratStats)
     }
   }
 
@@ -193,12 +198,13 @@ export class SignalGeneratorV2 {
     this.stats.signalsGenerated++
 
     // Update strategy stats
-    const stratStats = this.stats.byStrategy.get(signal.strategy) || { count: 0, wins: 0, losses: 0 }
+    const stratKey = signal.strategyId || 'UNKNOWN'
+    const stratStats = this.stats.byStrategy.get(stratKey) || { count: 0, wins: 0, losses: 0 }
     stratStats.count++
-    this.stats.byStrategy.set(signal.strategy, stratStats)
+    this.stats.byStrategy.set(stratKey, stratStats)
 
-    if (this.signals.length > 100) {
-      this.signals.shift()
+    if (this.signals.length > 200) {
+      this.signals.splice(0, this.signals.length - 200)
     }
 
     this.listeners.forEach(l => l(signal))
@@ -229,7 +235,7 @@ export class SignalGeneratorV2 {
     // 2차: RSI+BB + ZMR-60 consensus/best 모드
     const sbbResult = sbb120Strategy(candles)
     if (sbbResult.signal) {
-      return sbbResult
+      return { ...sbbResult, strategyId: 'SBB-120' }
     }
 
     // RSI+BB 전략 (기본)
@@ -239,7 +245,8 @@ export class SignalGeneratorV2 {
     // ZMR-60 통합 모드 체크
     const mergeMode = this.config.zmr60MergeMode
     if (mergeMode === 'off') {
-      return rsiBBResult ?? noSignal
+      const r = rsiBBResult ?? noSignal
+      return r.signal ? { ...r, strategyId: 'RSI-BB' } : r
     }
 
     // ZMR-60 전략 실행
@@ -260,6 +267,7 @@ export class SignalGeneratorV2 {
         const chosen = rsi.confidence >= zmr.confidence ? rsi : zmr
         return {
           ...chosen,
+          strategyId: 'RSI-BB+ZMR-60',
           reason: `[consensus] ${chosen.reason}`,
           indicators: {
             ...rsi.indicators,
@@ -276,11 +284,13 @@ export class SignalGeneratorV2 {
 
     // mergeMode === 'best': 높은 confidence 선택
     if (rsi.signal && zmr.signal) {
-      return rsi.confidence >= zmr.confidence ? rsi : zmr
+      const chosen = rsi.confidence >= zmr.confidence ? rsi : zmr
+      const id = rsi.confidence >= zmr.confidence ? 'RSI-BB' : 'ZMR-60'
+      return { ...chosen, strategyId: id }
     }
     // 하나만 신호가 있으면 그것을 반환
-    if (rsi.signal) return rsi
-    if (zmr.signal) return zmr
+    if (rsi.signal) return { ...rsi, strategyId: 'RSI-BB' }
+    if (zmr.signal) return { ...zmr, strategyId: 'ZMR-60' }
 
     return rsi // 둘 다 null → null 반환
   }
@@ -323,6 +333,7 @@ export class SignalGeneratorV2 {
       timestamp: Date.now(),
       symbol,
       direction: strategyResult.signal!,
+      strategyId: strategyResult.strategyId ?? 'UNKNOWN',
       strategy: strategyResult.reason,
       regime: regimeInfo.regime,
       confidence: strategyResult.confidence,
@@ -373,10 +384,10 @@ export function generateLLMReport(signals: Signal[]): object {
   const total = wins + losses
   const winRate = total > 0 ? (wins / total * 100).toFixed(1) : 'N/A'
 
-  // Strategy breakdown
+  // Strategy breakdown — aggregate by strategyId for stable keys
   const byStrategy: Record<string, { count: number; wins: number; losses: number }> = {}
   signals.forEach(s => {
-    const key = s.strategy.split(':')[0].trim()
+    const key = s.strategyId || 'UNKNOWN'
     if (!byStrategy[key]) byStrategy[key] = { count: 0, wins: 0, losses: 0 }
     byStrategy[key].count++
     if (s.status === 'win') byStrategy[key].wins++
