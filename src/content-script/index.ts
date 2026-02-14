@@ -303,10 +303,13 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
     case 'GET_MINER_STATUS': return AutoMiner.getStatus();
     case 'GET_DB_MONITOR_STATUS': return { sender: DataSender.getStats() };
     case 'SET_MINER_CONFIG': AutoMiner.updateConfig(message.payload); return { success: true, config: AutoMiner.getConfig() };
+    case 'GET_STATUS':
     case 'GET_STATUS_V2': return getSystemStatus();
     case 'GET_LLM_REPORT': return getLLMReport();
     case 'SET_CONFIG_V2': tradingConfig = { ...tradingConfig, ...message.payload }; return { success: true, config: tradingConfig };
+    case 'START_TRADING':
     case 'START_TRADING_V2': tradingConfig.enabled = true; return { success: true };
+    case 'STOP_TRADING':
     case 'STOP_TRADING_V2': tradingConfig.enabled = false; return { success: true };
     case 'GET_SIGNALS': return signalGenerator?.getSignals(message.payload.limit ?? 20) ?? [];
     case 'GET_HIGH_PAYOUT_ASSETS': return payoutMonitor?.getHighPayoutAssets() ?? [];

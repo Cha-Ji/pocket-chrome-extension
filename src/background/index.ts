@@ -160,12 +160,15 @@ async function handleMessage(
       return handleGetTrades(message.payload)
 
     case 'GET_STATUS':
+    case 'GET_STATUS_V2':
       return tradingStatus
 
     case 'START_TRADING':
+    case 'START_TRADING_V2':
       return startTrading()
 
     case 'STOP_TRADING':
+    case 'STOP_TRADING_V2':
       return stopTrading()
 
     case 'STATUS_UPDATE':
@@ -221,7 +224,7 @@ async function startTrading(): Promise<{ success: boolean; error?: string }> {
         })
       }
 
-      const response = await chrome.tabs.sendMessage(tab.id, { type: 'START_TRADING' })
+      const response = await chrome.tabs.sendMessage(tab.id, { type: 'START_TRADING_V2' })
 
       if (!response?.success) {
         throw new POError({
@@ -260,7 +263,7 @@ async function stopTrading(): Promise<{ success: boolean; error?: string }> {
         })
       }
 
-      await chrome.tabs.sendMessage(tab.id, { type: 'STOP_TRADING' })
+      await chrome.tabs.sendMessage(tab.id, { type: 'STOP_TRADING_V2' })
 
       tradingStatus.isRunning = false
       notifyStatusChange()

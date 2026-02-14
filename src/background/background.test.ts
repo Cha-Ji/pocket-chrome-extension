@@ -49,10 +49,13 @@ describe('Background Service Worker', () => {
       const validTypes = [
         'START_TRADING',
         'STOP_TRADING',
+        'START_TRADING_V2',
+        'STOP_TRADING_V2',
         'TICK_DATA',
         'TRADE_EXECUTED',
         'STATUS_UPDATE',
         'GET_STATUS',
+        'GET_STATUS_V2',
       ]
 
       validTypes.forEach(type => {
