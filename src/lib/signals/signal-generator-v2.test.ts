@@ -306,15 +306,16 @@ describe('SignalGeneratorV2', () => {
       expect(rsiBBBounceStrategy).toHaveBeenCalledWith(candles, expect.any(Object))
     })
 
-    it('ADX < 25인 non-ranging에서도 rsiBBBounceStrategy를 호출한다', async () => {
+    it('non-ranging regime에서는 ADX 값과 무관하게 null을 반환한다', async () => {
       const { rsiBBBounceStrategy } = await import('../backtest/strategies/high-winrate')
       ;(rsiBBBounceStrategy as ReturnType<typeof vi.fn>).mockClear()
 
       const selectStrategy = (generator as any).selectStrategy.bind(generator)
       const candles = generateCandles(60)
 
-      selectStrategy(candles, { regime: 'weak_uptrend', adx: 20, direction: 1 })
-      expect(rsiBBBounceStrategy).toHaveBeenCalled()
+      const result = selectStrategy(candles, { regime: 'weak_uptrend', adx: 20, direction: 1 })
+      expect(result).toBeNull()
+      expect(rsiBBBounceStrategy).not.toHaveBeenCalled()
     })
   })
 })

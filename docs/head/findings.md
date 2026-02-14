@@ -36,6 +36,32 @@
 - (2026-01-26) 포워드 테스트 흐름: 실시간 수집 -> 가상 주문 -> 만기 결과 업데이트
 - (2026-01-26) 로드맵(요약): 기반 구축 -> 데이터 파이프라인 -> 분석/시각화 -> 자동화 -> 안정화/최적화
 
+## 자동매매 안정성 수정 (2026-02-14)
+
+### symbol 정규화 규칙
+- `normalizeSymbol()` (src/lib/utils/normalize.ts) 도입
+- 규칙: trim → '#' 제거 → spaces/underscores → '-' → suffix '_otc' → '-OTC' → uppercase
+- 예: `'#eurusd_otc'` → `'EURUSD-OTC'`
+- 적용 대상: candle-collector.addTickFromWebSocket, index.ts onPriceUpdate, onHistoryReceived, evaluateTIF60
+
+### ws timestamp 통일
+- `normalizeTimestampMs()` (src/lib/utils/normalize.ts) 도입
+- ts < 1e12 이면 초 단위로 간주하여 ×1000, 그 외 ms 그대로
+- 적용 대상: candle-collector.addTickFromWebSocket, index.ts onPriceUpdate/onHistoryReceived seed
+
+### TRADE_EXECUTED 단일 발행
+- executor.ts 내부의 `chrome.runtime.sendMessage({ type: 'TRADE_EXECUTED' })` 제거
+- executeSignal() (index.ts)에서만 발행하며, signalId를 포함
+- 실패 시에도 `result: false` + error 메시지를 포함하여 background에 전달
+
+### V2 신호 필터 단일화
+- V2 신호(signalGenerator.onSignal)도 handleNewSignal() 경유
+- minPayout, onlyRSI, enabled 체크가 모든 신호 소스에 동일하게 적용
+
+### selectStrategy() 레짐 조건 명확화
+- `if (regime !== 'ranging' && adx >= 25)` → `if (regime !== 'ranging')` 로 단순화
+- detectRegime()은 ADX < 25를 'ranging'으로 정의하므로 regime 비교만으로 충분
+
 ## 전략 실행 아키텍처 (2026-02-14)
 
 ### SBB-120 최소 캔들 요구량
@@ -49,9 +75,9 @@
 - symbol 키 정규화는 `onHistoryReceived` 내 3-level fallback 로직 재사용
 
 ### V2 신호 실행 경로 단일화
-- V2 신호: `addCandle()` → 내부 `onSignal` 리스너 → `executeSignal()` (단일 경로)
-- TIF-60 외부 신호: `evaluateTIF60()` → `handleNewSignal()` → `executeSignal()` (별도 경로)
-- 중복 실행 방지: V2 신호는 `handleNewSignal()`을 거치지 않음
+- V2 신호: `addCandle()` → 내부 `onSignal` 리스너 → `handleNewSignal()` → `executeSignal()`
+- TIF-60 외부 신호: `evaluateTIF60()` → `handleNewSignal()` → `executeSignal()`
+- 모든 신호가 `handleNewSignal()`을 경유하여 minPayout/onlyRSI/enabled 필터를 공유
 
 ### TIF-60 평가 타이밍
 - 기존: 캔들 이벤트(1분 1회) → 개선: 틱 이벤트(wsInterceptor.onPriceUpdate)에서 300ms throttle

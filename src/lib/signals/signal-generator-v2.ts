@@ -215,18 +215,16 @@ export class SignalGeneratorV2 {
     candles: Candle[],
     regimeInfo: { regime: MarketRegime; adx: number; direction: number }
   ): StrategyResult | null {
-    const { regime, adx } = regimeInfo
+    const { regime } = regimeInfo
 
     // 백테스트 결과 기반 전략 선택 (보수적 접근):
-    // - ranging: RSI+BB 54.0% ✅ + SBB-120 (squeeze breakout)
+    // - ranging (ADX < 25): RSI+BB 54.0% ✅ + SBB-120 (squeeze breakout)
     // - 다른 레짐: 신호 생성 안함 (성과 저조)
+    //
+    // 횡보장에서만 신호 생성. detectRegime()은 ADX < 25를 'ranging'으로 정의하므로
+    // regime 비교만으로 충분하다.
 
-    // 횡보장에서만 신호 생성 (ADX < 25)
-    // ADX 25-40: 약한 추세 → 신호 생성 안함
-    // ADX > 40: 강한 추세 → 신호 생성 안함
-
-    if (regime !== 'ranging' && adx >= 25) {
-      // 추세가 있으면 신호 생성 안함
+    if (regime !== 'ranging') {
       return null
     }
 

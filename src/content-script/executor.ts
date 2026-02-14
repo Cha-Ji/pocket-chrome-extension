@@ -193,11 +193,8 @@ export class TradeExecutor {
         // Execute click
         this.simulateClick(button)
 
-        // Notify background (검증 완료된 금액 전송)
-        chrome.runtime.sendMessage({
-          type: 'TRADE_EXECUTED',
-          payload: { direction, amount: validatedAmount, timestamp: Date.now() },
-        })
+        // TRADE_EXECUTED는 호출자(executeSignal)가 단일 발행한다.
+        // 여기서 중복 발행하지 않는다.
 
         return true
       },

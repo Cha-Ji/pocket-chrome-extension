@@ -6,6 +6,7 @@
 // ============================================================
 
 import { CandleRepository } from '../lib/db'
+import { normalizeSymbol, normalizeTimestampMs } from '../lib/utils/normalize'
 
 export interface Candle {
   timestamp: number
@@ -216,8 +217,8 @@ export class CandleCollector {
   addTickFromWebSocket(symbol: string, price: number, timestamp: number): void {
     const tick: TickData = {
       price,
-      timestamp,
-      ticker: symbol.toUpperCase()
+      timestamp: normalizeTimestampMs(timestamp),
+      ticker: normalizeSymbol(symbol)
     }
     
     // 틱 기록
