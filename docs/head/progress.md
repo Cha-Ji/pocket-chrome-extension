@@ -1,6 +1,22 @@
 # Pocket Quant Trader - Progress
 
-**최종 업데이트:** 2026-02-13 KST
+**최종 업데이트:** 2026-02-14 KST
+
+## (2026-02-14) Content Script index.ts 모듈 분리 리팩토링
+
+- **목표**: `src/content-script/index.ts` (559줄)을 논리 모듈로 분해하여 병렬 작업 시 파일 충돌 위험을 낮춤
+- **새 디렉토리**: `src/content-script/app/`
+  - `context.ts` — 공유 상태 (`ContentScriptContext`) 정의 + `createContext()` 팩토리
+  - `bootstrap.ts` — `initialize`, `loadSelectors`, `waitForElement`, Telegram 스토리지 리스너
+  - `ws-handlers.ts` — WebSocket/candle/payout/indicator/signal 핸들러, TIF-60 통합
+  - `trade-lifecycle.ts` — `handleNewSignal`, `executeSignal`, `scheduleSettlement`, `settleTrade`
+  - `message-handler.ts` — `chrome.runtime.onMessage` 디스패치, `getSystemStatus`
+- **index.ts**: 30줄로 축소 — `createContext()` → `registerMessageListener()` → `start()` 호출만
+- **패턴**: 공유 컨텍스트 객체(`ctx`)를 모든 모듈 함수의 첫 인자로 전달 → 테스트 시 독립 주입 가능
+- **테스트**: 기존 268개 통과 + 신규 35개 추가 (context 6, trade-lifecycle 19, message-handler 10) = 총 303개
+- **TypeScript**: 컴파일 에러 0건
+- 다음 행동: 필요시 ws-handlers.ts도 추가 분리 (onPriceUpdate, onHistoryReceived 등)
+- 상세: `docs/architecture/content-script/README.md`
 
 ## (2026-02-13) Side Panel 아키텍처 리팩토링 — extensionClient 추출
 
