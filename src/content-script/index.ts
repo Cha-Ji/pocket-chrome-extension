@@ -34,6 +34,37 @@ let isExecutingTrade = false
 let lastTradeExecutedAt = 0
 const TRADE_COOLDOWN_MS = 3000 // 최소 3초 간격
 
+// Signal Dedup: 동일 시그널 중복 실행 방지
+const DEDUP_WINDOW_MS = 5000
+const MAX_DEDUP_ENTRIES = 50
+const recentlyExecutedSignals = new Map<string, number>() // key -> timestamp
+
+function isSignalDuplicate(signal: Signal): boolean {
+  const now = Date.now()
+  // Cleanup expired entries
+  for (const [key, ts] of recentlyExecutedSignals) {
+    if (now - ts > DEDUP_WINDOW_MS) recentlyExecutedSignals.delete(key)
+  }
+  if (recentlyExecutedSignals.has(signal.id)) return true
+  // Composite key: same symbol+direction within same second = duplicate
+  const compositeKey = `${signal.symbol}:${signal.direction}:${Math.floor(signal.timestamp / 1000)}`
+  return recentlyExecutedSignals.has(compositeKey)
+}
+
+function markSignalExecuted(signal: Signal): void {
+  const now = Date.now()
+  recentlyExecutedSignals.set(signal.id, now)
+  const compositeKey = `${signal.symbol}:${signal.direction}:${Math.floor(signal.timestamp / 1000)}`
+  recentlyExecutedSignals.set(compositeKey, now)
+  // Trim if oversized
+  if (recentlyExecutedSignals.size > MAX_DEDUP_ENTRIES) {
+    const entries = [...recentlyExecutedSignals.entries()].sort((a, b) => a[1] - b[1])
+    for (let i = 0; i < entries.length - MAX_DEDUP_ENTRIES / 2; i++) {
+      recentlyExecutedSignals.delete(entries[i][0])
+    }
+  }
+}
+
 const DEFAULT_CONFIG: TradingConfigV2 = {
   enabled: false,
   autoAssetSwitch: true,
@@ -166,10 +197,11 @@ function setupIndicatorHandler(): void {
 
 function setupSignalHandler(): void {
   if (!signalGenerator) return
+  // Notification-only path: Telegram + background message.
+  // Trade execution is handled exclusively via handleNewSignal() in setupCandleHandler().
   signalGenerator.onSignal((signal: Signal) => {
     telegramService?.notifySignal(signal);
     try { chrome.runtime.sendMessage({ type: 'NEW_SIGNAL_V2', payload: { signal, config: tradingConfig } }).catch(() => {}) } catch {}
-    if (tradingConfig.enabled) executeSignal(signal);
   })
 }
 
@@ -233,9 +265,25 @@ function setupWebSocketHandler(): void {
 }
 
 async function handleNewSignal(signal: Signal): Promise<void> {
-  const bestAsset = payoutMonitor?.getBestAsset(); if (bestAsset && bestAsset.payout < tradingConfig.minPayout) return;
-  if (tradingConfig.onlyRSI && !signal.strategy.includes('RSI')) return;
-  if (tradingConfig.enabled) await executeSignal(signal);
+  if (!tradingConfig.enabled) {
+    console.log(`[PO] ⏸️ Signal skipped (trading disabled): ${signal.direction} ${signal.symbol} (${signal.strategy})`)
+    return
+  }
+  if (isSignalDuplicate(signal)) {
+    console.warn(`[PO] ⚠️ Signal skipped (duplicate): ${signal.id} ${signal.direction} (${signal.strategy})`)
+    return
+  }
+  const bestAsset = payoutMonitor?.getBestAsset()
+  if (bestAsset && bestAsset.payout < tradingConfig.minPayout) {
+    console.log(`[PO] ⛔ Signal skipped (payout ${bestAsset.payout}% < min ${tradingConfig.minPayout}%): ${signal.direction} (${signal.strategy})`)
+    return
+  }
+  if (tradingConfig.onlyRSI && !signal.strategy.includes('RSI')) {
+    console.log(`[PO] ⛔ Signal skipped (onlyRSI filter, strategy: ${signal.strategy}): ${signal.direction}`)
+    return
+  }
+  markSignalExecuted(signal)
+  await executeSignal(signal)
 }
 
 async function executeSignal(signal: Signal): Promise<void> {
