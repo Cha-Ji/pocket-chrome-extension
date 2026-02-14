@@ -18,6 +18,7 @@ import { CandleData } from './websocket-parser'
 import { AutoMiner } from './auto-miner'
 import { DataSender } from '../lib/data-sender'
 import { tickImbalanceFadeStrategy, TIF60Config } from './tick-strategies'
+import { normalizeSymbol, normalizeTimestampMs } from '../lib/utils/normalize'
 
 let dataCollector: DataCollector | null = null
 let tradeExecutor: TradeExecutor | null = null
@@ -95,8 +96,9 @@ const tif60Integration: TIF60Integration = {
 const TIF60_THROTTLE_MS = 300
 const tif60LastEval: Map<string, number> = new Map()
 
-function evaluateTIF60(ticker: string, price: number): void {
+function evaluateTIF60(rawTicker: string, price: number): void {
   if (!tif60Integration.enabled || !candleCollector || !signalGenerator) return
+  const ticker = normalizeSymbol(rawTicker)
 
   const now = Date.now()
   const lastEval = tif60LastEval.get(ticker) || 0
@@ -174,17 +176,33 @@ function setupSignalHandler(): void {
   signalGenerator.onSignal((signal: Signal) => {
     telegramService?.notifySignal(signal);
     try { chrome.runtime.sendMessage({ type: 'NEW_SIGNAL_V2', payload: { signal, config: tradingConfig } }).catch(() => {}) } catch {}
-    if (tradingConfig.enabled) executeSignal(signal);
+    // V2 신호도 handleNewSignal()을 경유하여 minPayout/onlyRSI/cooldown 필터를 공유한다.
+    handleNewSignal(signal);
   })
 }
 
 function setupWebSocketHandler(): void {
   if (!wsInterceptor || !candleCollector) return
   wsInterceptor.onPriceUpdate((update: PriceUpdate) => {
-    try { chrome.runtime.sendMessage({ type: 'WS_PRICE_UPDATE', payload: update }).catch(() => {}) } catch {}
-    if (candleCollector) candleCollector.addTickFromWebSocket(update.symbol, update.price, update.timestamp);
+    // symbol 정규화: 'CURRENT'/'UNKNOWN'이면 WS/DOM에서 실제 자산 추출
+    let symbol = update.symbol
+    if (!symbol || symbol === 'CURRENT' || symbol === 'UNKNOWN') {
+      const wsAssetId = wsInterceptor?.getActiveAssetId()
+      if (wsAssetId) {
+        symbol = wsAssetId
+      } else {
+        const symbolEl = document.querySelector('.current-symbol, .pair__title, [data-testid="asset-name"]')
+        if (symbolEl) symbol = (symbolEl.textContent || '').trim()
+      }
+    }
+    symbol = normalizeSymbol(symbol || 'UNKNOWN')
+    const ts = normalizeTimestampMs(update.timestamp)
+    const normalized = { ...update, symbol, timestamp: ts }
+
+    try { chrome.runtime.sendMessage({ type: 'WS_PRICE_UPDATE', payload: normalized }).catch(() => {}) } catch {}
+    if (candleCollector) candleCollector.addTickFromWebSocket(symbol, update.price, ts);
     // TIF-60: evaluate on tick events with throttle (300ms) instead of candle events (1min)
-    evaluateTIF60(update.symbol, update.price)
+    evaluateTIF60(symbol, update.price)
   })
   wsInterceptor.onHistoryReceived((candles: CandleData[]) => {
       if (!candles || candles.length === 0) return
@@ -195,25 +213,32 @@ function setupWebSocketHandler(): void {
         // Try 1: From WebSocket tracked asset ID
         const wsAssetId = wsInterceptor?.getActiveAssetId();
         if (wsAssetId) {
-          currentSymbol = wsAssetId.replace(/^#/, '').replace(/_otc$/i, '-OTC').replace(/_/g, '-').toUpperCase();
+          currentSymbol = wsAssetId;
         }
         // Try 2: From DOM
-        if (!currentSymbol || currentSymbol === 'CURRENT') {
+        if (!currentSymbol || currentSymbol === 'CURRENT' || currentSymbol === 'UNKNOWN') {
           const symbolEl = document.querySelector('.current-symbol, .pair__title, [data-testid="asset-name"]');
           if (symbolEl) {
-            currentSymbol = (symbolEl.textContent || '').trim().toUpperCase().replace(/\s+/g, '-');
+            currentSymbol = (symbolEl.textContent || '').trim();
           }
         }
         // Fallback
         if (!currentSymbol) currentSymbol = 'UNKNOWN-ASSET';
       }
+      // 정규화: 모든 경로에서 동일한 키 형식 보장
+      currentSymbol = normalizeSymbol(currentSymbol);
 
       console.log(`[PO] 📜 History Captured: ${candles.length} candles for ${currentSymbol}`);
-      const payload = candles.map(c => ({
-        ...c,
-        symbol: (c.symbol && c.symbol !== 'CURRENT' && c.symbol !== 'UNKNOWN') ? c.symbol : currentSymbol,
-        ticker: (c.symbol && c.symbol !== 'CURRENT' && c.symbol !== 'UNKNOWN') ? c.symbol : currentSymbol
-      }));
+      const payload = candles.map(c => {
+        const sym = (c.symbol && c.symbol !== 'CURRENT' && c.symbol !== 'UNKNOWN')
+          ? normalizeSymbol(c.symbol) : currentSymbol;
+        return {
+          ...c,
+          symbol: sym,
+          ticker: sym,
+          timestamp: normalizeTimestampMs(c.timestamp),
+        };
+      });
       DataSender.sendHistory(payload).catch(err => console.error('[PO] History send failed:', err));
 
       // Seed SignalGeneratorV2 with history so strategies can evaluate immediately
@@ -222,7 +247,7 @@ function setupWebSocketHandler(): void {
         const seedCandles: Candle[] = payload
           .filter(c => c.timestamp > 0 && c.open > 0 && c.close > 0)
           .map(c => ({
-            timestamp: c.timestamp,
+            timestamp: normalizeTimestampMs(c.timestamp),
             open: c.open,
             high: c.high,
             low: c.low,
@@ -259,9 +284,11 @@ function setupWebSocketHandler(): void {
 }
 
 async function handleNewSignal(signal: Signal): Promise<void> {
-  const bestAsset = payoutMonitor?.getBestAsset(); if (bestAsset && bestAsset.payout < tradingConfig.minPayout) return;
+  if (!tradingConfig.enabled) return;
+  const bestAsset = payoutMonitor?.getBestAsset();
+  if (bestAsset && bestAsset.payout < tradingConfig.minPayout) return;
   if (tradingConfig.onlyRSI && !(signal.strategyId || signal.strategy).includes('RSI')) return;
-  if (tradingConfig.enabled) await executeSignal(signal);
+  await executeSignal(signal);
 }
 
 async function executeSignal(signal: Signal): Promise<void> {
@@ -283,8 +310,14 @@ async function executeSignal(signal: Signal): Promise<void> {
   try {
     const result = await tradeExecutor.executeTrade(signal.direction, tradingConfig.tradeAmount);
     lastTradeExecutedAt = Date.now()
-    if (result) telegramService?.sendMessage(`🚀 [PO] <b>Trade Executed</b>\n${signal.direction} on ${signal.symbol}`);
-    try { chrome.runtime.sendMessage({ type: 'TRADE_EXECUTED', payload: { signalId: signal.id, result, timestamp: Date.now() } }).catch(() => {}) } catch {}
+
+    if (result.success) {
+      telegramService?.sendMessage(`🚀 [PO] <b>Trade Executed</b>\n${signal.direction} on ${signal.symbol}`);
+      try { chrome.runtime.sendMessage({ type: 'TRADE_EXECUTED', payload: { signalId: signal.id, result: true, timestamp: Date.now(), direction: signal.direction, amount: tradingConfig.tradeAmount, ticker: signal.symbol } }).catch(() => {}) } catch {}
+    } else {
+      console.warn(`[PO] ⚠️ Trade failed: ${result.error ?? 'unknown error'}`);
+      try { chrome.runtime.sendMessage({ type: 'TRADE_EXECUTED', payload: { signalId: signal.id, result: false, timestamp: Date.now(), direction: signal.direction, error: result.error } }).catch(() => {}) } catch {}
+    }
   } catch (error) { console.error('[PO] Trade execution error:', error) }
   finally { isExecutingTrade = false }
 }
