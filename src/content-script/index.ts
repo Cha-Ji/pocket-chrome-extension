@@ -17,6 +17,7 @@ import { getWebSocketInterceptor, PriceUpdate, WebSocketMessage, WebSocketConnec
 import { CandleData } from './websocket-parser'
 import { AutoMiner } from './auto-miner'
 import { DataSender } from '../lib/data-sender'
+import { DEFAULT_DATA_SENDER_CONFIG } from '../lib/config'
 import { tickImbalanceFadeStrategy, TIF60Config } from './tick-strategies'
 
 let dataCollector: DataCollector | null = null
@@ -50,6 +51,11 @@ async function initialize(): Promise<void> {
   if (isInitialized) return
   try {
     console.log('[PO] [1] Starting initialization...');
+    // DataSender: DEV 빌드에서만 활성화 (프로덕션은 기본 비활성)
+    DataSender.configure({
+      ...DEFAULT_DATA_SENDER_CONFIG,
+      enabled: import.meta.env.DEV === true,
+    })
     await waitForElement('body')
     console.log('[PO] [2] Body element available');
     if (typeof chrome === 'undefined' || !chrome.storage) {

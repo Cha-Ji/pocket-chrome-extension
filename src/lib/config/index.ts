@@ -9,6 +9,20 @@ import { TelegramConfig, DEFAULT_TELEGRAM_CONFIG } from '../notifications/telegr
 import { AutoTraderConfig } from '../trading/auto-trader'
 import { BacktestConfig } from '../backtest/types'
 
+/** DataSender 설정 */
+export interface DataSenderConfig {
+  /** DataSender 활성화 여부 (false면 모든 네트워크 요청 차단) */
+  enabled: boolean
+  /** 로컬 수집 서버 URL */
+  serverUrl: string
+  /** 연속 실패 시 로그 억제 임계값 (이후 N번째마다만 로그) */
+  errorLogThrottleAfter: number
+  /** 벌크 전송 최대 재시도 횟수 */
+  bulkMaxRetries: number
+  /** 재시도 기본 대기시간 (ms) — 지수 백오프 적용 */
+  bulkRetryBaseMs: number
+}
+
 // Content Script의 TradingConfigV2 (원본은 content-script/index.ts에 정의)
 export interface TradingConfigV2 {
   enabled: boolean
@@ -26,6 +40,7 @@ export interface AppConfig {
   autoTrader: Partial<AutoTraderConfig>
   telegram: TelegramConfig
   backtest: Partial<BacktestConfig>
+  dataSender: DataSenderConfig
 }
 
 // 기본값 상수
@@ -58,6 +73,14 @@ export const DEFAULT_AUTO_TRADER_CONFIG: Partial<AutoTraderConfig> = {
   demoMode: true,
 }
 
+export const DEFAULT_DATA_SENDER_CONFIG: DataSenderConfig = {
+  enabled: false,
+  serverUrl: 'http://localhost:3001',
+  errorLogThrottleAfter: 3,
+  bulkMaxRetries: 3,
+  bulkRetryBaseMs: 1000,
+}
+
 export const DEFAULT_BACKTEST_CONFIG: Partial<BacktestConfig> = {
   symbol: 'BTCUSDT',
   initialBalance: 1000,
@@ -73,6 +96,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   autoTrader: DEFAULT_AUTO_TRADER_CONFIG,
   telegram: DEFAULT_TELEGRAM_CONFIG,
   backtest: DEFAULT_BACKTEST_CONFIG,
+  dataSender: DEFAULT_DATA_SENDER_CONFIG,
 }
 
 // ============================================================
@@ -112,6 +136,7 @@ export async function loadAppConfig(): Promise<AppConfig> {
         botToken: secureData.botToken || stored.telegram?.botToken || '',
       },
       backtest: { ...DEFAULT_CONFIG.backtest, ...stored.backtest },
+      dataSender: { ...DEFAULT_CONFIG.dataSender, ...stored.dataSender },
     }
 
     return config

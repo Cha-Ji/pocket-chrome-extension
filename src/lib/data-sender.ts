@@ -2,19 +2,13 @@
 // Data Sender (to Local Collector)
 // ============================================================
 // 역할: 수집된 캔들을 로컬 서버로 전송
+// 설정: appConfig.dataSender (enabled, serverUrl, retry 등)
 // ============================================================
 
 import { loggers } from './logger'
+import { DataSenderConfig, DEFAULT_DATA_SENDER_CONFIG } from './config'
 
 const log = loggers.dataSender
-const SERVER_URL = 'http://localhost:3001'
-
-/**
- * NOTE:
- * - 초기 구현은 DEV 모드에서만 로컬 collector(localhost:3001)로 전송하도록 가드가 있었음.
- * - 현재는 실사용에서도 수집/모니터링이 필요하므로 production 빌드에서도 전송을 허용한다.
- * - 로컬 서버가 꺼져있으면 네트워크 에러로만 처리되고 기능은 자동으로 degrade 된다.
- */
 
 /** DataSender 전송 통계 */
 export interface DataSenderStats {
@@ -28,6 +22,7 @@ export interface DataSenderStats {
   realtimeSendCount: number
   realtimeSuccessCount: number
   realtimeFailCount: number
+  consecutiveFailures: number
 }
 
 const senderStats: DataSenderStats = {
@@ -41,6 +36,7 @@ const senderStats: DataSenderStats = {
   realtimeSendCount: 0,
   realtimeSuccessCount: 0,
   realtimeFailCount: 0,
+  consecutiveFailures: 0,
 }
 
 /** Loose candle shape accepted by DataSender (symbol or ticker) */
@@ -55,15 +51,94 @@ export interface CandleLike {
   volume?: number
 }
 
+// ── 설정 관리 ──────────────────────────────────────────────
+
+let config: DataSenderConfig = { ...DEFAULT_DATA_SENDER_CONFIG }
+
+function getServerUrl(): string {
+  return config.serverUrl
+}
+
+function isEnabled(): boolean {
+  return config.enabled
+}
+
+/**
+ * 연속 실패 횟수에 따라 에러 로그를 출력할지 판단.
+ * threshold 이하면 매번 출력, 초과하면 10번째마다 출력.
+ */
+function shouldLogError(): boolean {
+  const n = senderStats.consecutiveFailures
+  if (n <= config.errorLogThrottleAfter) return true
+  return n % 10 === 0
+}
+
+function logThrottled(message: string): void {
+  if (shouldLogError()) {
+    const suppressed = senderStats.consecutiveFailures > config.errorLogThrottleAfter
+    const suffix = suppressed
+      ? ` (suppressing further logs, failures: ${senderStats.consecutiveFailures})`
+      : ''
+    log.fail(`${message}${suffix}`)
+  }
+}
+
+// ── 지수 백오프 헬퍼 ─────────────────────────────────────
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  maxRetries: number,
+  baseMs: number,
+): Promise<Response> {
+  let lastError: unknown
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, init)
+      return response
+    } catch (error: unknown) {
+      lastError = error
+      if (attempt < maxRetries) {
+        const delay = baseMs * Math.pow(2, attempt)
+        await sleep(delay)
+      }
+    }
+  }
+  throw lastError
+}
+
+// ── Public API ────────────────────────────────────────────
+
 export const DataSender = {
+  /**
+   * 설정 주입 (앱 초기화 시 또는 동적 변경 시 호출)
+   */
+  configure(newConfig: Partial<DataSenderConfig>): void {
+    config = { ...config, ...newConfig }
+  },
+
+  /**
+   * 현재 설정 스냅샷 반환
+   */
+  getConfig(): DataSenderConfig {
+    return { ...config }
+  },
+
   /**
    * 서버 상태 확인
    */
   async checkHealth(): Promise<boolean> {
+    if (!isEnabled()) return false
+
     try {
-      const res = await fetch(`${SERVER_URL}/health`)
+      const res = await fetch(`${getServerUrl()}/health`)
       senderStats.serverOnline = res.ok
       senderStats.lastHealthCheck = Date.now()
+      if (res.ok) senderStats.consecutiveFailures = 0
       return res.ok
     } catch {
       senderStats.serverOnline = false
@@ -76,6 +151,8 @@ export const DataSender = {
    * 실시간 캔들 전송
    */
   async sendCandle(candle: CandleLike): Promise<void> {
+    if (!isEnabled()) return
+
     senderStats.realtimeSendCount++
     try {
       const payload = {
@@ -92,7 +169,7 @@ export const DataSender = {
 
       log.debug(`Sending candle: ${payload.symbol} @ ${payload.timestamp}`)
 
-      const response = await fetch(`${SERVER_URL}/api/candle`, {
+      const response = await fetch(`${getServerUrl()}/api/candle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -100,24 +177,26 @@ export const DataSender = {
 
       if (response.ok) {
         senderStats.realtimeSuccessCount++
+        senderStats.consecutiveFailures = 0
       } else {
         senderStats.realtimeFailCount++
+        senderStats.consecutiveFailures++
         const errorText = await response.text()
-        log.error(`Server error (${response.status}): ${errorText}`)
+        logThrottled(`Server error (${response.status}): ${errorText}`)
       }
     } catch (error: unknown) {
       senderStats.realtimeFailCount++
-      log.error(`Network error: ${error instanceof Error ? error.message : String(error)}`)
+      senderStats.consecutiveFailures++
+      logThrottled(`Network error: ${error instanceof Error ? error.message : String(error)}`)
     }
   },
 
   /**
-   * 과거 데이터 Bulk 전송
+   * 과거 데이터 Bulk 전송 (재시도 + 지수 백오프)
    */
   async sendHistory(candles: CandleLike[]): Promise<void> {
     if (candles.length === 0) return
-
-    senderStats.bulkSendCount++
+    if (!isEnabled()) return
 
     try {
       const firstCandle = candles[0]
@@ -149,7 +228,6 @@ export const DataSender = {
         )
 
       if (mapped.length === 0) {
-        senderStats.bulkFailCount++
         log.fail(
           `All ${candles.length} candles filtered out during validation. Sample: ${JSON.stringify(candles[0])}`
         )
@@ -162,33 +240,62 @@ export const DataSender = {
 
       const payload = { candles: mapped }
       const bodyStr = JSON.stringify(payload)
-      log.data(`Sending ${mapped.length} candles (${(bodyStr.length / 1024).toFixed(1)}KB) to ${SERVER_URL}/api/candles/bulk`)
+      const serverUrl = getServerUrl()
+      log.data(`Sending ${mapped.length} candles (${(bodyStr.length / 1024).toFixed(1)}KB) to ${serverUrl}/api/candles/bulk`)
 
-      const response = await fetch(`${SERVER_URL}/api/candles/bulk`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: bodyStr,
-      })
+      // 카운터는 실제 전송 시도 직전에 증가
+      senderStats.bulkSendCount++
+
+      const response = await fetchWithRetry(
+        `${serverUrl}/api/candles/bulk`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: bodyStr,
+        },
+        config.bulkMaxRetries,
+        config.bulkRetryBaseMs,
+      )
 
       if (response.ok) {
         const result = await response.json()
         senderStats.bulkSuccessCount++
         senderStats.bulkTotalCandles += result.count
         senderStats.lastBulkSendAt = Date.now()
+        senderStats.consecutiveFailures = 0
         log.success(`Bulk saved: ${result.count} candles (symbol: ${mapped[0].symbol})`)
       } else {
         senderStats.bulkFailCount++
+        senderStats.consecutiveFailures++
         const errorText = await response.text()
-        log.fail(`Bulk send failed (HTTP ${response.status}): ${errorText}`)
+        logThrottled(`Bulk send failed (HTTP ${response.status}): ${errorText}`)
       }
     } catch (error: unknown) {
       senderStats.bulkFailCount++
-      log.fail(`Bulk send network error: ${error instanceof Error ? error.message : String(error)}`)
+      senderStats.consecutiveFailures++
+      logThrottled(`Bulk send network error: ${error instanceof Error ? error.message : String(error)}`)
     }
   },
 
   /** 전송 통계 스냅샷 반환 */
   getStats(): DataSenderStats {
     return { ...senderStats }
+  },
+
+  /** 통계 리셋 (테스트용) */
+  _resetStats(): void {
+    Object.assign(senderStats, {
+      serverOnline: false,
+      lastHealthCheck: 0,
+      bulkSendCount: 0,
+      bulkSuccessCount: 0,
+      bulkFailCount: 0,
+      bulkTotalCandles: 0,
+      lastBulkSendAt: 0,
+      realtimeSendCount: 0,
+      realtimeSuccessCount: 0,
+      realtimeFailCount: 0,
+      consecutiveFailures: 0,
+    })
   },
 }
