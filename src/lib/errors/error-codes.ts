@@ -131,7 +131,7 @@ export const ERROR_SEVERITY_MAP: Record<ErrorCode, ErrorSeverity> = {
   // Message
   [ErrorCode.MSG_SEND_FAILED]: ErrorSeverity.WARNING,
   [ErrorCode.MSG_RECEIVE_FAILED]: ErrorSeverity.WARNING,
-  [ErrorCode.MSG_INVALID_TYPE]: ErrorSeverity.ERROR,
+  [ErrorCode.MSG_INVALID_TYPE]: ErrorSeverity.WARNING,
   [ErrorCode.MSG_TIMEOUT]: ErrorSeverity.WARNING,
   [ErrorCode.MSG_NO_RECEIVER]: ErrorSeverity.INFO,
 

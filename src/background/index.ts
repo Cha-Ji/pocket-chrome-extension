@@ -21,15 +21,26 @@ import { PORT_CHANNEL, RELAY_MESSAGE_TYPES, THROTTLE_CONFIG } from '../lib/port-
 // Error Handler Setup
 // ============================================================
 
-// Subscribe to critical errors for Telegram notification
+// Subscribe to critical errors for Telegram notification.
+// Only CRITICAL errors trigger notifications (e.g., trade failures, demo mode violations).
+// Throttle: suppress duplicate error codes within a 60-second window.
+const _telegramNotifiedAt = new Map<string, number>()
+const TELEGRAM_THROTTLE_MS = 60_000
+
 errorHandler.onError(async (error) => {
-  if (error.isSeverityAtLeast(ErrorSeverity.ERROR)) {
-    try {
-      const telegram = await getTelegramService()
-      await telegram.notifyError(error.toShortString())
-    } catch {
-      // Telegram notification failure should not cause further errors
-    }
+  if (!error.isSeverityAtLeast(ErrorSeverity.CRITICAL)) return
+
+  // Throttle: skip if the same error code was notified recently
+  const now = Date.now()
+  const lastNotified = _telegramNotifiedAt.get(error.code) ?? 0
+  if (now - lastNotified < TELEGRAM_THROTTLE_MS) return
+  _telegramNotifiedAt.set(error.code, now)
+
+  try {
+    const telegram = await getTelegramService()
+    await telegram.notifyError(error.toShortString())
+  } catch {
+    // Telegram notification failure should not cause further errors
   }
 })
 
@@ -185,16 +196,10 @@ async function handleMessage(
       return handleReloadTelegramConfig(message.payload)
 
     default:
-      // Don't log errors for relay-only messages (already forwarded via port)
-      if (!RELAY_MESSAGE_TYPES.has((message as { type: string }).type)) {
-        errorHandler.handle(
-          new POError({
-            code: ErrorCode.MSG_INVALID_TYPE,
-            message: `Unknown message type: ${(message as { type: string }).type}`,
-            context: ctx,
-          })
-        )
-      }
+      // Unhandled message types are normal — many messages are content-script ↔ side-panel
+      // or V2 API messages that background only relays but does not process.
+      // Log at debug level for development visibility; never treat as an error.
+      console.debug(`[Background] Unhandled message type: ${(message as { type: string }).type}`)
       return null
   }
 }
