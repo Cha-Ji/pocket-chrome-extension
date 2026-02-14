@@ -209,6 +209,36 @@ if (!isDemoMode(selectors)) {
 
 ---
 
+## 거래 이벤트 흐름 (Trade Event Flow)
+
+**TRADE_LOGGED / TRADE_SETTLED 처리 원칙**:
+
+```
+Content Script → TRADE_EXECUTED → Background → DB create → TRADE_LOGGED broadcast
+Content Script → (setTimeout) → FINALIZE_TRADE → Background → DB finalize → TRADE_SETTLED broadcast
+```
+
+- Side Panel의 `useTrades` 훅은 **리페치 금지** — 이벤트(TRADE_LOGGED, TRADE_SETTLED)만으로 상태를 갱신한다.
+- 내부적으로 `Map<tradeId, Trade>`를 유지하여 O(1) upsert. 중복 메시지에도 안전(idempotent).
+- TRADE_SETTLED가 TRADE_LOGGED보다 먼저 도착해도 stub을 만들어 나중에 merge.
+
+**Idempotent Finalize 원칙**:
+- `TradeRepository.finalize()`는 `trade.result !== 'PENDING'`이면 아무것도 하지 않고 `{updated: false}`를 반환.
+- 같은 tradeId로 여러 번 FINALIZE_TRADE가 호출돼도 세션 통계(wins/losses/totalTrades)가 중복 증가하지 않는다.
+- `updated === false`이면 Background는 TRADE_SETTLED broadcast를 보내지 않는다.
+
+**Binary Option PnL 계산 정의**:
+- **WIN**: `+amount * (payoutPercent / 100)` — payoutPercent는 진입 시점의 현재 자산 payout
+- **LOSS**: `-amount`
+- **TIE**: `0`
+- payoutPercent를 확보할 수 없으면 경고 로그 출력, PnL은 0으로 처리
+
+**Payout Gate 규칙**:
+- minPayout 체크는 `bestAsset`이 아니라 **현재 차트 자산**(`getCurrentAssetPayout()`)의 payout을 기준으로 한다.
+- 현재 자산 payout을 확인할 수 없으면 보수적으로 거래를 차단한다.
+
+---
+
 ## 개발 규칙
 
 **파일 네이밍**:
