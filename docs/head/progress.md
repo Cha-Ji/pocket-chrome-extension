@@ -1,6 +1,19 @@
 # Pocket Quant Trader - Progress
 
-**최종 업데이트:** 2026-02-13 KST
+**최종 업데이트:** 2026-02-14 KST
+
+## (2026-02-14) 이중 저장소 아키텍처 문서화 — IndexedDB vs Local Collector 분리
+
+- **목표**: "데이터가 어디에 저장되는지" 신규 개발자가 빠르게 이해할 수 있도록 문서 정비
+- **문제**: local-database 문서가 IndexedDB만 설명하고, 실제 주력 히스토리 저장소인 Local Collector(SQLite)가 미문서화
+- **수정 파일**:
+  - `docs/architecture/local-database/README.md` — IndexedDB 전용으로 재작성 (v6 스키마, 8테이블, ER 다이어그램, 보관 정책, 제약사항)
+  - `docs/architecture/local-collector/README.md` — 신규 생성 (Express+SQLite, 3테이블, 15개 API 엔드포인트, 리샘플 엔진, 데이터 흐름 시나리오)
+  - `docs/head/map.md` — "데이터 저장소 — 이중 구조" 섹션으로 개편 (비교표 + Mermaid 구조도 + 교차참조)
+  - `docs/head/findings.md` — 이중 저장소 결정사항 추가
+- **Mermaid 다이어그램**: ER 다이어그램(IndexedDB), 플로우차트(Collector 전체 구조), 시퀀스(리샘플 흐름)
+- 다음 행동: 필요 시 retention 자동화(SQLite 오래된 데이터 정리) 검토
+- 상세: `docs/architecture/local-database/`, `docs/architecture/local-collector/`
 
 ## (2026-02-13) Side Panel 아키텍처 리팩토링 — extensionClient 추출
 
