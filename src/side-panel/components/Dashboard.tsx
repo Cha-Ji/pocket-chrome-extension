@@ -13,10 +13,13 @@ export function Dashboard({ status, trades }: DashboardProps) {
     const total = trades.length
     const wins = trades.filter(t => t.result === 'WIN').length
     const losses = trades.filter(t => t.result === 'LOSS').length
-    const winRate = total > 0 ? (wins / total) * 100 : 0
+    const ties = trades.filter(t => t.result === 'TIE').length
+    // Policy A: winRate = wins / (wins + losses), ties excluded from denominator
+    const decided = wins + losses
+    const winRate = decided > 0 ? (wins / decided) * 100 : 0
     const totalProfit = trades.reduce((sum, t) => sum + (t.profit || 0), 0)
-    
-    return { total, wins, losses, winRate, totalProfit }
+
+    return { total, wins, losses, ties, winRate, totalProfit }
   }, [trades])
 
   return (

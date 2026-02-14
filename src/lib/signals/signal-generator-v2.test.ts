@@ -213,6 +213,47 @@ describe('SignalGeneratorV2', () => {
       generator.updateSignalResult('nonexistent', 'loss')
       expect(generator.getSignals()).toHaveLength(0)
     })
+
+    it('updateSignalResult은 tie를 올바르게 처리한다', () => {
+      const signal: Signal = {
+        id: 'tie-signal',
+        timestamp: Date.now(),
+        symbol: 'BTCUSDT',
+        direction: 'CALL',
+        strategyId: 'RSI-BB',
+        strategy: 'RSI+BB',
+        regime: 'ranging',
+        confidence: 0.7,
+        expiry: 60,
+        entryPrice: 50000,
+        indicators: {},
+        status: 'pending',
+      }
+      ;(generator as any).signals = [signal]
+
+      generator.updateSignalResult('tie-signal', 'tie')
+
+      const signals = generator.getSignals()
+      expect(signals[0].status).toBe('tie')
+    })
+
+    it('updateSignalResult은 tie를 전략별 통계에 별도 카운트한다', () => {
+      const signals: Signal[] = [
+        { id: 's1', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.7, expiry: 60, entryPrice: 50000, indicators: {}, status: 'pending' },
+        { id: 's2', timestamp: Date.now(), symbol: 'BTC', direction: 'PUT', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.7, expiry: 60, entryPrice: 50000, indicators: {}, status: 'pending' },
+        { id: 's3', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.7, expiry: 60, entryPrice: 50000, indicators: {}, status: 'pending' },
+      ]
+      ;(generator as any).signals = signals
+
+      generator.updateSignalResult('s1', 'win')
+      generator.updateSignalResult('s2', 'loss')
+      generator.updateSignalResult('s3', 'tie')
+
+      const stats = generator.getStats()
+      expect(stats.byStrategy['RSI-BB'].wins).toBe(1)
+      expect(stats.byStrategy['RSI-BB'].losses).toBe(1)
+      expect(stats.byStrategy['RSI-BB'].ties).toBe(1)
+    })
   })
 
   // ============================================================
@@ -391,6 +432,36 @@ describe('generateLLMReport', () => {
 
     const report = generateLLMReport(signals) as any
     expect(report.recentSignals).toHaveLength(5)
+  })
+
+  it('tie가 포함된 신호에서 winRate를 Policy A로 계산한다 (ties 제외)', () => {
+    const signals: Signal[] = [
+      { id: '1', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'win' },
+      { id: '2', timestamp: Date.now(), symbol: 'BTC', direction: 'PUT', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'loss' },
+      { id: '3', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'tie' },
+      { id: '4', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'pending' },
+    ]
+
+    const report = generateLLMReport(signals) as any
+    // Policy A: winRate = wins / (wins + losses) = 1/2 = 50.0%
+    // NOT 1/3 (excluding pending) or 1/4 (including all)
+    expect(report.summary.winRate).toBe('50.0%')
+    expect(report.summary.wins).toBe(1)
+    expect(report.summary.losses).toBe(1)
+    expect(report.summary.ties).toBe(1)
+    expect(report.summary.pending).toBe(1)
+    expect(report.summary.completed).toBe(2) // only decided trades (win + loss)
+  })
+
+  it('tie만 있으면 winRate는 N/A이다', () => {
+    const signals: Signal[] = [
+      { id: '1', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'tie' },
+    ]
+
+    const report = generateLLMReport(signals) as any
+    expect(report.summary.winRate).toBe('N/A%')
+    expect(report.summary.ties).toBe(1)
+    expect(report.summary.completed).toBe(0)
   })
 
   it('승률 55% 이상이면 positive recommendation', () => {
