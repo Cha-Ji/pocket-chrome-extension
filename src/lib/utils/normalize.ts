@@ -24,8 +24,8 @@ export function normalizeSymbol(raw: string): string {
   let s = raw.trim()
   // leading '#' 제거
   if (s.startsWith('#')) s = s.slice(1)
-  // spaces / underscores → '-'
-  s = s.replace(/[\s_]+/g, '-')
+  // slashes / spaces / underscores → '-'
+  s = s.replace(/[/\s_]+/g, '-')
   // suffix '-otc' (대소문자 무관) → '-OTC' (정규화 전 uppercase 하면 중복 처리되므로 여기서 처리)
   s = s.replace(/-?otc$/i, '-OTC')
   // uppercase

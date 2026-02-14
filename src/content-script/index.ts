@@ -35,6 +35,25 @@ let isExecutingTrade = false
 let lastTradeExecutedAt = 0
 const TRADE_COOLDOWN_MS = 3000 // 최소 3초 간격
 
+// ============================================================
+// P1: Pending Trade Settlement (만기 후 WIN/LOSS 판정)
+// ============================================================
+
+interface PendingTrade {
+  tradeId: number
+  signalId?: string
+  ticker: string
+  direction: 'CALL' | 'PUT'
+  entryTime: number
+  entryPrice: number
+  expirySeconds: number
+  amount: number
+  timerId: ReturnType<typeof setTimeout>
+}
+
+const pendingTrades: Map<number, PendingTrade> = new Map()
+const SETTLEMENT_GRACE_MS = 800 // 만기 후 가격 안정화 대기 시간
+
 const DEFAULT_CONFIG: TradingConfigV2 = {
   enabled: false,
   autoAssetSwitch: true,
@@ -312,14 +331,120 @@ async function executeSignal(signal: Signal): Promise<void> {
     lastTradeExecutedAt = Date.now()
 
     if (result.success) {
-      telegramService?.sendMessage(`🚀 [PO] <b>Trade Executed</b>\n${signal.direction} on ${signal.symbol}`);
-      try { chrome.runtime.sendMessage({ type: 'TRADE_EXECUTED', payload: { signalId: signal.id, result: true, timestamp: Date.now(), direction: signal.direction, amount: tradingConfig.tradeAmount, ticker: signal.symbol } }).catch(() => {}) } catch {}
+      // P0: entryPrice 결정 — candleCollector의 최신 tick > signal.entryPrice > 거부(0)
+      const ticker = normalizeSymbol(signal.symbol)
+      let entryPrice = candleCollector?.getLatestTickPrice(ticker) ?? 0
+      if (!entryPrice || entryPrice <= 0) entryPrice = signal.entryPrice
+      if (!entryPrice || entryPrice <= 0) {
+        console.error(`[PO] ❌ Cannot determine entryPrice for ${ticker} — aborting trade record`)
+        isExecutingTrade = false
+        return
+      }
+
+      telegramService?.sendMessage(`🚀 [PO] <b>Trade Executed</b>\n${signal.direction} on ${signal.symbol} @ ${entryPrice}`);
+      const expirySeconds = signal.expiry || 60
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'TRADE_EXECUTED',
+          payload: {
+            signalId: signal.id,
+            result: true,
+            timestamp: Date.now(),
+            direction: signal.direction,
+            amount: tradingConfig.tradeAmount,
+            ticker,
+            entryPrice,
+          }
+        }) as { success: boolean; tradeId?: number } | undefined
+
+        // P1: 성공 시 만기 정산 타이머 등록
+        if (response?.success && response.tradeId) {
+          scheduleSettlement({
+            tradeId: response.tradeId,
+            signalId: signal.id,
+            ticker,
+            direction: signal.direction,
+            entryTime: Date.now(),
+            entryPrice,
+            expirySeconds,
+            amount: tradingConfig.tradeAmount,
+          })
+        }
+      } catch {
+        // Background may not be reachable
+        console.warn('[PO] Failed to send TRADE_EXECUTED to background')
+      }
     } else {
       console.warn(`[PO] ⚠️ Trade failed: ${result.error ?? 'unknown error'}`);
       try { chrome.runtime.sendMessage({ type: 'TRADE_EXECUTED', payload: { signalId: signal.id, result: false, timestamp: Date.now(), direction: signal.direction, error: result.error } }).catch(() => {}) } catch {}
     }
   } catch (error) { console.error('[PO] Trade execution error:', error) }
   finally { isExecutingTrade = false }
+}
+
+// ============================================================
+// P1: Settlement Scheduling & Evaluation
+// ============================================================
+
+function scheduleSettlement(params: Omit<PendingTrade, 'timerId'>): void {
+  const delayMs = params.expirySeconds * 1000 + SETTLEMENT_GRACE_MS
+  console.log(`[PO] ⏱️ Settlement scheduled for tradeId=${params.tradeId} in ${delayMs}ms`)
+
+  const timerId = setTimeout(() => {
+    settleTrade(params.tradeId)
+  }, delayMs)
+
+  pendingTrades.set(params.tradeId, { ...params, timerId })
+}
+
+async function settleTrade(tradeId: number): Promise<void> {
+  const pending = pendingTrades.get(tradeId)
+  if (!pending) return
+  pendingTrades.delete(tradeId)
+
+  // 만기 시점의 최신 가격 조회
+  const exitPrice = candleCollector?.getLatestTickPrice(pending.ticker) ?? 0
+  if (!exitPrice || exitPrice <= 0) {
+    console.warn(`[PO] ⚠️ Cannot get exit price for ${pending.ticker} — marking as LOSS (conservative)`)
+  }
+
+  // WIN/LOSS 판정
+  let result: 'WIN' | 'LOSS' | 'TIE'
+  if (exitPrice <= 0) {
+    result = 'LOSS' // 가격을 알 수 없으면 보수적으로 LOSS
+  } else if (pending.direction === 'CALL') {
+    result = exitPrice > pending.entryPrice ? 'WIN' : exitPrice < pending.entryPrice ? 'LOSS' : 'TIE'
+  } else {
+    result = exitPrice < pending.entryPrice ? 'WIN' : exitPrice > pending.entryPrice ? 'LOSS' : 'TIE'
+  }
+
+  // 수익 계산 (간단 구현: WIN=+0, LOSS=-amount, TIE=0)
+  const profit = result === 'WIN' ? 0 : result === 'LOSS' ? -pending.amount : 0
+
+  console.log(`[PO] 📊 Settlement: tradeId=${tradeId} ${pending.direction} entry=${pending.entryPrice} exit=${exitPrice} => ${result} (profit=${profit})`)
+
+  // Background에 정산 요청
+  try {
+    await chrome.runtime.sendMessage({
+      type: 'FINALIZE_TRADE',
+      payload: {
+        tradeId,
+        signalId: pending.signalId,
+        exitPrice,
+        result,
+        profit,
+      }
+    })
+  } catch {
+    console.warn(`[PO] Failed to send FINALIZE_TRADE for tradeId=${tradeId}`)
+  }
+
+  // SignalGeneratorV2에 결과 반영
+  if (pending.signalId && signalGenerator) {
+    const signalResult = result === 'WIN' ? 'win' : 'loss'
+    signalGenerator.updateSignalResult(pending.signalId, signalResult)
+    console.log(`[PO] 📈 Signal ${pending.signalId} updated: ${signalResult}`)
+  }
 }
 
 function notifyBestAsset(asset: AssetPayout): void {
