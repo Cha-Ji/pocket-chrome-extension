@@ -195,6 +195,13 @@ async function handleMessage(
       // Broadcast-only message consumed by side panel; no-op in background
       return null
 
+    case 'FINALIZE_TRADE':
+      return handleFinalizeTrade(message.payload)
+
+    case 'TRADE_SETTLED':
+      // Broadcast-only message consumed by side panel; no-op in background
+      return null
+
     case 'GET_ERROR_STATS':
       return errorHandler.getStats()
 
@@ -364,10 +371,30 @@ async function handleTickData(tick: Tick): Promise<void> {
   }
 }
 
-async function handleTradeExecuted(payload: MessagePayloadMap['TRADE_EXECUTED']): Promise<void> {
+async function handleTradeExecuted(
+  payload: MessagePayloadMap['TRADE_EXECUTED']
+): Promise<{ success: boolean; tradeId?: number; ignored?: boolean }> {
   const ctx = { module: 'background' as const, function: 'handleTradeExecuted' }
 
   console.log('[Background] Trade executed:', payload)
+
+  // P0: 실행 실패(result === false)인 경우 DB에 기록하지 않음
+  if (payload.result === false) {
+    console.warn('[Background] Trade execution failed — skipping DB write', payload.error)
+    return { success: false, ignored: true }
+  }
+
+  // P0: entryPrice가 없거나 0이면 경고 (데이터 오염 방지)
+  if (!payload.entryPrice || payload.entryPrice <= 0) {
+    errorHandler.handle(
+      new POError({
+        code: ErrorCode.TRADE_VALIDATION_FAILED,
+        message: `TRADE_EXECUTED with invalid entryPrice: ${payload.entryPrice}`,
+        severity: ErrorSeverity.WARNING,
+        context: ctx,
+      })
+    )
+  }
 
   const result = await tryCatchAsync(
     async () => {
@@ -391,12 +418,13 @@ async function handleTradeExecuted(payload: MessagePayloadMap['TRADE_EXECUTED'])
       }).catch(() => {
         // Side panel may not be open - this is expected
       })
+
+      return id
     },
     ctx,
     ErrorCode.DB_WRITE_FAILED
   )
 
-  // 저장 실패 시 에러 핸들러를 통해 알림
   if (!result.success) {
     errorHandler.handle(
       new POError({
@@ -406,7 +434,10 @@ async function handleTradeExecuted(payload: MessagePayloadMap['TRADE_EXECUTED'])
         context: ctx,
       })
     )
+    return { success: false }
   }
+
+  return { success: true, tradeId: result.data }
 }
 
 async function handleGetTrades(payload: {
@@ -428,6 +459,58 @@ async function handleGetTrades(payload: {
   )
 
   return result.success ? result.data : []
+}
+
+// ============================================================
+// Trade Settlement (P1: Expiry-based WIN/LOSS)
+// ============================================================
+
+async function handleFinalizeTrade(
+  payload: MessagePayloadMap['FINALIZE_TRADE']
+): Promise<{ success: boolean }> {
+  const ctx = { module: 'background' as const, function: 'handleFinalizeTrade' }
+
+  console.log('[Background] Finalizing trade:', payload)
+
+  const result = await tryCatchAsync(
+    async () => {
+      await TradeRepository.finalize(
+        payload.tradeId,
+        payload.exitPrice,
+        payload.result,
+        payload.profit
+      )
+
+      // Broadcast settlement result to UI (side panel)
+      chrome.runtime.sendMessage({
+        type: 'TRADE_SETTLED',
+        payload: {
+          tradeId: payload.tradeId,
+          signalId: payload.signalId,
+          result: payload.result,
+          exitPrice: payload.exitPrice,
+          profit: payload.profit,
+        },
+      }).catch(() => {
+        // Side panel may not be open - this is expected
+      })
+    },
+    ctx,
+    ErrorCode.DB_WRITE_FAILED
+  )
+
+  if (!result.success) {
+    errorHandler.handle(
+      new POError({
+        code: ErrorCode.DB_WRITE_FAILED,
+        message: `거래 정산 DB 업데이트 실패 (tradeId=${payload.tradeId}): ${result.error}`,
+        severity: ErrorSeverity.ERROR,
+        context: ctx,
+      })
+    )
+  }
+
+  return { success: result.success }
 }
 
 // ============================================================

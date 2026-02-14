@@ -137,6 +137,20 @@ export class CandleCollector {
   }
 
   /**
+   * Get latest tick price for a specific ticker.
+   * Searches tick history in reverse for the most recent price.
+   * Used for trade settlement (exit price at expiry).
+   */
+  getLatestTickPrice(ticker: string): number | null {
+    for (let i = this.tickHistory.length - 1; i >= 0; i--) {
+      if (this.tickHistory[i].ticker === ticker) {
+        return this.tickHistory[i].price
+      }
+    }
+    return null
+  }
+
+  /**
    * Get current price for ticker
    */
   getCurrentPrice(): { price: number; ticker: string } | null {
@@ -273,13 +287,13 @@ export class CandleCollector {
 
   /**
    * Scrape current ticker from DOM
+   * P2: normalizeSymbol()을 사용하여 WS/DOM/History 간 키 일치 보장
    */
   private scrapeTickerFromDOM(): string {
     const assetEl = document.querySelector(SELECTORS.assetName)
     if (assetEl) {
       const name = assetEl.textContent?.trim() || ''
-      // 공백 제거하고 정규화
-      return name.replace(/\s+/g, '-').toUpperCase() || 'UNKNOWN'
+      return name ? normalizeSymbol(name) : 'UNKNOWN'
     }
     return 'UNKNOWN'
   }

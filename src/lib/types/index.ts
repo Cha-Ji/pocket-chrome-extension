@@ -184,14 +184,29 @@ export interface MessagePayloadMap {
   TICK_DATA: Tick
   TRADE_EXECUTED: {
     signalId?: string
-    result?: boolean
+    result: boolean
     timestamp: number
     direction?: Direction
     amount?: number
     ticker?: string
     entryPrice?: number
+    error?: string
   }
   TRADE_LOGGED: Trade
+  FINALIZE_TRADE: {
+    tradeId: number
+    signalId?: string
+    exitPrice: number
+    result: TradeResult
+    profit: number
+  }
+  TRADE_SETTLED: {
+    tradeId: number
+    signalId?: string
+    result: TradeResult
+    exitPrice: number
+    profit: number
+  }
   GET_TRADES: { sessionId?: number; limit?: number }
   STATUS_UPDATE: TradingStatus
   GET_STATUS: undefined
