@@ -5,6 +5,7 @@
 - (2026-01-26) Chrome Extension Manifest V3 + TypeScript 기반으로 구현
 - (2026-01-26) UI는 React + Tailwind CSS, Side Panel 중심으로 구성
 - (2026-01-26) 데이터 저장은 IndexedDB(Dexie.js)로 설계
+- (2026-02-14) **이중 저장소 아키텍처 문서화**: IndexedDB(트레이딩 상태)와 Local Collector/SQLite(시장 데이터 아카이브)의 역할 분리를 명확히 문서화. `docs/architecture/local-database/`와 `docs/architecture/local-collector/`로 분리, `docs/head/map.md`에 교차참조 추가
 
 ## 제약/가정
 
