@@ -316,8 +316,10 @@ export const SessionRepository = {
     const session = await db.sessions.get(id)
     if (!session) return
 
-    const winRate = session.totalTrades > 0
-      ? (session.wins / session.totalTrades) * 100
+    // Policy A: winRate = wins / (wins + losses), ties excluded from denominator
+    const decided = session.wins + session.losses
+    const winRate = decided > 0
+      ? (session.wins / decided) * 100
       : 0
 
     await db.sessions.update(id, {
@@ -385,6 +387,7 @@ export const TradeRepository = {
           totalTrades: session.totalTrades + 1,
           wins: result === 'WIN' ? session.wins + 1 : session.wins,
           losses: result === 'LOSS' ? session.losses + 1 : session.losses,
+          ties: result === 'TIE' ? (session.ties ?? 0) + 1 : (session.ties ?? 0),
         })
       }
 

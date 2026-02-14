@@ -71,7 +71,7 @@ export class SignalGeneratorV2 {
   private stats = {
     signalsGenerated: 0,
     signalsFiltered: 0,
-    byStrategy: new Map<string, { count: number; wins: number; losses: number }>()
+    byStrategy: new Map<string, { count: number; wins: number; losses: number; ties: number }>()
   }
 
   constructor(config?: Partial<SignalGeneratorV2Config>) {
@@ -150,16 +150,17 @@ export class SignalGeneratorV2 {
   /**
    * Update signal result
    */
-  updateSignalResult(signalId: string, result: 'win' | 'loss'): void {
+  updateSignalResult(signalId: string, result: 'win' | 'loss' | 'tie'): void {
     const signal = this.signals.find(s => s.id === signalId)
     if (signal) {
       signal.status = result
-      
+
       // Update stats
       const stratKey = signal.strategyId || 'UNKNOWN'
-      const stratStats = this.stats.byStrategy.get(stratKey) || { count: 0, wins: 0, losses: 0 }
+      const stratStats = this.stats.byStrategy.get(stratKey) || { count: 0, wins: 0, losses: 0, ties: 0 }
       if (result === 'win') stratStats.wins++
-      else stratStats.losses++
+      else if (result === 'loss') stratStats.losses++
+      else stratStats.ties++
       this.stats.byStrategy.set(stratKey, stratStats)
     }
   }
@@ -199,7 +200,7 @@ export class SignalGeneratorV2 {
 
     // Update strategy stats
     const stratKey = signal.strategyId || 'UNKNOWN'
-    const stratStats = this.stats.byStrategy.get(stratKey) || { count: 0, wins: 0, losses: 0 }
+    const stratStats = this.stats.byStrategy.get(stratKey) || { count: 0, wins: 0, losses: 0, ties: 0 }
     stratStats.count++
     this.stats.byStrategy.set(stratKey, stratStats)
 
@@ -378,27 +379,31 @@ export function generateLLMReport(signals: Signal[]): object {
 
   const wins = signals.filter(s => s.status === 'win').length
   const losses = signals.filter(s => s.status === 'loss').length
+  const ties = signals.filter(s => s.status === 'tie').length
   const pending = signals.filter(s => s.status === 'pending').length
-  const total = wins + losses
-  const winRate = total > 0 ? (wins / total * 100).toFixed(1) : 'N/A'
+  // Policy A: winRate = wins / (wins + losses), ties excluded from denominator
+  const decided = wins + losses
+  const winRate = decided > 0 ? (wins / decided * 100).toFixed(1) : 'N/A'
 
   // Strategy breakdown — aggregate by strategyId for stable keys
-  const byStrategy: Record<string, { count: number; wins: number; losses: number }> = {}
+  const byStrategy: Record<string, { count: number; wins: number; losses: number; ties: number }> = {}
   signals.forEach(s => {
     const key = s.strategyId || 'UNKNOWN'
-    if (!byStrategy[key]) byStrategy[key] = { count: 0, wins: 0, losses: 0 }
+    if (!byStrategy[key]) byStrategy[key] = { count: 0, wins: 0, losses: 0, ties: 0 }
     byStrategy[key].count++
     if (s.status === 'win') byStrategy[key].wins++
     if (s.status === 'loss') byStrategy[key].losses++
+    if (s.status === 'tie') byStrategy[key].ties++
   })
 
   // Regime breakdown
-  const byRegime: Record<string, { count: number; wins: number; losses: number }> = {}
+  const byRegime: Record<string, { count: number; wins: number; losses: number; ties: number }> = {}
   signals.forEach(s => {
-    if (!byRegime[s.regime]) byRegime[s.regime] = { count: 0, wins: 0, losses: 0 }
+    if (!byRegime[s.regime]) byRegime[s.regime] = { count: 0, wins: 0, losses: 0, ties: 0 }
     byRegime[s.regime].count++
     if (s.status === 'win') byRegime[s.regime].wins++
     if (s.status === 'loss') byRegime[s.regime].losses++
+    if (s.status === 'tie') byRegime[s.regime].ties++
   })
 
   // Recent signals (last 5)
@@ -426,11 +431,13 @@ export function generateLLMReport(signals: Signal[]): object {
   return {
     summary: {
       totalSignals: signals.length,
-      completed: total,
+      completed: decided,
       pending,
       winRate: `${winRate}%`,
+      winRatePolicy: 'A: wins/(wins+losses), ties excluded from denominator',
       wins,
       losses,
+      ties,
     },
     performance: {
       byStrategy: Object.entries(byStrategy).map(([name, stats]) => ({

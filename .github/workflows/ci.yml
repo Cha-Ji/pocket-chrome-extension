@@ -5,6 +5,9 @@ on:
     branches: [main]
   push:
     branches: [main]
+  schedule:
+    # Nightly at 03:00 UTC
+    - cron: '0 3 * * *'
 
 jobs:
   check:
@@ -25,8 +28,28 @@ jobs:
       - name: Lint
         run: npx eslint src
 
-      - name: Test (CI — excludes heavy backtest suite)
-        run: npm run test:ci
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Backtest smoke tests
+        if: github.event_name != 'schedule'
+        run: npm run test:backtest:smoke
 
       - name: Build
         run: npx vite build
+
+  backtest-full:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Full backtest suite
+        run: npm run test:backtest:full

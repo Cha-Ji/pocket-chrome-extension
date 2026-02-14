@@ -84,6 +84,7 @@ export interface Session {
   totalTrades: number
   wins: number
   losses: number
+  ties: number
 }
 
 /** Individual trade record */

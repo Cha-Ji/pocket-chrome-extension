@@ -130,7 +130,7 @@ export function SignalPanel({ onSignal }: SignalPanelProps) {
       {status?.signals && status.signals.total > 0 && (
         <div className="rounded-lg p-3 bg-gray-700/50">
           <div className="text-sm text-gray-400 mb-2">📊 Session Stats</div>
-          <div className="grid grid-cols-4 gap-2 text-center text-xs">
+          <div className="grid grid-cols-5 gap-2 text-center text-xs">
             <div>
               <div className="text-gray-500">Total</div>
               <div className="text-white font-bold">{status.signals.total}</div>
@@ -142,6 +142,10 @@ export function SignalPanel({ onSignal }: SignalPanelProps) {
             <div>
               <div className="text-red-500">Losses</div>
               <div className="text-red-400 font-bold">{status.signals.losses}</div>
+            </div>
+            <div>
+              <div className="text-gray-500">Ties</div>
+              <div className="text-gray-400 font-bold">{status.signals.ties ?? 0}</div>
             </div>
             <div>
               <div className="text-yellow-500">Pending</div>
@@ -216,6 +220,7 @@ function SignalCard({ signal }: { signal: Signal }) {
         <span className={`px-2 py-0.5 rounded ${
           signal.status === 'win' ? 'bg-green-500/20 text-green-400' :
           signal.status === 'loss' ? 'bg-red-500/20 text-red-400' :
+          signal.status === 'tie' ? 'bg-yellow-500/20 text-yellow-400' :
           'bg-gray-500/20 text-gray-400'
         }`}>
           {signal.status}

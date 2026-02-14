@@ -463,7 +463,7 @@ async function settleTrade(tradeId: number): Promise<void> {
 
   // SignalGeneratorV2에 결과 반영
   if (pending.signalId && signalGenerator) {
-    const signalResult = result === 'WIN' ? 'win' : 'loss'
+    const signalResult = result === 'WIN' ? 'win' : result === 'LOSS' ? 'loss' : 'tie'
     signalGenerator.updateSignalResult(pending.signalId, signalResult)
     console.log(`[PO] 📈 Signal ${pending.signalId} updated: ${signalResult}`)
   }
