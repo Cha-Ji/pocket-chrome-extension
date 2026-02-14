@@ -48,6 +48,7 @@ interface PendingTrade {
   entryPrice: number
   expirySeconds: number
   amount: number
+  payoutPercent: number
   timerId: ReturnType<typeof setTimeout>
 }
 
@@ -124,9 +125,8 @@ function evaluateTIF60(rawTicker: string, price: number): void {
   if (now - lastEval < TIF60_THROTTLE_MS) return
   tif60LastEval.set(ticker, now)
 
-  const allTicks = candleCollector.getTickHistory()
+  const tickerTicks = candleCollector.getTicksByTicker(ticker)
   const candles = candleCollector.getCandles(ticker)
-  const tickerTicks = allTicks.filter(t => t.ticker === ticker)
 
   const tifResult = tickImbalanceFadeStrategy(tickerTicks, candles, tif60Integration.config)
 
@@ -304,8 +304,18 @@ function setupWebSocketHandler(): void {
 
 async function handleNewSignal(signal: Signal): Promise<void> {
   if (!tradingConfig.enabled) return;
-  const bestAsset = payoutMonitor?.getBestAsset();
-  if (bestAsset && bestAsset.payout < tradingConfig.minPayout) return;
+
+  // minPayout gate: use current chart asset payout (not bestAsset)
+  const currentPayout = payoutMonitor?.getCurrentAssetPayout()
+  if (!currentPayout) {
+    console.warn('[PO] Cannot determine current asset payout — blocking trade (conservative)')
+    return
+  }
+  if (currentPayout.payout < tradingConfig.minPayout) {
+    console.log(`[PO] Current asset payout ${currentPayout.payout}% < minPayout ${tradingConfig.minPayout}% — skipping`)
+    return
+  }
+
   if (tradingConfig.onlyRSI && !(signal.strategyId || signal.strategy).includes('RSI')) return;
   await executeSignal(signal);
 }
@@ -341,7 +351,14 @@ async function executeSignal(signal: Signal): Promise<void> {
         return
       }
 
-      telegramService?.sendMessage(`🚀 [PO] <b>Trade Executed</b>\n${signal.direction} on ${signal.symbol} @ ${entryPrice}`);
+      // Capture payout at entry time for accurate PnL calculation
+      const currentPayout = payoutMonitor?.getCurrentAssetPayout()
+      const payoutPercent = currentPayout?.payout ?? 0
+      if (payoutPercent <= 0) {
+        console.warn(`[PO] ⚠️ Cannot determine payout for ${ticker} — PnL will default to 0 on WIN`)
+      }
+
+      telegramService?.sendMessage(`🚀 [PO] <b>Trade Executed</b>\n${signal.direction} on ${signal.symbol} @ ${entryPrice} (payout: ${payoutPercent}%)`);
       const expirySeconds = signal.expiry || 60
       try {
         const response = await chrome.runtime.sendMessage({
@@ -368,6 +385,7 @@ async function executeSignal(signal: Signal): Promise<void> {
             entryPrice,
             expirySeconds,
             amount: tradingConfig.tradeAmount,
+            payoutPercent,
           })
         }
       } catch {
@@ -418,8 +436,12 @@ async function settleTrade(tradeId: number): Promise<void> {
     result = exitPrice < pending.entryPrice ? 'WIN' : exitPrice > pending.entryPrice ? 'LOSS' : 'TIE'
   }
 
-  // 수익 계산 (간단 구현: WIN=+0, LOSS=-amount, TIE=0)
-  const profit = result === 'WIN' ? 0 : result === 'LOSS' ? -pending.amount : 0
+  // Binary option PnL:  WIN = +amount * (payoutPercent / 100),  LOSS = -amount,  TIE = 0
+  const profit = result === 'WIN'
+    ? pending.amount * (pending.payoutPercent / 100)
+    : result === 'LOSS'
+      ? -pending.amount
+      : 0
 
   console.log(`[PO] 📊 Settlement: tradeId=${tradeId} ${pending.direction} entry=${pending.entryPrice} exit=${exitPrice} => ${result} (profit=${profit})`)
 

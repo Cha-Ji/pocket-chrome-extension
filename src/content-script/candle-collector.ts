@@ -61,7 +61,10 @@ export class CandleCollector {
   private _isCollecting = false
   private listeners: ((ticker: string, candle: Candle) => void)[] = []
   private tickHistory: TickData[] = []
+  /** Ticker-keyed tick buffer for O(1) lookup by ticker */
+  private ticksByTicker: Map<string, TickData[]> = new Map()
   private maxTickHistory = 10000
+  private maxTicksPerTicker = 2000
   private static readonly MAX_LISTENERS_WARNING = 10
 
   constructor(candleIntervalSeconds: number = 60, maxCandles: number = 500) {
@@ -138,16 +141,31 @@ export class CandleCollector {
 
   /**
    * Get latest tick price for a specific ticker.
-   * Searches tick history in reverse for the most recent price.
+   * Uses the ticker-indexed map for O(1) lookup.
    * Used for trade settlement (exit price at expiry).
    */
   getLatestTickPrice(ticker: string): number | null {
-    for (let i = this.tickHistory.length - 1; i >= 0; i--) {
-      if (this.tickHistory[i].ticker === ticker) {
-        return this.tickHistory[i].price
-      }
-    }
+    const ticks = this.ticksByTicker.get(ticker)
+    if (ticks && ticks.length > 0) return ticks[ticks.length - 1].price
     return null
+  }
+
+  /**
+   * Get ticks for a specific ticker, optionally filtered to recent N milliseconds.
+   * O(1) lookup via ticker-indexed map. Avoids full-array filter.
+   */
+  getTicksByTicker(ticker: string, sinceMs?: number): TickData[] {
+    const ticks = this.ticksByTicker.get(ticker)
+    if (!ticks) return []
+    if (sinceMs == null) return [...ticks]
+    const cutoff = Date.now() - sinceMs
+    // Binary-ish scan from end (ticks are in chronological order)
+    let start = ticks.length
+    for (let i = ticks.length - 1; i >= 0; i--) {
+      if (ticks[i].timestamp < cutoff) break
+      start = i
+    }
+    return ticks.slice(start)
   }
 
   /**
@@ -387,10 +405,21 @@ export class CandleCollector {
    */
   private recordTick(tick: TickData): void {
     this.tickHistory.push(tick)
-    
+
     // 히스토리 크기 제한
     if (this.tickHistory.length > this.maxTickHistory) {
       this.tickHistory = this.tickHistory.slice(-this.maxTickHistory)
+    }
+
+    // Ticker-indexed buffer
+    let tickerBuf = this.ticksByTicker.get(tick.ticker)
+    if (!tickerBuf) {
+      tickerBuf = []
+      this.ticksByTicker.set(tick.ticker, tickerBuf)
+    }
+    tickerBuf.push(tick)
+    if (tickerBuf.length > this.maxTicksPerTicker) {
+      this.ticksByTicker.set(tick.ticker, tickerBuf.slice(-this.maxTicksPerTicker))
     }
   }
 

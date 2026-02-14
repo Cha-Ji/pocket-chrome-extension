@@ -302,17 +302,32 @@ export const TradeRepository = {
     return await db.trades.where('result').equals('PENDING').toArray()
   },
 
-  async finalize(id: number, exitPrice: number, result: Trade['result'], profit: number): Promise<void> {
-    await db.trades.update(id, {
-      exitTime: Date.now(),
-      exitPrice,
-      result,
-      profit,
-    })
+  /**
+   * Idempotent trade finalization.
+   *
+   * If the trade is already settled (result !== 'PENDING'), returns
+   * `{ updated: false }` without touching the DB — preventing duplicate
+   * session stat increments.
+   *
+   * On success returns `{ updated: true, trade }` with the full updated Trade.
+   */
+  async finalize(
+    id: number,
+    exitPrice: number,
+    result: Trade['result'],
+    profit: number,
+  ): Promise<{ updated: boolean; trade?: Trade }> {
+    return await db.transaction('rw', [db.trades, db.sessions], async () => {
+      const trade = await db.trades.get(id)
+      if (!trade) return { updated: false }
 
-    // Update session stats
-    const trade = await db.trades.get(id)
-    if (trade) {
+      // Idempotency: already finalized → no-op
+      if (trade.result !== 'PENDING') return { updated: false }
+
+      const exitTime = Date.now()
+      await db.trades.update(id, { exitTime, exitPrice, result, profit })
+
+      // Update session stats (within the same transaction)
       const session = await db.sessions.get(trade.sessionId)
       if (session) {
         await db.sessions.update(trade.sessionId, {
@@ -321,7 +336,10 @@ export const TradeRepository = {
           losses: result === 'LOSS' ? session.losses + 1 : session.losses,
         })
       }
-    }
+
+      const updatedTrade: Trade = { ...trade, exitTime, exitPrice, result, profit }
+      return { updated: true, trade: updatedTrade }
+    })
   },
 }
 

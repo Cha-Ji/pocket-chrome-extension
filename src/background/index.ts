@@ -474,14 +474,21 @@ async function handleFinalizeTrade(
 
   const result = await tryCatchAsync(
     async () => {
-      await TradeRepository.finalize(
+      const finalizeResult = await TradeRepository.finalize(
         payload.tradeId,
         payload.exitPrice,
         payload.result,
         payload.profit
       )
 
-      // Broadcast settlement result to UI (side panel)
+      // Idempotency: if trade was already finalized, skip broadcast
+      if (!finalizeResult.updated) {
+        console.log(`[Background] Trade ${payload.tradeId} already finalized — skipping broadcast`)
+        return
+      }
+
+      // Broadcast settlement result to UI (side panel) with exitTime
+      const exitTime = finalizeResult.trade?.exitTime ?? Date.now()
       chrome.runtime.sendMessage({
         type: 'TRADE_SETTLED',
         payload: {
@@ -490,6 +497,7 @@ async function handleFinalizeTrade(
           result: payload.result,
           exitPrice: payload.exitPrice,
           profit: payload.profit,
+          exitTime,
         },
       }).catch(() => {
         // Side panel may not be open - this is expected

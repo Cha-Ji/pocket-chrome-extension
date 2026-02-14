@@ -77,6 +77,49 @@ export class PayoutMonitor {
     return highPayout.length > 0 ? highPayout[0] : null
   }
 
+  /**
+   * Get the payout for the current chart asset.
+   *
+   * Reads the current symbol from DOM (.current-symbol / .pair-number-wrap),
+   * normalizes it, and looks up the payout in the assets map.
+   * Returns null if the current asset is unknown or not in the map.
+   */
+  getCurrentAssetPayout(): AssetPayout | null {
+    const symbolEl = document.querySelector('.current-symbol')
+    const pairEl = document.querySelector('.pair-number-wrap')
+    const rawName = (symbolEl?.textContent || pairEl?.textContent || '').trim()
+    if (!rawName) return null
+
+    const normalized = this.normalizeAssetName(rawName)
+
+    // Exact match in assets map
+    for (const [name, asset] of this.assets) {
+      if (this.normalizeAssetName(name) === normalized) return asset
+    }
+
+    // Partial match (DOM may show shorter name)
+    for (const [name, asset] of this.assets) {
+      const normName = this.normalizeAssetName(name)
+      if (normName.includes(normalized) || normalized.includes(normName)) return asset
+    }
+
+    // Fallback: try reading payout directly from chart DOM
+    const profitEl = document.querySelector('.chart-item .profit, .chart-block .profit')
+    if (profitEl) {
+      const payout = this.parsePayoutPercent(profitEl.textContent?.trim() || '')
+      if (payout > 0) {
+        return {
+          name: rawName,
+          payout,
+          isOTC: rawName.toUpperCase().includes('OTC'),
+          lastUpdated: Date.now(),
+        }
+      }
+    }
+
+    return null
+  }
+
   /** Check if an asset is in cooldown after repeated failures */
   isAssetInCooldown(assetName: string): boolean {
     const entry = this.unavailableAssets.get(assetName)

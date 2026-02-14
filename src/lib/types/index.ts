@@ -206,6 +206,7 @@ export interface MessagePayloadMap {
     result: TradeResult
     exitPrice: number
     profit: number
+    exitTime: number
   }
   GET_TRADES: { sessionId?: number; limit?: number }
   STATUS_UPDATE: TradingStatus

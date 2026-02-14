@@ -11,9 +11,11 @@ describe('normalizeSymbol', () => {
     expect(normalizeSymbol('eurusd_OTC')).toBe('EURUSD-OTC')
   })
 
-  it('replaces spaces and underscores with hyphens', () => {
-    expect(normalizeSymbol('EUR USD')).toBe('EUR-USD')
-    expect(normalizeSymbol('eur_usd')).toBe('EUR-USD')
+  it('strips all separators so EUR/USD === EURUSD', () => {
+    expect(normalizeSymbol('EUR/USD')).toBe('EURUSD')
+    expect(normalizeSymbol('EUR USD')).toBe('EURUSD')
+    expect(normalizeSymbol('eur_usd')).toBe('EURUSD')
+    expect(normalizeSymbol('EURUSD')).toBe('EURUSD')
   })
 
   it('trims whitespace', () => {
@@ -26,6 +28,33 @@ describe('normalizeSymbol', () => {
 
   it('handles otc suffix without underscore', () => {
     expect(normalizeSymbol('#eurusdotc')).toBe('EURUSD-OTC')
+  })
+
+  it('handles "Alibaba OTC" style names', () => {
+    expect(normalizeSymbol('Alibaba OTC')).toBe('ALIBABA-OTC')
+  })
+
+  it('handles hyphens in non-OTC symbols', () => {
+    expect(normalizeSymbol('BTC-USDT')).toBe('BTCUSDT')
+  })
+
+  it('handles mixed separators with OTC', () => {
+    expect(normalizeSymbol('eur/usd_otc')).toBe('EURUSD-OTC')
+    expect(normalizeSymbol('EUR-USD OTC')).toBe('EURUSD-OTC')
+  })
+
+  it('all variant inputs for the same symbol produce the same key', () => {
+    const variants = ['EUR/USD', 'EURUSD', 'eur_usd', 'EUR USD', 'eur-usd', '#eurusd']
+    const keys = variants.map(normalizeSymbol)
+    expect(new Set(keys).size).toBe(1)
+    expect(keys[0]).toBe('EURUSD')
+  })
+
+  it('OTC variants all produce the same key', () => {
+    const variants = ['#eurusd_otc', 'EURUSD-OTC', 'eur/usd otc', 'EUR_USD_OTC']
+    const keys = variants.map(normalizeSymbol)
+    expect(new Set(keys).size).toBe(1)
+    expect(keys[0]).toBe('EURUSD-OTC')
   })
 })
 
