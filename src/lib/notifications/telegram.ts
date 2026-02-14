@@ -155,3 +155,11 @@ export async function getTelegramService(): Promise<TelegramService> {
   }
   return telegramInstance
 }
+
+/**
+ * 싱글톤 인스턴스를 무효화하여 다음 getTelegramService() 호출 시
+ * storage에서 최신 설정을 다시 로드하게 한다.
+ */
+export function resetTelegramService(): void {
+  telegramInstance = null
+}
