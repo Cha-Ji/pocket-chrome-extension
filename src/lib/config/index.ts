@@ -8,17 +8,7 @@
 import { TelegramConfig, DEFAULT_TELEGRAM_CONFIG } from '../notifications/telegram'
 import { AutoTraderConfig } from '../trading/auto-trader'
 import { BacktestConfig } from '../backtest/types'
-
-// Content Script의 TradingConfigV2 (원본은 content-script/index.ts에 정의)
-export interface TradingConfigV2 {
-  enabled: boolean
-  autoAssetSwitch: boolean
-  minPayout: number
-  tradeAmount: number
-  maxDrawdown: number
-  maxConsecutiveLosses: number
-  onlyRSI: boolean
-}
+import type { TradingConfigV2 } from '../types'
 
 // 통합 AppConfig 인터페이스
 export interface AppConfig {
@@ -76,6 +66,54 @@ export const DEFAULT_CONFIG: AppConfig = {
 }
 
 // ============================================================
+// 런타임 스키마 검증
+// ============================================================
+
+function isNumber(v: unknown, positive = false): v is number {
+  return typeof v === 'number' && !Number.isNaN(v) && (!positive || v > 0)
+}
+
+/**
+ * TradingConfigV2 런타임 검증
+ * 누락/오염된 필드는 기본값으로 폴백하고 경고 로그를 남긴다.
+ */
+export function validateTradingConfig(raw: unknown): TradingConfigV2 {
+  if (typeof raw !== 'object' || raw === null) {
+    console.warn('[Config] Trading config is not an object, falling back to defaults')
+    return { ...DEFAULT_TRADING_CONFIG }
+  }
+
+  const obj = raw as Record<string, unknown>
+  const fallbacks: string[] = []
+
+  function fallback<T>(key: string, validator: (v: unknown) => v is T, defaultVal: T): T {
+    if (validator(obj[key])) return obj[key] as T
+    fallbacks.push(key)
+    return defaultVal
+  }
+
+  const isBool = (v: unknown): v is boolean => typeof v === 'boolean'
+  const isPositiveNum = (v: unknown): v is number => isNumber(v, true)
+  const isPositiveInt = (v: unknown): v is number => isNumber(v, true) && Number.isInteger(v)
+
+  const result: TradingConfigV2 = {
+    enabled: fallback('enabled', isBool, DEFAULT_TRADING_CONFIG.enabled),
+    autoAssetSwitch: fallback('autoAssetSwitch', isBool, DEFAULT_TRADING_CONFIG.autoAssetSwitch),
+    minPayout: fallback('minPayout', isPositiveNum, DEFAULT_TRADING_CONFIG.minPayout),
+    tradeAmount: fallback('tradeAmount', isPositiveNum, DEFAULT_TRADING_CONFIG.tradeAmount),
+    maxDrawdown: fallback('maxDrawdown', isPositiveNum, DEFAULT_TRADING_CONFIG.maxDrawdown),
+    maxConsecutiveLosses: fallback('maxConsecutiveLosses', isPositiveInt, DEFAULT_TRADING_CONFIG.maxConsecutiveLosses),
+    onlyRSI: fallback('onlyRSI', isBool, DEFAULT_TRADING_CONFIG.onlyRSI),
+  }
+
+  if (fallbacks.length > 0) {
+    console.warn(`[Config] Trading config fields fell back to defaults: ${fallbacks.join(', ')}`)
+  }
+
+  return result
+}
+
+// ============================================================
 // Storage Key 상수
 // ============================================================
 
@@ -103,7 +141,7 @@ export async function loadAppConfig(): Promise<AppConfig> {
     const secureData = sessionResult[TELEGRAM_SECURE_KEY] || {}
 
     const config: AppConfig = {
-      trading: { ...DEFAULT_CONFIG.trading, ...stored.trading },
+      trading: validateTradingConfig(stored.trading ?? {}),
       autoTrader: { ...DEFAULT_CONFIG.autoTrader, ...stored.autoTrader },
       telegram: {
         ...DEFAULT_CONFIG.telegram,
@@ -182,6 +220,7 @@ export async function saveTelegramConfig(telegramConfig: TelegramConfig): Promis
 }
 
 // Re-export 타입들 (각 모듈의 원본 타입은 유지)
+export type { TradingConfigV2 } from '../types'
 export type { TelegramConfig } from '../notifications/telegram'
 export type { AutoTraderConfig } from '../trading/auto-trader'
 export type { BacktestConfig } from '../backtest/types'

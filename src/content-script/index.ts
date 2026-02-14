@@ -18,6 +18,7 @@ import { CandleData } from './websocket-parser'
 import { AutoMiner } from './auto-miner'
 import { DataSender } from '../lib/data-sender'
 import { tickImbalanceFadeStrategy, TIF60Config } from './tick-strategies'
+import { DEFAULT_TRADING_CONFIG, validateTradingConfig } from '../lib/config'
 
 let dataCollector: DataCollector | null = null
 let tradeExecutor: TradeExecutor | null = null
@@ -34,17 +35,7 @@ let isExecutingTrade = false
 let lastTradeExecutedAt = 0
 const TRADE_COOLDOWN_MS = 3000 // 최소 3초 간격
 
-const DEFAULT_CONFIG: TradingConfigV2 = {
-  enabled: false,
-  autoAssetSwitch: true,
-  minPayout: 92,
-  tradeAmount: 10,
-  maxDrawdown: 20,
-  maxConsecutiveLosses: 5,
-  onlyRSI: true,
-}
-
-let tradingConfig: TradingConfigV2 = { ...DEFAULT_CONFIG }
+let tradingConfig: TradingConfigV2 = { ...DEFAULT_TRADING_CONFIG }
 
 async function initialize(): Promise<void> {
   if (isInitialized) return
@@ -305,7 +296,7 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
     case 'SET_MINER_CONFIG': AutoMiner.updateConfig(message.payload); return { success: true, config: AutoMiner.getConfig() };
     case 'GET_STATUS_V2': return getSystemStatus();
     case 'GET_LLM_REPORT': return getLLMReport();
-    case 'SET_CONFIG_V2': tradingConfig = { ...tradingConfig, ...message.payload }; return { success: true, config: tradingConfig };
+    case 'SET_CONFIG_V2': tradingConfig = validateTradingConfig({ ...tradingConfig, ...message.payload }); return { success: true, config: tradingConfig };
     case 'START_TRADING_V2': tradingConfig.enabled = true; return { success: true };
     case 'STOP_TRADING_V2': tradingConfig.enabled = false; return { success: true };
     case 'GET_SIGNALS': return signalGenerator?.getSignals(message.payload.limit ?? 20) ?? [];
