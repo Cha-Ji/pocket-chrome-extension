@@ -135,6 +135,46 @@ export class PocketDB extends Dexie {
       backtestResults: '++id, strategyId, symbol, createdAt, winRate, netProfit',
       candleDatasets: '++id, ticker, interval, source, [ticker+interval], lastUpdated',
     })
+
+    // Version 5: 캔들 중복 데이터 정리 (unique 인덱스 적용 준비)
+    this.version(5).stores({
+      ticks: '++id, ticker, timestamp, [ticker+timestamp]',
+      strategies: '++id, name, createdAt',
+      sessions: '++id, type, strategyId, startTime',
+      trades: '++id, sessionId, ticker, entryTime, result',
+      candles: '++id, ticker, interval, timestamp, [ticker+interval], [ticker+interval+timestamp], source',
+      leaderboardEntries: '++id, strategyId, compositeScore, winRate, rank, createdAt',
+      backtestResults: '++id, strategyId, symbol, createdAt, winRate, netProfit',
+      candleDatasets: '++id, ticker, interval, source, [ticker+interval], lastUpdated',
+    }).upgrade(async tx => {
+      const table = tx.table('candles')
+      const all = await table.toArray()
+      const seen = new Map<string, number>()
+      const toDelete: number[] = []
+      for (const c of all) {
+        const key = `${c.ticker}|${c.interval}|${c.timestamp}`
+        if (seen.has(key)) {
+          toDelete.push(c.id)
+        } else {
+          seen.set(key, c.id)
+        }
+      }
+      if (toDelete.length > 0) {
+        await table.bulkDelete(toDelete)
+      }
+    })
+
+    // Version 6: ticker+interval+timestamp 유니크 복합 인덱스 적용
+    this.version(6).stores({
+      ticks: '++id, ticker, timestamp, [ticker+timestamp]',
+      strategies: '++id, name, createdAt',
+      sessions: '++id, type, strategyId, startTime',
+      trades: '++id, sessionId, ticker, entryTime, result',
+      candles: '++id, ticker, interval, timestamp, [ticker+interval], &[ticker+interval+timestamp], source',
+      leaderboardEntries: '++id, strategyId, compositeScore, winRate, rank, createdAt',
+      backtestResults: '++id, strategyId, symbol, createdAt, winRate, netProfit',
+      candleDatasets: '++id, ticker, interval, source, [ticker+interval], lastUpdated',
+    })
   }
 }
 
@@ -291,39 +331,86 @@ export const TradeRepository = {
 
 export const CandleRepository = {
   /**
-   * 캔들 저장
+   * 캔들 저장 (중복 시 무시)
    */
   async add(candle: Omit<StoredCandle, 'id'>): Promise<number | undefined> {
-    return await db.candles.add({
-      ...candle,
-      createdAt: Date.now()
-    })
+    try {
+      return await db.candles.add({
+        ...candle,
+        createdAt: Date.now()
+      })
+    } catch (error: unknown) {
+      // unique 인덱스 위반 — 중복 캔들, 무시
+      if (error instanceof Error && error.name === 'ConstraintError') {
+        return undefined
+      }
+      throw error
+    }
   },
 
   /**
    * 캔들 bulk 저장 (중복 무시)
+   *
+   * 최적화: 배치 내 중복 제거 → ticker+interval 그룹별 기존 키 일괄 조회
+   * → 신규 캔들만 bulkAdd (단일 트랜잭션)
+   *
+   * Before: O(N) DB reads + O(N) DB writes (캔들마다 중복 체크 + add)
+   * After:  O(G) 키 조회 + O(M) bulkAdd (G=그룹 수, M=신규 캔들 수)
    */
   async bulkAdd(candles: Omit<StoredCandle, 'id' | 'createdAt'>[], source?: CandleSource): Promise<number> {
-    const withCreatedAt = candles.map(c => ({
-      ...c,
-      source: c.source || source,
-      createdAt: Date.now()
-    }))
+    if (candles.length === 0) return 0
 
-    let added = 0
-    for (const candle of withCreatedAt) {
-      // 중복 체크
-      const existing = await db.candles
-        .where('[ticker+interval+timestamp]')
-        .equals([candle.ticker, candle.interval, candle.timestamp])
-        .first()
+    const now = Date.now()
 
-      if (!existing) {
-        await db.candles.add(candle)
-        added++
+    // 1) 배치 내 중복 제거 (같은 ticker+interval+timestamp → 첫 번째만 유지)
+    const dedup = new Map<string, Omit<StoredCandle, 'id'>>()
+    for (const c of candles) {
+      const key = `${c.ticker}|${c.interval}|${c.timestamp}`
+      if (!dedup.has(key)) {
+        dedup.set(key, { ...c, source: c.source || source, createdAt: now })
       }
     }
-    return added
+
+    const items = Array.from(dedup.values())
+
+    // 2) ticker+interval 그룹별 기존 키 일괄 조회 → 신규만 bulkAdd
+    const groups = new Map<string, Omit<StoredCandle, 'id'>[]>()
+    for (const c of items) {
+      const gk = `${c.ticker}|${c.interval}`
+      if (!groups.has(gk)) groups.set(gk, [])
+      groups.get(gk)!.push(c)
+    }
+
+    let totalAdded = 0
+
+    await db.transaction('rw', db.candles, async () => {
+      for (const [, group] of groups) {
+        const { ticker, interval } = group[0]
+        const timestamps = group.map(c => c.timestamp)
+        const minTs = Math.min(...timestamps)
+        const maxTs = Math.max(...timestamps)
+
+        // 기존 캔들의 인덱스 키만 조회 (전체 레코드 로드 X)
+        const existingKeys = await db.candles
+          .where('[ticker+interval+timestamp]')
+          .between([ticker, interval, minTs], [ticker, interval, maxTs], true, true)
+          .keys()
+
+        const existingTs = new Set<number>()
+        for (const k of existingKeys) {
+          if (Array.isArray(k)) existingTs.add((k as unknown as [string, number, number])[2])
+        }
+
+        const newItems = group.filter(c => !existingTs.has(c.timestamp))
+
+        if (newItems.length > 0) {
+          await db.candles.bulkAdd(newItems)
+          totalAdded += newItems.length
+        }
+      }
+    })
+
+    return totalAdded
   },
 
   /**
@@ -420,14 +507,20 @@ export const CandleRepository = {
 
   /**
    * 모든 티커 목록 조회
+   *
+   * Before: toArray() 전체 로드 → Set 변환 = O(N)
+   * After:  인덱스 uniqueKeys() = O(K) (K=고유 티커 수)
    */
   async getTickers(): Promise<string[]> {
-    const candles = await db.candles.toArray()
-    return [...new Set(candles.map(c => c.ticker))]
+    const keys = await db.candles.orderBy('ticker').uniqueKeys()
+    return keys as string[]
   },
 
   /**
    * 캔들 통계 조회
+   *
+   * Before: toArray() 전체 로드 + 순회 = O(N) 메모리/CPU
+   * After:  count() + uniqueKeys() + 그룹별 count = O(K) 쿼리 (K=고유 ticker+interval 쌍)
    */
   async getStats(): Promise<{
     totalCandles: number
@@ -435,37 +528,36 @@ export const CandleRepository = {
     oldestTimestamp: number | null
     newestTimestamp: number | null
   }> {
-    const candles = await db.candles.toArray()
+    const totalCandles = await db.candles.count()
 
-    // 티커별 카운트
-    const tickerMap = new Map<string, { interval: number; count: number }>()
-    let oldest: number | null = null
-    let newest: number | null = null
-
-    for (const c of candles) {
-      const key = `${c.ticker}-${c.interval}`
-      const existing = tickerMap.get(key)
-      if (existing) {
-        existing.count++
-      } else {
-        tickerMap.set(key, { interval: c.interval, count: 1 })
-      }
-
-      if (!oldest || c.timestamp < oldest) oldest = c.timestamp
-      if (!newest || c.timestamp > newest) newest = c.timestamp
+    if (totalCandles === 0) {
+      return { totalCandles: 0, tickers: [], oldestTimestamp: null, newestTimestamp: null }
     }
 
-    const tickers = Array.from(tickerMap.entries()).map(([key, val]) => ({
-      ticker: key.split('-')[0],
-      interval: val.interval,
-      count: val.count
-    }))
+    // 유니크 [ticker+interval] 쌍 조회 (인덱스 키만, 레코드 로드 X)
+    const uniquePairs = await db.candles
+      .orderBy('[ticker+interval]')
+      .uniqueKeys()
+
+    const tickers: { ticker: string; interval: number; count: number }[] = []
+    for (const pair of uniquePairs) {
+      const [ticker, interval] = pair as unknown as [string, number]
+      const count = await db.candles
+        .where('[ticker+interval]')
+        .equals([ticker, interval])
+        .count()
+      tickers.push({ ticker, interval, count })
+    }
+
+    // 가장 오래된/최신 타임스탬프 (인덱스 활용)
+    const oldest = await db.candles.orderBy('timestamp').first()
+    const newest = await db.candles.orderBy('timestamp').last()
 
     return {
-      totalCandles: candles.length,
+      totalCandles,
       tickers,
-      oldestTimestamp: oldest,
-      newestTimestamp: newest
+      oldestTimestamp: oldest?.timestamp ?? null,
+      newestTimestamp: newest?.timestamp ?? null,
     }
   },
 
