@@ -21,6 +21,8 @@ const __dirname = path.dirname(__filename)
 // ============================================================
 
 const PORT = 3001
+const HOST = '127.0.0.1' // Bind to loopback only — no external network exposure
+const AUTH_TOKEN = process.env.DATA_COLLECTOR_TOKEN || ''
 // Use environment variable or relative path for portability
 const PROJECT_ROOT = process.env.PROJECT_ROOT || path.resolve(__dirname, '..')
 const DB_PATH = process.env.DB_PATH || path.join(PROJECT_ROOT, 'data', 'market-data.db')
@@ -97,8 +99,37 @@ db.exec(`
 `)
 
 const app = express()
-app.use(cors())
+
+// CORS: chrome-extension + localhost origins only
+app.use(cors({
+  origin(origin, callback) {
+    // Allow requests with no Origin header (curl, server-to-server)
+    if (!origin) return callback(null, true)
+    if (
+      origin.startsWith('chrome-extension://') ||
+      origin.startsWith('http://localhost') ||
+      origin.startsWith('http://127.0.0.1')
+    ) {
+      return callback(null, true)
+    }
+    callback(new Error(`CORS blocked: ${origin}`))
+  },
+}))
+
 app.use(bodyParser.json({ limit: '50mb' })) // [PO-17] 벌크 데이터 수집을 위해 용량 대폭 상향
+
+// Token auth middleware for /api/* routes
+app.use('/api', (req, res, next) => {
+  if (!AUTH_TOKEN) return next() // No token configured → skip auth
+  const provided = req.headers['x-po-auth']
+  if (!provided) {
+    return res.status(401).json({ error: 'Missing X-PO-AUTH header' })
+  }
+  if (provided !== AUTH_TOKEN) {
+    return res.status(403).json({ error: 'Invalid authentication token' })
+  }
+  next()
+})
 
 // ============================================================
 // Helpers
@@ -951,10 +982,11 @@ function resampleTicksLegacy(
   return result
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, HOST, () => {
   console.log(`
-Data Collector Server running at http://localhost:${PORT}
+Data Collector Server running at http://${HOST}:${PORT}
 Database: ${DB_PATH}
+Auth:     ${AUTH_TOKEN ? 'ENABLED (X-PO-AUTH required for /api/*)' : 'DISABLED (set DATA_COLLECTOR_TOKEN to enable)'}
 
 Tables:
   - ticks:      raw tick data (ts_ms normalized)

@@ -8,6 +8,14 @@ import { loggers } from './logger'
 
 const log = loggers.dataSender
 const SERVER_URL = 'http://localhost:3001'
+const AUTH_TOKEN: string = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_DATA_COLLECTOR_TOKEN) || ''
+
+/** Build common headers for collector requests */
+function collectorHeaders(): Record<string, string> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (AUTH_TOKEN) h['X-PO-AUTH'] = AUTH_TOKEN
+  return h
+}
 
 /**
  * NOTE:
@@ -94,7 +102,7 @@ export const DataSender = {
 
       const response = await fetch(`${SERVER_URL}/api/candle`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: collectorHeaders(),
         body: JSON.stringify(payload),
       })
 
@@ -166,7 +174,7 @@ export const DataSender = {
 
       const response = await fetch(`${SERVER_URL}/api/candles/bulk`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: collectorHeaders(),
         body: bodyStr,
       })
 
