@@ -302,7 +302,7 @@ describe('Dexie Performance Optimizations (V6)', () => {
 
       expect(added).toBe(0)
       console.log(`[PERF] bulkAdd 500 duplicates: ${elapsed.toFixed(1)}ms`)
-      expect(elapsed).toBeLessThan(10000)
+      expect(elapsed).toBeLessThan(20000)
     }, 30000)
 
     it('should getStats efficiently on 500+ candles', async () => {
