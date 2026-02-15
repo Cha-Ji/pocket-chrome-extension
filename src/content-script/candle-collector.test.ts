@@ -71,15 +71,15 @@ describe('CandleCollector', () => {
     it('builds candle from multiple ticks', () => {
       const baseTs = 1700000000000; // start of a minute boundary
 
-      collector.addTickFromWebSocket('EURUSD', 1.1000, baseTs);
-      collector.addTickFromWebSocket('EURUSD', 1.1100, baseTs + 1000);
-      collector.addTickFromWebSocket('EURUSD', 1.0900, baseTs + 2000);
-      collector.addTickFromWebSocket('EURUSD', 1.1050, baseTs + 3000);
+      collector.addTickFromWebSocket('EURUSD', 1.1, baseTs);
+      collector.addTickFromWebSocket('EURUSD', 1.11, baseTs + 1000);
+      collector.addTickFromWebSocket('EURUSD', 1.09, baseTs + 2000);
+      collector.addTickFromWebSocket('EURUSD', 1.105, baseTs + 3000);
 
       // Candle is still in buffer, not yet finalized
       // Force finalize by adding tick in next candle period
       const nextCandleTs = baseTs + 60000;
-      collector.addTickFromWebSocket('EURUSD', 1.1060, nextCandleTs);
+      collector.addTickFromWebSocket('EURUSD', 1.106, nextCandleTs);
 
       const candles = collector.getCandles('EURUSD');
       expect(candles).toHaveLength(1);
