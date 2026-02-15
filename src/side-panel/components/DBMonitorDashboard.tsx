@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { CandleRepository } from '../../lib/db'
 import type { DataSenderStats } from '../../lib/data-sender'
-import { sendTabMessageCallback } from '../infrastructure/extension-client'
+import { sendTabMessageCallback, sendRuntimeMessage } from '../infrastructure/extension-client'
 
 // NOTE: 서버는 로컬(collector)로만 붙는다. 프로덕션 빌드에서도 상태 확인이 필요해서 DEV 가드 제거.
 const SERVER_URL = 'http://localhost:3001'
@@ -22,6 +22,31 @@ interface IndexedDBStats {
   tickers: { ticker: string; interval: number; count: number }[]
   oldestTimestamp: number | null
   newestTimestamp: number | null
+}
+
+interface TickBufferStats {
+  buffer: {
+    bufferSize: number
+    accepted: number
+    dropped: number
+    flushed: number
+    flushErrors: number
+    retentionRuns: number
+    retentionDeleted: number
+    policy: {
+      sampleIntervalMs: number
+      batchSize: number
+      flushIntervalMs: number
+      maxTicks: number
+      maxAgeMs: number
+      retentionIntervalMs: number
+    }
+  }
+  db: {
+    count: number
+    oldestTimestamp: number | null
+    newestTimestamp: number | null
+  }
 }
 
 function formatNumber(n: number): string {
@@ -63,6 +88,9 @@ export function DBMonitorDashboard() {
 
   // 소스 3: IndexedDB 통계 (Dexie 직접 접근)
   const [indexedDBStats, setIndexedDBStats] = useState<IndexedDBStats | null>(null)
+
+  // 소스 4: TickBuffer 통계 (Background 경유)
+  const [tickBufferStats, setTickBufferStats] = useState<TickBufferStats | null>(null)
 
   // 접기 상태 저장
   useEffect(() => {
@@ -127,6 +155,16 @@ export function DBMonitorDashboard() {
     } catch {}
   }, [])
 
+  // 소스 4: TickBuffer 통계 폴링 (5초, Background에서)
+  const fetchTickBufferStats = useCallback(async () => {
+    try {
+      const res = await sendRuntimeMessage('GET_TICK_BUFFER_STATS')
+      if (res && typeof res === 'object') {
+        setTickBufferStats(res as TickBufferStats)
+      }
+    } catch {}
+  }, [])
+
   // 폴링 시작 (collapsed 상태면 중지, visibility-aware)
   useEffect(() => {
     if (collapsed) return
@@ -137,10 +175,12 @@ export function DBMonitorDashboard() {
     fetchSenderStats()
     fetchServerStats()
     fetchIndexedDBStats()
+    fetchTickBufferStats()
 
     const senderInterval = setInterval(() => { if (isVisible()) fetchSenderStats() }, POLL_SENDER_MS)
     const serverInterval = setInterval(() => { if (isVisible()) fetchServerStats() }, POLL_SERVER_MS)
     const dbInterval = setInterval(() => { if (isVisible()) fetchIndexedDBStats() }, POLL_INDEXEDDB_MS)
+    const tickInterval = setInterval(() => { if (isVisible()) fetchTickBufferStats() }, POLL_SENDER_MS)
 
     // Refresh immediately when becoming visible again
     const handleVisibility = () => {
@@ -148,6 +188,7 @@ export function DBMonitorDashboard() {
         fetchSenderStats()
         fetchServerStats()
         fetchIndexedDBStats()
+        fetchTickBufferStats()
       }
     }
     document.addEventListener('visibilitychange', handleVisibility)
@@ -156,14 +197,31 @@ export function DBMonitorDashboard() {
       clearInterval(senderInterval)
       clearInterval(serverInterval)
       clearInterval(dbInterval)
+      clearInterval(tickInterval)
       document.removeEventListener('visibilitychange', handleVisibility)
     }
-  }, [collapsed, fetchSenderStats, fetchServerStats, fetchIndexedDBStats])
+  }, [collapsed, fetchSenderStats, fetchServerStats, fetchIndexedDBStats, fetchTickBufferStats])
 
   const handleRefresh = () => {
     fetchSenderStats()
     fetchServerStats()
     fetchIndexedDBStats()
+    fetchTickBufferStats()
+  }
+
+  // [3B] Diagnostic actions
+  const handleFlushNow = async () => {
+    try {
+      await sendRuntimeMessage('FLUSH_TICK_BUFFER')
+      handleRefresh()
+    } catch {}
+  }
+
+  const handleRetentionNow = async () => {
+    try {
+      await sendRuntimeMessage('RUN_TICK_RETENTION')
+      handleRefresh()
+    } catch {}
   }
 
   return (
@@ -325,6 +383,77 @@ export function DBMonitorDashboard() {
             ) : (
               <div className="text-xs text-gray-500">로딩 중...</div>
             )}
+          </div>
+
+          {/* 섹션 5: Tick Buffer 통계 */}
+          <div className="bg-gray-900 rounded-md p-3 space-y-2">
+            <div className="text-xs text-gray-500 mb-1 font-semibold uppercase">Tick Buffer / DB Ticks</div>
+            {tickBufferStats ? (
+              <>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">버퍼</span>
+                  <span className="text-yellow-400 font-bold">{tickBufferStats.buffer.bufferSize}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">수용/드롭</span>
+                  <span>
+                    <span className="text-green-400 font-bold">{formatNumber(tickBufferStats.buffer.accepted)}</span>
+                    <span className="text-gray-500"> / </span>
+                    <span className="text-red-400">{formatNumber(tickBufferStats.buffer.dropped)}</span>
+                    {tickBufferStats.buffer.accepted + tickBufferStats.buffer.dropped > 0 && (
+                      <span className="text-gray-500 text-xs ml-1">
+                        ({((tickBufferStats.buffer.accepted / (tickBufferStats.buffer.accepted + tickBufferStats.buffer.dropped)) * 100).toFixed(0)}%)
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">플러시됨</span>
+                  <span className="text-cyan-400 font-bold">{formatNumber(tickBufferStats.buffer.flushed)}</span>
+                </div>
+                {tickBufferStats.buffer.flushErrors > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">플러시 에러</span>
+                    <span className="text-red-400 font-bold">{tickBufferStats.buffer.flushErrors}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">리텐션 삭제</span>
+                  <span className="text-gray-300">{formatNumber(tickBufferStats.buffer.retentionDeleted)}</span>
+                </div>
+                <div className="border-t border-gray-700 my-1" />
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">DB 틱 수</span>
+                  <span className="text-cyan-400 font-bold">{formatNumber(tickBufferStats.db.count)}</span>
+                </div>
+                {tickBufferStats.db.oldestTimestamp && tickBufferStats.db.newestTimestamp && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">틱 기간</span>
+                    <span className="text-gray-300">
+                      {timestampToDate(tickBufferStats.db.oldestTimestamp)} ~ {timestampToDate(tickBufferStats.db.newestTimestamp)}
+                    </span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-xs text-gray-500">Background 미연결</div>
+            )}
+          </div>
+
+          {/* 진단 버튼 */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleFlushNow}
+              className="flex-1 py-1.5 rounded text-xs text-gray-400 hover:text-white bg-gray-900 hover:bg-gray-700 transition-colors border border-gray-700"
+            >
+              Flush Now
+            </button>
+            <button
+              onClick={handleRetentionNow}
+              className="flex-1 py-1.5 rounded text-xs text-gray-400 hover:text-white bg-gray-900 hover:bg-gray-700 transition-colors border border-gray-700"
+            >
+              Run Retention
+            </button>
           </div>
 
           {/* 새로고침 버튼 */}

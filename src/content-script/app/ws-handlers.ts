@@ -9,6 +9,7 @@ import { PriceUpdate, WebSocketMessage, WebSocketConnection } from '../websocket
 import { CandleData } from '../websocket-parser'
 import { Signal } from '../../lib/signals/types'
 import { DataSender } from '../../lib/data-sender'
+import { CandleRepository, CandleDatasetRepository } from '../../lib/db'
 import { AutoMiner } from '../auto-miner'
 import { tickImbalanceFadeStrategy, TIF60Config } from '../tick-strategies'
 import { normalizeSymbol, normalizeTimestampMs } from '../../lib/utils/normalize'
@@ -182,7 +183,13 @@ function setupWebSocketHandler(ctx: ContentScriptContext): void {
         timestamp: normalizeTimestampMs(c.timestamp),
       }
     })
-    DataSender.sendHistory(payload).catch(err => console.error('[PO] History send failed:', err))
+    // [2A] Save history candles to local IndexedDB (chunked to avoid UI freeze)
+    saveHistoryCandlesToDB(currentSymbol, payload).catch(err =>
+      console.warn('[PO] History DB save failed (local still ok):', err)
+    )
+
+    // Send to remote server (with retry); failure is non-fatal if local saved
+    DataSender.sendHistory(payload).catch(err => console.warn('[PO] History send to server failed:', err))
 
     if (ctx.signalGenerator && currentSymbol !== 'UNKNOWN-ASSET') {
       const seedCandles: Candle[] = payload
@@ -226,4 +233,71 @@ function setupWebSocketHandler(ctx: ContentScriptContext): void {
 
 function notifyBestAsset(asset: AssetPayout): void {
   try { chrome.runtime.sendMessage({ type: 'BEST_ASSET', payload: asset }).catch(() => {}) } catch {}
+}
+
+// ============================================================
+// [2A] History candles → IndexedDB (chunked + idle-aware)
+// ============================================================
+
+const HISTORY_CHUNK_SIZE = 1000
+
+async function saveHistoryCandlesToDB(
+  symbol: string,
+  candles: Array<{ timestamp: number; open: number; high: number; low: number; close: number; volume?: number }>,
+): Promise<void> {
+  if (candles.length === 0 || symbol === 'UNKNOWN-ASSET') return
+
+  const validCandles = candles.filter(c => c.timestamp > 0 && c.open > 0 && c.close > 0)
+  if (validCandles.length === 0) return
+
+  let totalAdded = 0
+  const startTs = Date.now()
+
+  // Chunk processing to avoid blocking the main thread
+  for (let i = 0; i < validCandles.length; i += HISTORY_CHUNK_SIZE) {
+    const chunk = validCandles.slice(i, i + HISTORY_CHUNK_SIZE)
+
+    const storedChunk = chunk.map(c => ({
+      ticker: symbol,
+      interval: 60, // 1-minute candles
+      timestamp: c.timestamp,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume ?? 0,
+      source: 'history' as const,
+    }))
+
+    const added = await CandleRepository.bulkAdd(storedChunk, 'history')
+    totalAdded += added
+
+    // Yield to UI between chunks using requestIdleCallback or setTimeout(0)
+    if (i + HISTORY_CHUNK_SIZE < validCandles.length) {
+      await new Promise<void>(resolve => {
+        if (typeof requestIdleCallback === 'function') {
+          requestIdleCallback(() => resolve())
+        } else {
+          setTimeout(resolve, 0)
+        }
+      })
+    }
+  }
+
+  // Update dataset metadata
+  const timestamps = validCandles.map(c => c.timestamp)
+  const minTs = Math.min(...timestamps)
+  const maxTs = Math.max(...timestamps)
+
+  await CandleDatasetRepository.upsert({
+    ticker: symbol,
+    interval: 60,
+    startTime: minTs,
+    endTime: maxTs,
+    candleCount: totalAdded,
+    source: 'history',
+    lastUpdated: Date.now(),
+  })
+
+  console.log(`[PO] 💾 Saved ${totalAdded}/${validCandles.length} history candles to IndexedDB for ${symbol} (${Date.now() - startTs}ms)`)
 }

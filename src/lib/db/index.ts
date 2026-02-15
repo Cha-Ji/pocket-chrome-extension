@@ -24,7 +24,7 @@ export interface StoredCandle {
 // Candle Source Type
 // ============================================================
 
-export type CandleSource = 'websocket' | 'import' | 'api' | 'manual'
+export type CandleSource = 'websocket' | 'import' | 'api' | 'manual' | 'history'
 
 // ============================================================
 // Backtest Result Type (IndexedDB 저장용)
