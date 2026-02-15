@@ -26,7 +26,7 @@ describe('Database V4 — New Tables & Fields', () => {
   // ============================================================
   describe('StoredCandle — source field', () => {
     it('should store candle with source field', async () => {
-      const candle: Omit<StoredCandle, 'id'> = {
+      const candle: StoredCandle = {
         ticker: 'EURUSD_OTC',
         interval: 60,
         timestamp: 1700000000000,
@@ -39,13 +39,13 @@ describe('Database V4 — New Tables & Fields', () => {
         createdAt: Date.now(),
       }
 
-      const id = await db.candles.add(candle)
-      const stored = await db.candles.get(id!)
+      await db.candles.put(candle)
+      const stored = await db.candles.get([candle.ticker, candle.interval, candle.timestamp])
       expect(stored?.source).toBe('websocket')
     })
 
     it('should store candle without source (backward compat)', async () => {
-      const candle: Omit<StoredCandle, 'id'> = {
+      const candle: StoredCandle = {
         ticker: 'EURUSD_OTC',
         interval: 60,
         timestamp: 1700000060000,
@@ -56,8 +56,8 @@ describe('Database V4 — New Tables & Fields', () => {
         createdAt: Date.now(),
       }
 
-      const id = await db.candles.add(candle)
-      const stored = await db.candles.get(id!)
+      await db.candles.put(candle)
+      const stored = await db.candles.get([candle.ticker, candle.interval, candle.timestamp])
       expect(stored?.source).toBeUndefined()
     })
 

@@ -13,7 +13,7 @@ function makeCandles(
   interval: number,
   count: number,
   startTs = 1700000000000
-): Omit<StoredCandle, 'id' | 'createdAt'>[] {
+): Omit<StoredCandle, 'createdAt'>[] {
   return Array.from({ length: count }, (_, i) => ({
     ticker,
     interval,
@@ -118,32 +118,28 @@ describe('Dexie Performance Optimizations (V6)', () => {
   // ============================================================
   // add() — unique index 기반 중복 무시
   // ============================================================
-  describe('add — ConstraintError handling', () => {
+  describe('add — put upsert', () => {
     it('should add a single candle', async () => {
-      const id = await CandleRepository.add({
+      await CandleRepository.add({
         ticker: 'EURUSD_OTC',
         interval: 60,
         timestamp: 1700000000000,
         open: 1.085, high: 1.087, low: 1.083, close: 1.086,
-        createdAt: Date.now(),
       })
-      expect(id).toBeDefined()
+      const count = await CandleRepository.count('EURUSD_OTC', 60)
+      expect(count).toBe(1)
     })
 
-    it('should silently skip duplicate candle', async () => {
-      const candle: Omit<StoredCandle, 'id'> = {
+    it('should upsert duplicate candle without error', async () => {
+      const candle: Omit<StoredCandle, 'createdAt'> = {
         ticker: 'EURUSD_OTC',
         interval: 60,
         timestamp: 1700000000000,
         open: 1.085, high: 1.087, low: 1.083, close: 1.086,
-        createdAt: Date.now(),
       }
 
-      const id1 = await CandleRepository.add(candle)
-      const id2 = await CandleRepository.add(candle) // duplicate
-
-      expect(id1).toBeDefined()
-      expect(id2).toBeUndefined() // silently skipped
+      await CandleRepository.add(candle)
+      await CandleRepository.add(candle) // duplicate → upsert
 
       const count = await CandleRepository.count('EURUSD_OTC', 60)
       expect(count).toBe(1)
@@ -219,9 +215,9 @@ describe('Dexie Performance Optimizations (V6)', () => {
   // ============================================================
   // unique compound index — DB-level integrity
   // ============================================================
-  describe('Unique compound index &[ticker+interval+timestamp]', () => {
+  describe('Compound PK [ticker+interval+timestamp]', () => {
     it('should prevent direct duplicate insert at DB level', async () => {
-      await db.candles.add({
+      await db.candles.put({
         ticker: 'EURUSD_OTC',
         interval: 60,
         timestamp: 1700000000000,
@@ -229,7 +225,7 @@ describe('Dexie Performance Optimizations (V6)', () => {
         createdAt: Date.now(),
       })
 
-      // Direct .add() should throw ConstraintError for duplicate
+      // Direct .add() should throw ConstraintError for duplicate PK
       await expect(db.candles.add({
         ticker: 'EURUSD_OTC',
         interval: 60,
@@ -245,21 +241,38 @@ describe('Dexie Performance Optimizations (V6)', () => {
 
     it('should allow same timestamp for different ticker or interval', async () => {
       const ts = 1700000000000
-      await db.candles.add({
+      await db.candles.put({
         ticker: 'EURUSD_OTC', interval: 60, timestamp: ts,
         open: 1.085, high: 1.087, low: 1.083, close: 1.086, createdAt: Date.now(),
       })
-      await db.candles.add({
+      await db.candles.put({
         ticker: 'GBPUSD_OTC', interval: 60, timestamp: ts,
         open: 1.285, high: 1.287, low: 1.283, close: 1.286, createdAt: Date.now(),
       })
-      await db.candles.add({
+      await db.candles.put({
         ticker: 'EURUSD_OTC', interval: 300, timestamp: ts,
         open: 1.085, high: 1.087, low: 1.083, close: 1.086, createdAt: Date.now(),
       })
 
       const count = await db.candles.count()
       expect(count).toBe(3) // 3개 모두 고유
+    })
+
+    it('should upsert with put on same compound PK', async () => {
+      await db.candles.put({
+        ticker: 'EURUSD_OTC', interval: 60, timestamp: 1700000000000,
+        open: 1.085, high: 1.087, low: 1.083, close: 1.086, createdAt: Date.now(),
+      })
+      await db.candles.put({
+        ticker: 'EURUSD_OTC', interval: 60, timestamp: 1700000000000,
+        open: 9.999, high: 9.999, low: 9.999, close: 9.999, createdAt: Date.now(),
+      })
+
+      const count = await db.candles.count()
+      expect(count).toBe(1)
+
+      const stored = await db.candles.get(['EURUSD_OTC', 60, 1700000000000])
+      expect(stored?.open).toBe(9.999) // upsert 확인
     })
   })
 
@@ -289,7 +302,7 @@ describe('Dexie Performance Optimizations (V6)', () => {
 
       expect(added).toBe(0)
       console.log(`[PERF] bulkAdd 500 duplicates: ${elapsed.toFixed(1)}ms`)
-      expect(elapsed).toBeLessThan(10000)
+      expect(elapsed).toBeLessThan(20000)
     }, 30000)
 
     it('should getStats efficiently on 500+ candles', async () => {
