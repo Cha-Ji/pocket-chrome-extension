@@ -25,7 +25,7 @@ export interface Signal {
   expiry: number // seconds
   entryPrice: number
   indicators: Record<string, number>
-  status: 'pending' | 'active' | 'win' | 'loss' | 'expired'
+  status: 'pending' | 'active' | 'win' | 'loss' | 'tie' | 'expired'
 }
 
 export type MarketRegime = 

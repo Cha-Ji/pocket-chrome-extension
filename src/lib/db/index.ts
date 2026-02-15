@@ -193,6 +193,16 @@ export const TickRepository = {
     await db.ticks.bulkAdd(ticks)
   },
 
+  /**
+   * Upsert-friendly bulk write using put (insert-or-replace).
+   * Duplicate [ticker+timestamp] entries are silently overwritten
+   * instead of causing a ConstraintError that fails the whole batch.
+   */
+  async bulkPut(ticks: Omit<Tick, 'id'>[]): Promise<void> {
+    if (ticks.length === 0) return
+    await db.ticks.bulkPut(ticks)
+  },
+
   async getByTicker(ticker: string, limit = 1000): Promise<Tick[]> {
     return await db.ticks
       .where('ticker')
@@ -213,8 +223,49 @@ export const TickRepository = {
     return await db.ticks.where('timestamp').below(timestamp).delete()
   },
 
-  async count(): Promise<number | undefined> {
+  /**
+   * Enforce a hard cap on total tick rows.
+   * If count > maxCount, deletes the oldest ticks (by timestamp)
+   * until count <= maxCount.
+   * Returns the number of rows deleted.
+   */
+  async deleteOldestToLimit(maxCount: number): Promise<number> {
+    const total = await db.ticks.count()
+    if (total <= maxCount) return 0
+
+    const excess = total - maxCount
+    const oldestKeys = await db.ticks
+      .orderBy('timestamp')
+      .limit(excess)
+      .primaryKeys()
+
+    await db.ticks.bulkDelete(oldestKeys)
+    return oldestKeys.length
+  },
+
+  async count(): Promise<number> {
     return await db.ticks.count()
+  },
+
+  /**
+   * Observability: returns tick table stats for monitoring dashboards.
+   */
+  async getStats(): Promise<{
+    count: number
+    oldestTimestamp: number | null
+    newestTimestamp: number | null
+  }> {
+    const count = await db.ticks.count()
+    if (count === 0) {
+      return { count: 0, oldestTimestamp: null, newestTimestamp: null }
+    }
+    const oldest = await db.ticks.orderBy('timestamp').first()
+    const newest = await db.ticks.orderBy('timestamp').last()
+    return {
+      count,
+      oldestTimestamp: oldest?.timestamp ?? null,
+      newestTimestamp: newest?.timestamp ?? null,
+    }
   },
 }
 
@@ -265,8 +316,10 @@ export const SessionRepository = {
     const session = await db.sessions.get(id)
     if (!session) return
 
-    const winRate = session.totalTrades > 0
-      ? (session.wins / session.totalTrades) * 100
+    // Policy A: winRate = wins / (wins + losses), ties excluded from denominator
+    const decided = session.wins + session.losses
+    const winRate = decided > 0
+      ? (session.wins / decided) * 100
       : 0
 
     await db.sessions.update(id, {
@@ -334,6 +387,7 @@ export const TradeRepository = {
           totalTrades: session.totalTrades + 1,
           wins: result === 'WIN' ? session.wins + 1 : session.wins,
           losses: result === 'LOSS' ? session.losses + 1 : session.losses,
+          ties: result === 'TIE' ? (session.ties ?? 0) + 1 : (session.ties ?? 0),
         })
       }
 

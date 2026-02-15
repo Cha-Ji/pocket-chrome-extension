@@ -159,7 +159,7 @@ export async function settleTrade(ctx: ContentScriptContext, tradeId: number): P
   }
 
   if (pending.signalId && ctx.signalGenerator) {
-    const signalResult = result === 'WIN' ? 'win' : 'loss'
+    const signalResult = result === 'WIN' ? 'win' : result === 'LOSS' ? 'loss' : 'tie'
     ctx.signalGenerator.updateSignalResult(pending.signalId, signalResult)
     console.log(`[PO] 📈 Signal ${pending.signalId} updated: ${signalResult}`)
   }
