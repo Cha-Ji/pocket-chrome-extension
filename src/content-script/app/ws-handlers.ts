@@ -284,17 +284,18 @@ async function saveHistoryCandlesToDB(
     }
   }
 
-  // Update dataset metadata
+  // Update dataset metadata — candleCount must be total, not delta (P1-1)
   const timestamps = validCandles.map(c => c.timestamp)
   const minTs = Math.min(...timestamps)
   const maxTs = Math.max(...timestamps)
 
+  const actualTotal = await CandleRepository.count(symbol, 60)
   await CandleDatasetRepository.upsert({
     ticker: symbol,
     interval: 60,
     startTime: minTs,
     endTime: maxTs,
-    candleCount: totalAdded,
+    candleCount: actualTotal,
     source: 'history',
     lastUpdated: Date.now(),
   })

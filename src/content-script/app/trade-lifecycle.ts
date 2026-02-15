@@ -4,23 +4,31 @@
 
 import { Signal } from '../../lib/signals/types'
 import { normalizeSymbol } from '../../lib/utils/normalize'
+import { evaluateSignalGates } from '../../lib/trading/signal-gate'
 import { ContentScriptContext, PendingTrade, TRADE_COOLDOWN_MS, SETTLEMENT_GRACE_MS } from './context'
 
+/**
+ * Evaluate all signal gates and execute if allowed.
+ * Uses evaluateSignalGates() pure function for all filtering (enabled, payout, strategy, cooldown, executing).
+ */
 export async function handleNewSignal(ctx: ContentScriptContext, signal: Signal): Promise<void> {
-  if (!ctx.tradingConfig.enabled) return
+  const gateResult = evaluateSignalGates({
+    config: ctx.tradingConfig,
+    currentPayout: ctx.payoutMonitor?.getCurrentAssetPayout() ?? null,
+    strategyId: signal.strategyId ?? '',
+    strategyName: signal.strategy ?? '',
+    isExecuting: ctx.isExecutingTrade,
+    lastTradeAt: ctx.lastTradeExecutedAt,
+    cooldownMs: TRADE_COOLDOWN_MS,
+    now: Date.now(),
+  })
 
-  // minPayout gate: use current chart asset payout (not bestAsset)
-  const currentPayout = ctx.payoutMonitor?.getCurrentAssetPayout()
-  if (!currentPayout) {
-    console.warn('[PO] Cannot determine current asset payout — blocking trade (conservative)')
+  if (!gateResult.allowed) {
+    if (gateResult.gate === 'disabled') return // silent
+    console.log(`[PO] Signal blocked by gate '${gateResult.gate}': ${gateResult.reason}`)
     return
   }
-  if (currentPayout.payout < ctx.tradingConfig.minPayout) {
-    console.log(`[PO] Current asset payout ${currentPayout.payout}% < minPayout ${ctx.tradingConfig.minPayout}% — skipping`)
-    return
-  }
 
-  if (ctx.tradingConfig.onlyRSI && !(signal.strategyId || signal.strategy).includes('RSI')) return
   await executeSignal(ctx, signal)
 }
 
@@ -119,7 +127,10 @@ export function scheduleSettlement(ctx: ContentScriptContext, params: Omit<Pendi
 export async function settleTrade(ctx: ContentScriptContext, tradeId: number): Promise<void> {
   const pending = ctx.pendingTrades.get(tradeId)
   if (!pending) return
+
+  // P0-3: Immediately delete + clear timer to prevent leaks and double-settle
   ctx.pendingTrades.delete(tradeId)
+  if (pending.timerId) clearTimeout(pending.timerId)
 
   const exitPrice = ctx.candleCollector?.getLatestTickPrice(pending.ticker) ?? 0
   if (!exitPrice || exitPrice <= 0) {

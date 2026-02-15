@@ -84,6 +84,55 @@ describe('trade-lifecycle', () => {
       await handleNewSignal(ctx, makeSignal({ strategyId: 'RSI+BB', strategy: 'RSI Bounce' }))
       expect(ctx.tradeExecutor!.executeTrade).toHaveBeenCalled()
     })
+
+    it('should allow all strategies when onlyRSI is false and no strategyFilter', async () => {
+      ctx.tradingConfig.enabled = true
+      ctx.tradingConfig.onlyRSI = false
+      ctx.payoutMonitor = { getCurrentAssetPayout: () => ({ name: 'EURUSD_OTC', payout: 95 }) } as any
+      ctx.tradeExecutor = { executeTrade: vi.fn().mockResolvedValue({ success: true }) } as any
+      ctx.candleCollector = { getLatestTickPrice: () => 1.1234 } as any
+      await handleNewSignal(ctx, makeSignal({ strategyId: 'MACD-Cross', strategy: 'MACD Crossover' }))
+      expect(ctx.tradeExecutor!.executeTrade).toHaveBeenCalled()
+    })
+
+    it('should use strategyFilter allowlist over legacy onlyRSI', async () => {
+      ctx.tradingConfig.enabled = true
+      ctx.tradingConfig.onlyRSI = true // legacy would block TIF-60
+      ctx.tradingConfig.strategyFilter = { mode: 'allowlist', patterns: ['TIF-60'] }
+      ctx.payoutMonitor = { getCurrentAssetPayout: () => ({ name: 'EURUSD_OTC', payout: 95 }) } as any
+      ctx.tradeExecutor = { executeTrade: vi.fn().mockResolvedValue({ success: true }) } as any
+      ctx.candleCollector = { getLatestTickPrice: () => 1.1234 } as any
+      await handleNewSignal(ctx, makeSignal({ strategyId: 'TIF-60', strategy: 'Tick Imbalance Fade' }))
+      expect(ctx.tradeExecutor!.executeTrade).toHaveBeenCalled()
+    })
+
+    it('should block strategy via denylist filter', async () => {
+      ctx.tradingConfig.enabled = true
+      ctx.tradingConfig.onlyRSI = false
+      ctx.tradingConfig.strategyFilter = { mode: 'denylist', patterns: ['TIF-60'] }
+      ctx.payoutMonitor = { getCurrentAssetPayout: () => ({ name: 'EURUSD_OTC', payout: 95 }) } as any
+      const signal = makeSignal({ strategyId: 'TIF-60', strategy: 'Tick Imbalance Fade' })
+      await handleNewSignal(ctx, signal)
+      expect(mockSendMessage).not.toHaveBeenCalled()
+    })
+
+    it('should block when isExecutingTrade is true (gate check)', async () => {
+      ctx.tradingConfig.enabled = true
+      ctx.tradingConfig.onlyRSI = false
+      ctx.payoutMonitor = { getCurrentAssetPayout: () => ({ name: 'EURUSD_OTC', payout: 95 }) } as any
+      ctx.isExecutingTrade = true
+      await handleNewSignal(ctx, makeSignal())
+      expect(mockSendMessage).not.toHaveBeenCalled()
+    })
+
+    it('should block during cooldown period (gate check)', async () => {
+      ctx.tradingConfig.enabled = true
+      ctx.tradingConfig.onlyRSI = false
+      ctx.payoutMonitor = { getCurrentAssetPayout: () => ({ name: 'EURUSD_OTC', payout: 95 }) } as any
+      ctx.lastTradeExecutedAt = Date.now() - 500 // 500ms ago, cooldown is 3000ms
+      await handleNewSignal(ctx, makeSignal())
+      expect(mockSendMessage).not.toHaveBeenCalled()
+    })
   })
 
   describe('executeSignal', () => {
@@ -271,6 +320,52 @@ describe('trade-lifecycle', () => {
           payload: expect.objectContaining({ result: 'LOSS', profit: -10 }),
         })
       )
+    })
+
+    it('should clear timer and remove entry from pendingTrades (P0-3 leak fix)', async () => {
+      const clearTimeoutSpy = vi.spyOn(global, 'clearTimeout')
+      const timerId = setTimeout(() => {}, 99999)
+      ctx.candleCollector = { getLatestTickPrice: () => 1.1300 } as any
+      ctx.pendingTrades.set(10, {
+        tradeId: 10,
+        ticker: 'EURUSD_OTC',
+        direction: 'CALL',
+        entryTime: Date.now(),
+        entryPrice: 1.1234,
+        expirySeconds: 60,
+        amount: 10,
+        payoutPercent: 92,
+        timerId,
+      })
+
+      await settleTrade(ctx, 10)
+
+      expect(ctx.pendingTrades.has(10)).toBe(false)
+      expect(clearTimeoutSpy).toHaveBeenCalledWith(timerId)
+    })
+
+    it('should be idempotent — second call is a no-op (P0-3)', async () => {
+      ctx.candleCollector = { getLatestTickPrice: () => 1.1300 } as any
+      ctx.pendingTrades.set(11, {
+        tradeId: 11,
+        ticker: 'EURUSD_OTC',
+        direction: 'CALL',
+        entryTime: Date.now(),
+        entryPrice: 1.1234,
+        expirySeconds: 60,
+        amount: 10,
+        payoutPercent: 92,
+        timerId: setTimeout(() => {}, 0),
+      })
+
+      await settleTrade(ctx, 11)
+      expect(mockSendMessage).toHaveBeenCalledTimes(1)
+
+      // Second call — should be no-op
+      mockSendMessage.mockClear()
+      await settleTrade(ctx, 11)
+      expect(mockSendMessage).not.toHaveBeenCalled()
+      expect(ctx.pendingTrades.size).toBe(0)
     })
 
     it('should update signalGenerator result if signalId provided', async () => {

@@ -172,7 +172,14 @@ function initializeSidePanel(): void {
 // ============================================================
 
 chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
-  handleMessage(message, sender).then(sendResponse)
+  handleMessage(message, sender)
+    .then(sendResponse)
+    .catch((err) => {
+      errorHandler.handle(
+        POError.from(err, { module: 'background', function: 'onMessage' }, ErrorCode.MSG_RECEIVE_FAILED)
+      )
+      sendResponse({ error: String(err) })
+    })
   return true
 })
 
