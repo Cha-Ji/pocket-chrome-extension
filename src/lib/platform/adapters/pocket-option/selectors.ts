@@ -5,7 +5,7 @@
 // 한 곳에 모아 관리한다. PO Real 어댑터는 이 파일을 상속/오버라이드한다.
 // ============================================================
 
-import type { DOMSelectors } from '../../../types'
+import type { DOMSelectors } from '../../../types';
 
 /** Pocket Option Demo 전용 셀렉터 */
 export const PO_DEMO_SELECTORS: DOMSelectors = {
@@ -19,7 +19,7 @@ export const PO_DEMO_SELECTORS: DOMSelectors = {
   chartContainer: '.chart-item',
   priceDisplay: '.chart-item .value__val',
   demoIndicator: '.balance-info-block__label',
-}
+};
 
 /** 페이아웃 모니터용 셀렉터 */
 export const PO_PAYOUT_SELECTORS = {
@@ -29,7 +29,7 @@ export const PO_PAYOUT_SELECTORS = {
   assetProfit: '.alist__payout',
   pairTrigger: '.current-symbol',
   overlay: '.modal-overlay',
-} as const
+} as const;
 
 /** 가격 수집용 셀렉터 */
 export const PO_PRICE_SELECTORS = {
@@ -39,25 +39,25 @@ export const PO_PRICE_SELECTORS = {
   chartContainer: '.chart-item, .chart-block',
   assetName: '.chart-item .pair, .chart-block .pair',
   serverTime: '.server-time, .time-block',
-} as const
+} as const;
 
 /** 데모 감지용 CSS 셀렉터 */
 export const PO_DEMO_DETECTION = {
   demoChartClass: '.is-chart-demo',
   balanceLabel: '.balance-info-block__label',
-} as const
+} as const;
 
 /** Pocket Option Real (Live) 전용 셀렉터 — Demo와 동일 구조, 차이점만 오버라이드 */
 export const PO_REAL_SELECTORS: DOMSelectors = {
   ...PO_DEMO_SELECTORS,
   // Real 모드에서 다를 수 있는 셀렉터를 여기에 오버라이드
-}
+};
 
 /** Real 모드 감지 셀렉터 */
 export const PO_REAL_DETECTION = {
   /** Real 모드에는 .is-chart-demo 클래스가 없음 */
   balanceLabel: '.balance-info-block__label',
-} as const
+} as const;
 
 /** 셀렉터 fallback 체인 — 셀렉터 키별 대체 후보 (우선순위순) */
 export const PO_SELECTOR_FALLBACKS: Record<string, string[]> = {
@@ -77,16 +77,8 @@ export const PO_SELECTOR_FALLBACKS: Record<string, string[]> = {
     '.current-price',
     '[data-test="current-price"]',
   ],
-  balanceDisplay: [
-    '.balance-info-block__value',
-    '.user-balance',
-    '.header__balance-value',
-  ],
-}
+  balanceDisplay: ['.balance-info-block__value', '.user-balance', '.header__balance-value'],
+};
 
 /** Pocket Option 도메인 패턴 */
-export const PO_DOMAINS = [
-  'pocketoption.com',
-  'po.trade',
-  'po2.trade',
-] as const
+export const PO_DOMAINS = ['pocketoption.com', 'po.trade', 'po2.trade'] as const;

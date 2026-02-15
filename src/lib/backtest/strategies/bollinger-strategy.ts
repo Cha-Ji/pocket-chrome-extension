@@ -4,8 +4,8 @@
 // Band touch, breakout, and squeeze-based strategies
 // ============================================================
 
-import { Candle, Strategy, StrategySignal, Direction } from '../types'
-import { BollingerBands, RSI } from '../../indicators'
+import { Candle, Strategy, StrategySignal, Direction } from '../types';
+import { BollingerBands, RSI } from '../../indicators';
 
 /**
  * Bollinger Band Bounce Strategy
@@ -23,32 +23,38 @@ export const BollingerBounce: Strategy = {
   },
 
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null {
-    const { period, stdDev, touchThreshold } = params
+    const { period, stdDev, touchThreshold } = params;
 
-    if (candles.length < period + 2) return null
+    if (candles.length < period + 2) return null;
 
-    const closes = candles.map(c => c.close)
-    const bbValues = BollingerBands.calculate(closes, period, stdDev)
+    const closes = candles.map((c) => c.close);
+    const bbValues = BollingerBands.calculate(closes, period, stdDev);
 
-    if (bbValues.length < 2) return null
+    if (bbValues.length < 2) return null;
 
-    const currentBB = bbValues[bbValues.length - 1]
-    const prevBB = bbValues[bbValues.length - 2]
-    const currentClose = closes[closes.length - 1]
-    const prevClose = closes[closes.length - 2]
+    const currentBB = bbValues[bbValues.length - 1];
+    const prevBB = bbValues[bbValues.length - 2];
+    const currentClose = closes[closes.length - 1];
+    const prevClose = closes[closes.length - 2];
 
-    let direction: Direction | null = null
-    let confidence = 0
+    let direction: Direction | null = null;
+    let confidence = 0;
 
     // Bullish bounce: touched lower band, now bouncing up
     if (prevClose <= prevBB.lower * (1 + touchThreshold) && currentClose > prevClose) {
-      direction = 'CALL'
-      confidence = Math.min(1, (currentClose - prevClose) / (currentBB.middle - currentBB.lower) * 2)
+      direction = 'CALL';
+      confidence = Math.min(
+        1,
+        ((currentClose - prevClose) / (currentBB.middle - currentBB.lower)) * 2,
+      );
     }
     // Bearish bounce: touched upper band, now bouncing down
     else if (prevClose >= prevBB.upper * (1 - touchThreshold) && currentClose < prevClose) {
-      direction = 'PUT'
-      confidence = Math.min(1, (prevClose - currentClose) / (currentBB.upper - currentBB.middle) * 2)
+      direction = 'PUT';
+      confidence = Math.min(
+        1,
+        ((prevClose - currentClose) / (currentBB.upper - currentBB.middle)) * 2,
+      );
     }
 
     return {
@@ -64,9 +70,9 @@ export const BollingerBounce: Strategy = {
       reason: direction
         ? `Bollinger ${direction === 'CALL' ? 'lower' : 'upper'} band bounce`
         : undefined,
-    }
+    };
   },
-}
+};
 
 /**
  * Bollinger Band Breakout Strategy
@@ -84,22 +90,21 @@ export const BollingerBreakout: Strategy = {
   },
 
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null {
-    const { period, stdDev, confirmBars } = params
+    const { period, stdDev, confirmBars } = params;
 
-    if (candles.length < period + confirmBars + 1) return null
+    if (candles.length < period + confirmBars + 1) return null;
 
-    const closes = candles.map(c => c.close)
-    const bbValues = BollingerBands.calculate(closes, period, stdDev)
+    const closes = candles.map((c) => c.close);
+    const bbValues = BollingerBands.calculate(closes, period, stdDev);
 
-    if (bbValues.length < confirmBars + 1) return null
+    if (bbValues.length < confirmBars + 1) return null;
 
     // Check recent bars for breakout confirmation
-    const recentBB = bbValues.slice(-confirmBars - 1)
-    const recentCloses = closes.slice(-confirmBars - 1)
+    const recentBB = bbValues.slice(-confirmBars - 1);
+    const recentCloses = closes.slice(-confirmBars - 1);
 
     // Check if price was inside bands and now breaking out
-    const prevInside =
-      recentCloses[0] > recentBB[0].lower && recentCloses[0] < recentBB[0].upper
+    const prevInside = recentCloses[0] > recentBB[0].lower && recentCloses[0] < recentBB[0].upper;
 
     if (!prevInside) {
       return {
@@ -111,30 +116,36 @@ export const BollingerBreakout: Strategy = {
           bbLower: recentBB[recentBB.length - 1].lower,
           price: recentCloses[recentCloses.length - 1],
         },
-      }
+      };
     }
 
     // Check for consistent breakout over confirmBars
-    let bullishBreakout = true
-    let bearishBreakout = true
+    let bullishBreakout = true;
+    let bearishBreakout = true;
 
     for (let i = 1; i <= confirmBars; i++) {
-      if (recentCloses[i] <= recentBB[i].upper) bullishBreakout = false
-      if (recentCloses[i] >= recentBB[i].lower) bearishBreakout = false
+      if (recentCloses[i] <= recentBB[i].upper) bullishBreakout = false;
+      if (recentCloses[i] >= recentBB[i].lower) bearishBreakout = false;
     }
 
-    const currentBB = recentBB[recentBB.length - 1]
-    const currentClose = recentCloses[recentCloses.length - 1]
+    const currentBB = recentBB[recentBB.length - 1];
+    const currentClose = recentCloses[recentCloses.length - 1];
 
-    let direction: Direction | null = null
-    let confidence = 0
+    let direction: Direction | null = null;
+    let confidence = 0;
 
     if (bullishBreakout) {
-      direction = 'CALL'
-      confidence = Math.min(1, (currentClose - currentBB.upper) / (currentBB.upper - currentBB.middle))
+      direction = 'CALL';
+      confidence = Math.min(
+        1,
+        (currentClose - currentBB.upper) / (currentBB.upper - currentBB.middle),
+      );
     } else if (bearishBreakout) {
-      direction = 'PUT'
-      confidence = Math.min(1, (currentBB.lower - currentClose) / (currentBB.middle - currentBB.lower))
+      direction = 'PUT';
+      confidence = Math.min(
+        1,
+        (currentBB.lower - currentClose) / (currentBB.middle - currentBB.lower),
+      );
     }
 
     return {
@@ -149,9 +160,9 @@ export const BollingerBreakout: Strategy = {
       reason: direction
         ? `Bollinger ${direction === 'CALL' ? 'bullish' : 'bearish'} breakout`
         : undefined,
-    }
+    };
   },
-}
+};
 
 /**
  * Bollinger Band Squeeze Strategy
@@ -170,27 +181,27 @@ export const BollingerSqueeze: Strategy = {
   },
 
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null {
-    const { period, stdDev, squeezeLookback, squeezeThreshold } = params
+    const { period, stdDev, squeezeLookback, squeezeThreshold } = params;
 
-    if (candles.length < period + squeezeLookback + 1) return null
+    if (candles.length < period + squeezeLookback + 1) return null;
 
-    const closes = candles.map(c => c.close)
-    const bbValues = BollingerBands.calculate(closes, period, stdDev)
+    const closes = candles.map((c) => c.close);
+    const bbValues = BollingerBands.calculate(closes, period, stdDev);
 
-    if (bbValues.length < squeezeLookback + 1) return null
+    if (bbValues.length < squeezeLookback + 1) return null;
 
     // Calculate bandwidth series
-    const bandwidths = bbValues.map(bb => (bb.upper - bb.lower) / bb.middle)
-    const recentBandwidths = bandwidths.slice(-squeezeLookback - 1)
+    const bandwidths = bbValues.map((bb) => (bb.upper - bb.lower) / bb.middle);
+    const recentBandwidths = bandwidths.slice(-squeezeLookback - 1);
 
     // Find min/max bandwidth for squeeze detection
-    const avgBandwidth = recentBandwidths.slice(0, -1).reduce((a, b) => a + b, 0) / squeezeLookback
-    const currentBandwidth = recentBandwidths[recentBandwidths.length - 1]
-    const prevBandwidth = recentBandwidths[recentBandwidths.length - 2]
+    const avgBandwidth = recentBandwidths.slice(0, -1).reduce((a, b) => a + b, 0) / squeezeLookback;
+    const currentBandwidth = recentBandwidths[recentBandwidths.length - 1];
+    const prevBandwidth = recentBandwidths[recentBandwidths.length - 2];
 
     // Squeeze ending: bandwidth was low, now expanding
-    const wasSqueeze = prevBandwidth < avgBandwidth * squeezeThreshold
-    const isExpanding = currentBandwidth > prevBandwidth * 1.1
+    const wasSqueeze = prevBandwidth < avgBandwidth * squeezeThreshold;
+    const isExpanding = currentBandwidth > prevBandwidth * 1.1;
 
     if (!wasSqueeze || !isExpanding) {
       return {
@@ -201,26 +212,26 @@ export const BollingerSqueeze: Strategy = {
           avgBandwidth,
           squeeze: wasSqueeze ? 1 : 0,
         },
-      }
+      };
     }
 
     // Determine direction based on price movement
-    const currentClose = closes[closes.length - 1]
-    const prevClose = closes[closes.length - 2]
-    const currentBB = bbValues[bbValues.length - 1]
+    const currentClose = closes[closes.length - 1];
+    const prevClose = closes[closes.length - 2];
+    const currentBB = bbValues[bbValues.length - 1];
 
-    let direction: Direction | null = null
-    let confidence = 0
+    let direction: Direction | null = null;
+    let confidence = 0;
 
     // Price moving up after squeeze
     if (currentClose > prevClose && currentClose > currentBB.middle) {
-      direction = 'CALL'
-      confidence = Math.min(1, (currentBandwidth - prevBandwidth) / prevBandwidth)
+      direction = 'CALL';
+      confidence = Math.min(1, (currentBandwidth - prevBandwidth) / prevBandwidth);
     }
     // Price moving down after squeeze
     else if (currentClose < prevClose && currentClose < currentBB.middle) {
-      direction = 'PUT'
-      confidence = Math.min(1, (currentBandwidth - prevBandwidth) / prevBandwidth)
+      direction = 'PUT';
+      confidence = Math.min(1, (currentBandwidth - prevBandwidth) / prevBandwidth);
     }
 
     return {
@@ -237,9 +248,9 @@ export const BollingerSqueeze: Strategy = {
       reason: direction
         ? `Bollinger squeeze ${direction === 'CALL' ? 'bullish' : 'bearish'} breakout`
         : undefined,
-    }
+    };
   },
-}
+};
 
 /**
  * Bollinger + RSI Combined Strategy
@@ -259,35 +270,35 @@ export const BollingerRSI: Strategy = {
   },
 
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null {
-    const { bbPeriod, bbStdDev, rsiPeriod, rsiOversold, rsiOverbought } = params
+    const { bbPeriod, bbStdDev, rsiPeriod, rsiOversold, rsiOverbought } = params;
 
-    if (candles.length < Math.max(bbPeriod, rsiPeriod + 1) + 1) return null
+    if (candles.length < Math.max(bbPeriod, rsiPeriod + 1) + 1) return null;
 
-    const closes = candles.map(c => c.close)
-    const bbValues = BollingerBands.calculate(closes, bbPeriod, bbStdDev)
-    const rsiValues = RSI.calculate(closes, rsiPeriod)
+    const closes = candles.map((c) => c.close);
+    const bbValues = BollingerBands.calculate(closes, bbPeriod, bbStdDev);
+    const rsiValues = RSI.calculate(closes, rsiPeriod);
 
-    if (bbValues.length === 0 || rsiValues.length === 0) return null
+    if (bbValues.length === 0 || rsiValues.length === 0) return null;
 
-    const currentBB = bbValues[bbValues.length - 1]
-    const currentRSI = rsiValues[rsiValues.length - 1]
-    const currentClose = closes[closes.length - 1]
+    const currentBB = bbValues[bbValues.length - 1];
+    const currentRSI = rsiValues[rsiValues.length - 1];
+    const currentClose = closes[closes.length - 1];
 
     // Calculate band position (0 = lower, 1 = upper)
-    const bandPosition = (currentClose - currentBB.lower) / (currentBB.upper - currentBB.lower)
+    const bandPosition = (currentClose - currentBB.lower) / (currentBB.upper - currentBB.lower);
 
-    let direction: Direction | null = null
-    let confidence = 0
+    let direction: Direction | null = null;
+    let confidence = 0;
 
     // Bullish: near lower band + RSI oversold
     if (bandPosition < 0.1 && currentRSI < rsiOversold) {
-      direction = 'CALL'
-      confidence = Math.min(1, ((rsiOversold - currentRSI) / 20 + (0.1 - bandPosition)) / 0.2)
+      direction = 'CALL';
+      confidence = Math.min(1, ((rsiOversold - currentRSI) / 20 + (0.1 - bandPosition)) / 0.2);
     }
     // Bearish: near upper band + RSI overbought
     else if (bandPosition > 0.9 && currentRSI > rsiOverbought) {
-      direction = 'PUT'
-      confidence = Math.min(1, ((currentRSI - rsiOverbought) / 20 + (bandPosition - 0.9)) / 0.2)
+      direction = 'PUT';
+      confidence = Math.min(1, ((currentRSI - rsiOverbought) / 20 + (bandPosition - 0.9)) / 0.2);
     }
 
     return {
@@ -304,9 +315,9 @@ export const BollingerRSI: Strategy = {
       reason: direction
         ? `Bollinger + RSI ${direction === 'CALL' ? 'oversold' : 'overbought'}`
         : undefined,
-    }
+    };
   },
-}
+};
 
 // Export all Bollinger strategies
 export const BollingerStrategies = [
@@ -314,4 +325,4 @@ export const BollingerStrategies = [
   BollingerBreakout,
   BollingerSqueeze,
   BollingerRSI,
-]
+];

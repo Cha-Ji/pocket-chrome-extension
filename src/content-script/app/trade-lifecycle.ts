@@ -2,10 +2,15 @@
 // trade-lifecycle.ts — Signal handling, trade execution, settlement
 // ============================================================
 
-import { Signal } from '../../lib/signals/types'
-import { normalizeSymbol } from '../../lib/utils/normalize'
-import { evaluateSignalGates } from '../../lib/trading/signal-gate'
-import { ContentScriptContext, PendingTrade, TRADE_COOLDOWN_MS, SETTLEMENT_GRACE_MS } from './context'
+import { Signal } from '../../lib/signals/types';
+import { normalizeSymbol } from '../../lib/utils/normalize';
+import { evaluateSignalGates } from '../../lib/trading/signal-gate';
+import {
+  ContentScriptContext,
+  PendingTrade,
+  TRADE_COOLDOWN_MS,
+  SETTLEMENT_GRACE_MS,
+} from './context';
 
 /**
  * Evaluate all signal gates and execute if allowed.
@@ -21,59 +26,70 @@ export async function handleNewSignal(ctx: ContentScriptContext, signal: Signal)
     lastTradeAt: ctx.lastTradeExecutedAt,
     cooldownMs: TRADE_COOLDOWN_MS,
     now: Date.now(),
-  })
+  });
 
   if (!gateResult.allowed) {
-    if (gateResult.gate === 'disabled') return // silent
-    console.log(`[PO] Signal blocked by gate '${gateResult.gate}': ${gateResult.reason}`)
-    return
+    if (gateResult.gate === 'disabled') return; // silent
+    console.log(`[PO] Signal blocked by gate '${gateResult.gate}': ${gateResult.reason}`);
+    return;
   }
 
-  await executeSignal(ctx, signal)
+  await executeSignal(ctx, signal);
 }
 
 export async function executeSignal(ctx: ContentScriptContext, signal: Signal): Promise<void> {
-  if (!ctx.tradeExecutor) return
+  if (!ctx.tradeExecutor) return;
 
   // [#46] Race Condition Guard: 동시 거래 실행 방지
   if (ctx.isExecutingTrade) {
-    console.warn(`[PO] ⚠️ Trade skipped (already executing): ${signal.direction} (${signal.strategy})`)
-    return
+    console.warn(
+      `[PO] ⚠️ Trade skipped (already executing): ${signal.direction} (${signal.strategy})`,
+    );
+    return;
   }
-  const timeSinceLastTrade = Date.now() - ctx.lastTradeExecutedAt
+  const timeSinceLastTrade = Date.now() - ctx.lastTradeExecutedAt;
   if (timeSinceLastTrade < TRADE_COOLDOWN_MS) {
-    console.warn(`[PO] ⚠️ Trade skipped (cooldown ${TRADE_COOLDOWN_MS - timeSinceLastTrade}ms remaining): ${signal.direction} (${signal.strategy})`)
-    return
+    console.warn(
+      `[PO] ⚠️ Trade skipped (cooldown ${TRADE_COOLDOWN_MS - timeSinceLastTrade}ms remaining): ${signal.direction} (${signal.strategy})`,
+    );
+    return;
   }
 
-  ctx.isExecutingTrade = true
-  console.log(`[PO] 🚀 Executing: ${signal.direction} (${signal.strategy})`)
+  ctx.isExecutingTrade = true;
+  console.log(`[PO] 🚀 Executing: ${signal.direction} (${signal.strategy})`);
   try {
-    const result = await ctx.tradeExecutor.executeTrade(signal.direction, ctx.tradingConfig.tradeAmount)
-    ctx.lastTradeExecutedAt = Date.now()
+    const result = await ctx.tradeExecutor.executeTrade(
+      signal.direction,
+      ctx.tradingConfig.tradeAmount,
+    );
+    ctx.lastTradeExecutedAt = Date.now();
 
     if (result.success) {
       // P0: entryPrice 결정
-      const ticker = normalizeSymbol(signal.symbol)
-      let entryPrice = ctx.candleCollector?.getLatestTickPrice(ticker) ?? 0
-      if (!entryPrice || entryPrice <= 0) entryPrice = signal.entryPrice
+      const ticker = normalizeSymbol(signal.symbol);
+      let entryPrice = ctx.candleCollector?.getLatestTickPrice(ticker) ?? 0;
+      if (!entryPrice || entryPrice <= 0) entryPrice = signal.entryPrice;
       if (!entryPrice || entryPrice <= 0) {
-        console.error(`[PO] ❌ Cannot determine entryPrice for ${ticker} — aborting trade record`)
-        ctx.isExecutingTrade = false
-        return
+        console.error(`[PO] ❌ Cannot determine entryPrice for ${ticker} — aborting trade record`);
+        ctx.isExecutingTrade = false;
+        return;
       }
 
       // Capture payout at entry time for accurate PnL calculation
-      const currentPayout = ctx.payoutMonitor?.getCurrentAssetPayout()
-      const payoutPercent = currentPayout?.payout ?? 0
+      const currentPayout = ctx.payoutMonitor?.getCurrentAssetPayout();
+      const payoutPercent = currentPayout?.payout ?? 0;
       if (payoutPercent <= 0) {
-        console.warn(`[PO] ⚠️ Cannot determine payout for ${ticker} — PnL will default to 0 on WIN`)
+        console.warn(
+          `[PO] ⚠️ Cannot determine payout for ${ticker} — PnL will default to 0 on WIN`,
+        );
       }
 
-      ctx.telegramService?.sendMessage(`🚀 [PO] <b>Trade Executed</b>\n${signal.direction} on ${signal.symbol} @ ${entryPrice} (payout: ${payoutPercent}%)`)
-      const expirySeconds = signal.expiry || 60
+      ctx.telegramService?.sendMessage(
+        `🚀 [PO] <b>Trade Executed</b>\n${signal.direction} on ${signal.symbol} @ ${entryPrice} (payout: ${payoutPercent}%)`,
+      );
+      const expirySeconds = signal.expiry || 60;
       try {
-        const response = await chrome.runtime.sendMessage({
+        const response = (await chrome.runtime.sendMessage({
           type: 'TRADE_EXECUTED',
           payload: {
             signalId: signal.id,
@@ -83,8 +99,8 @@ export async function executeSignal(ctx: ContentScriptContext, signal: Signal): 
             amount: ctx.tradingConfig.tradeAmount,
             ticker,
             entryPrice,
-          }
-        }) as { success: boolean; tradeId?: number } | undefined
+          },
+        })) as { success: boolean; tradeId?: number } | undefined;
 
         if (response?.success && response.tradeId) {
           scheduleSettlement(ctx, {
@@ -97,62 +113,85 @@ export async function executeSignal(ctx: ContentScriptContext, signal: Signal): 
             expirySeconds,
             amount: ctx.tradingConfig.tradeAmount,
             payoutPercent,
-          })
+          });
         }
       } catch {
-        console.warn('[PO] Failed to send TRADE_EXECUTED to background')
+        console.warn('[PO] Failed to send TRADE_EXECUTED to background');
       }
     } else {
-      console.warn(`[PO] ⚠️ Trade failed: ${result.error ?? 'unknown error'}`)
-      try { chrome.runtime.sendMessage({ type: 'TRADE_EXECUTED', payload: { signalId: signal.id, result: false, timestamp: Date.now(), direction: signal.direction, error: result.error } }).catch(() => {}) } catch {}
+      console.warn(`[PO] ⚠️ Trade failed: ${result.error ?? 'unknown error'}`);
+      try {
+        chrome.runtime
+          .sendMessage({
+            type: 'TRADE_EXECUTED',
+            payload: {
+              signalId: signal.id,
+              result: false,
+              timestamp: Date.now(),
+              direction: signal.direction,
+              error: result.error,
+            },
+          })
+          .catch(() => {});
+      } catch {}
     }
   } catch (error) {
-    console.error('[PO] Trade execution error:', error)
+    console.error('[PO] Trade execution error:', error);
   } finally {
-    ctx.isExecutingTrade = false
+    ctx.isExecutingTrade = false;
   }
 }
 
-export function scheduleSettlement(ctx: ContentScriptContext, params: Omit<PendingTrade, 'timerId'>): void {
-  const delayMs = params.expirySeconds * 1000 + SETTLEMENT_GRACE_MS
-  console.log(`[PO] ⏱️ Settlement scheduled for tradeId=${params.tradeId} in ${delayMs}ms`)
+export function scheduleSettlement(
+  ctx: ContentScriptContext,
+  params: Omit<PendingTrade, 'timerId'>,
+): void {
+  const delayMs = params.expirySeconds * 1000 + SETTLEMENT_GRACE_MS;
+  console.log(`[PO] ⏱️ Settlement scheduled for tradeId=${params.tradeId} in ${delayMs}ms`);
 
   const timerId = setTimeout(() => {
-    settleTrade(ctx, params.tradeId)
-  }, delayMs)
+    settleTrade(ctx, params.tradeId);
+  }, delayMs);
 
-  ctx.pendingTrades.set(params.tradeId, { ...params, timerId })
+  ctx.pendingTrades.set(params.tradeId, { ...params, timerId });
 }
 
 export async function settleTrade(ctx: ContentScriptContext, tradeId: number): Promise<void> {
-  const pending = ctx.pendingTrades.get(tradeId)
-  if (!pending) return
+  const pending = ctx.pendingTrades.get(tradeId);
+  if (!pending) return;
 
   // P0-3: Immediately delete + clear timer to prevent leaks and double-settle
-  ctx.pendingTrades.delete(tradeId)
-  if (pending.timerId) clearTimeout(pending.timerId)
+  ctx.pendingTrades.delete(tradeId);
+  if (pending.timerId) clearTimeout(pending.timerId);
 
-  const exitPrice = ctx.candleCollector?.getLatestTickPrice(pending.ticker) ?? 0
+  const exitPrice = ctx.candleCollector?.getLatestTickPrice(pending.ticker) ?? 0;
   if (!exitPrice || exitPrice <= 0) {
-    console.warn(`[PO] ⚠️ Cannot get exit price for ${pending.ticker} — marking as LOSS (conservative)`)
+    console.warn(
+      `[PO] ⚠️ Cannot get exit price for ${pending.ticker} — marking as LOSS (conservative)`,
+    );
   }
 
-  let result: 'WIN' | 'LOSS' | 'TIE'
+  let result: 'WIN' | 'LOSS' | 'TIE';
   if (exitPrice <= 0) {
-    result = 'LOSS'
+    result = 'LOSS';
   } else if (pending.direction === 'CALL') {
-    result = exitPrice > pending.entryPrice ? 'WIN' : exitPrice < pending.entryPrice ? 'LOSS' : 'TIE'
+    result =
+      exitPrice > pending.entryPrice ? 'WIN' : exitPrice < pending.entryPrice ? 'LOSS' : 'TIE';
   } else {
-    result = exitPrice < pending.entryPrice ? 'WIN' : exitPrice > pending.entryPrice ? 'LOSS' : 'TIE'
+    result =
+      exitPrice < pending.entryPrice ? 'WIN' : exitPrice > pending.entryPrice ? 'LOSS' : 'TIE';
   }
 
-  const profit = result === 'WIN'
-    ? pending.amount * (pending.payoutPercent / 100)
-    : result === 'LOSS'
-      ? -pending.amount
-      : 0
+  const profit =
+    result === 'WIN'
+      ? pending.amount * (pending.payoutPercent / 100)
+      : result === 'LOSS'
+        ? -pending.amount
+        : 0;
 
-  console.log(`[PO] 📊 Settlement: tradeId=${tradeId} ${pending.direction} entry=${pending.entryPrice} exit=${exitPrice} => ${result} (profit=${profit})`)
+  console.log(
+    `[PO] 📊 Settlement: tradeId=${tradeId} ${pending.direction} entry=${pending.entryPrice} exit=${exitPrice} => ${result} (profit=${profit})`,
+  );
 
   try {
     await chrome.runtime.sendMessage({
@@ -163,15 +202,15 @@ export async function settleTrade(ctx: ContentScriptContext, tradeId: number): P
         exitPrice,
         result,
         profit,
-      }
-    })
+      },
+    });
   } catch {
-    console.warn(`[PO] Failed to send FINALIZE_TRADE for tradeId=${tradeId}`)
+    console.warn(`[PO] Failed to send FINALIZE_TRADE for tradeId=${tradeId}`);
   }
 
   if (pending.signalId && ctx.signalGenerator) {
-    const signalResult = result === 'WIN' ? 'win' : result === 'LOSS' ? 'loss' : 'tie'
-    ctx.signalGenerator.updateSignalResult(pending.signalId, signalResult)
-    console.log(`[PO] 📈 Signal ${pending.signalId} updated: ${signalResult}`)
+    const signalResult = result === 'WIN' ? 'win' : result === 'LOSS' ? 'loss' : 'tie';
+    ctx.signalGenerator.updateSignalResult(pending.signalId, signalResult);
+    console.log(`[PO] 📈 Signal ${pending.signalId} updated: ${signalResult}`);
   }
 }

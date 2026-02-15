@@ -2,4 +2,4 @@
 // Trading Module
 // ============================================================
 
-export * from './auto-trader'
+export * from './auto-trader';

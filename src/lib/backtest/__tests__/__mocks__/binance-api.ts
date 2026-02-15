@@ -8,31 +8,35 @@ const mockBTCUSDT = [
   {
     time: 1706859600000,
     open: 42450.12,
-    high: 42480.50,
-    low: 42420.00,
+    high: 42480.5,
+    low: 42420.0,
     close: 42470.25,
     volume: 1234.567,
   },
   {
     time: 1706859660000,
     open: 42470.25,
-    high: 42500.00,
-    low: 42460.00,
+    high: 42500.0,
+    low: 42460.0,
     close: 42485.75,
     volume: 1456.789,
   },
   {
     time: 1706859720000,
     open: 42485.75,
-    high: 42495.00,
-    low: 42475.00,
-    close: 42480.50,
+    high: 42495.0,
+    low: 42475.0,
+    close: 42480.5,
     volume: 1200.456,
   },
 ];
 
 // Generate realistic trending data
-function generateTrendingData(length: number, startPrice: number, trend: 'up' | 'down' | 'range' = 'up') {
+function generateTrendingData(
+  length: number,
+  startPrice: number,
+  trend: 'up' | 'down' | 'range' = 'up',
+) {
   const candles = [];
   let currentPrice = startPrice;
   const volatility = startPrice * 0.001; // 0.1% volatility
@@ -68,7 +72,11 @@ export const mockCandles = {
   BNBUSDT: generateTrendingData(500, 610, 'down'),
 };
 
-export async function fetchBinanceData(symbol: string, interval: string = '1m', limit: number = 100) {
+export async function fetchBinanceData(
+  symbol: string,
+  interval: string = '1m',
+  limit: number = 100,
+) {
   // Mock 데이터 반환 (실제 API 호출 없음)
   if (mockCandles[symbol as keyof typeof mockCandles]) {
     return mockCandles[symbol as keyof typeof mockCandles].slice(-limit);
@@ -78,7 +86,11 @@ export async function fetchBinanceData(symbol: string, interval: string = '1m', 
   return generateTrendingData(limit, 1000, 'range');
 }
 
-export async function fetchMultipleSymbols(symbols: string[], interval: string = '1m', limit: number = 100) {
+export async function fetchMultipleSymbols(
+  symbols: string[],
+  interval: string = '1m',
+  limit: number = 100,
+) {
   const result = new Map<string, any[]>();
 
   for (const symbol of symbols) {

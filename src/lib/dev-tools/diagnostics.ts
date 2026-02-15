@@ -4,24 +4,24 @@
 
 export function diagnoseElement(element: HTMLElement) {
   if (!element) {
-    console.error('[Diagnostics] Element not found')
-    return
+    console.error('[Diagnostics] Element not found');
+    return;
   }
 
-  console.group(`[Diagnostics] Inspecting: ${element.className}`)
-  
+  console.group(`[Diagnostics] Inspecting: ${element.className}`);
+
   // 1. Basic Info
-  console.log('Tag:', element.tagName)
-  console.log('Rect:', element.getBoundingClientRect())
-  console.log('Visible:', element.offsetWidth > 0 && element.offsetHeight > 0)
-  console.log('Pointer Events:', window.getComputedStyle(element).pointerEvents)
+  console.log('Tag:', element.tagName);
+  console.log('Rect:', element.getBoundingClientRect());
+  console.log('Visible:', element.offsetWidth > 0 && element.offsetHeight > 0);
+  console.log('Pointer Events:', window.getComputedStyle(element).pointerEvents);
 
   // 2. React Props
-  const reactKeys = Object.keys(element).filter(k => k.startsWith('__react'))
-  console.log('React internal keys:', reactKeys)
-  reactKeys.forEach(key => {
-    console.log(`- ${key}:`, (element as any)[key])
-  })
+  const reactKeys = Object.keys(element).filter((k) => k.startsWith('__react'));
+  console.log('React internal keys:', reactKeys);
+  reactKeys.forEach((key) => {
+    console.log(`- ${key}:`, (element as any)[key]);
+  });
 
   // 3. Monitor Click Events
   const clickHandler = (e: MouseEvent) => {
@@ -29,16 +29,16 @@ export function diagnoseElement(element: HTMLElement) {
       target: e.target,
       currentTarget: e.currentTarget,
       isTrusted: e.isTrusted,
-      bubbles: e.bubbles
-    })
-  }
-  
-  element.addEventListener('click', clickHandler, { capture: true })
-  console.log('[PO] [Diagnostics] Click listener attached for monitoring.')
+      bubbles: e.bubbles,
+    });
+  };
 
-  console.groupEnd()
+  element.addEventListener('click', clickHandler, { capture: true });
+  console.log('[PO] [Diagnostics] Click listener attached for monitoring.');
 
-  return () => element.removeEventListener('click', clickHandler, { capture: true })
+  console.groupEnd();
+
+  return () => element.removeEventListener('click', clickHandler, { capture: true });
 }
 
 /**
@@ -74,4 +74,4 @@ export const DIAGNOSTIC_SNIPPET = `
     document.elementFromPoint(x, y).click();
   }
 })();
-`
+`;

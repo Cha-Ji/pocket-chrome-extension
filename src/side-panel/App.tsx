@@ -1,73 +1,77 @@
-import { useState, useEffect } from 'react'
-import { ControlPanel } from './components/ControlPanel'
-import { LogViewer } from './components/LogViewer'
-import { SignalPanel } from './components/SignalPanel'
-import { AutoTradePanel } from './components/AutoTradePanel'
-import { SettingsPanel } from './components/SettingsPanel'
-import { Dashboard } from './components/Dashboard'
-import { AutoMinerControl } from './components/AutoMinerControl'
-import { HistoryMiner } from './components/HistoryMiner'
-import { DBMonitorDashboard } from './components/DBMonitorDashboard'
-import { useTradingStatus } from './hooks/useTradingStatus'
-import { useLogs } from './hooks/useLogs'
-import { useTrades } from './hooks/useTrades'
-import { usePortConnection } from './hooks/usePortSubscription'
-import { Signal } from '../lib/signals/types'
-import { ErrorBoundary } from './components/ErrorBoundary'
-import { Leaderboard } from './components/Leaderboard'
-import type { LeaderboardEntry, LeaderboardProgress } from '../lib/backtest/leaderboard-types'
-import { runLeaderboard, initializeBacktest } from '../lib/backtest'
-import { CandleRepository, LeaderboardRepository } from '../lib/db'
+import { useState, useEffect } from 'react';
+import { ControlPanel } from './components/ControlPanel';
+import { LogViewer } from './components/LogViewer';
+import { SignalPanel } from './components/SignalPanel';
+import { AutoTradePanel } from './components/AutoTradePanel';
+import { SettingsPanel } from './components/SettingsPanel';
+import { Dashboard } from './components/Dashboard';
+import { AutoMinerControl } from './components/AutoMinerControl';
+import { HistoryMiner } from './components/HistoryMiner';
+import { DBMonitorDashboard } from './components/DBMonitorDashboard';
+import { useTradingStatus } from './hooks/useTradingStatus';
+import { useLogs } from './hooks/useLogs';
+import { useTrades } from './hooks/useTrades';
+import { usePortConnection } from './hooks/usePortSubscription';
+import { Signal } from '../lib/signals/types';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { Leaderboard } from './components/Leaderboard';
+import type { LeaderboardEntry, LeaderboardProgress } from '../lib/backtest/leaderboard-types';
+import { runLeaderboard, initializeBacktest } from '../lib/backtest';
+import { CandleRepository, LeaderboardRepository } from '../lib/db';
 
 export default function App() {
   return (
     <ErrorBoundary>
       <AppContent />
     </ErrorBoundary>
-  )
+  );
 }
 
 function AppContent() {
   // Establish port connection for push-based state sync
-  usePortConnection()
+  usePortConnection();
 
-  const { status, startTrading, stopTrading, isLoading } = useTradingStatus()
-  const { logs, addLog, clearLogs } = useLogs()
-  const { trades } = useTrades()
-  const [activeTab, setActiveTab] = useState<'signals' | 'auto' | 'mining' | 'status' | 'logs' | 'leaderboard' | 'settings'>('signals')
-  const [lbEntries, setLbEntries] = useState<LeaderboardEntry[]>([])
-  const [lbRunning, setLbRunning] = useState(false)
-  const [lbProgress, setLbProgress] = useState<LeaderboardProgress | undefined>()
+  const { status, startTrading, stopTrading, isLoading } = useTradingStatus();
+  const { logs, addLog, clearLogs } = useLogs();
+  const { trades } = useTrades();
+  const [activeTab, setActiveTab] = useState<
+    'signals' | 'auto' | 'mining' | 'status' | 'logs' | 'leaderboard' | 'settings'
+  >('signals');
+  const [lbEntries, setLbEntries] = useState<LeaderboardEntry[]>([]);
+  const [lbRunning, setLbRunning] = useState(false);
+  const [lbProgress, setLbProgress] = useState<LeaderboardProgress | undefined>();
 
   useEffect(() => {
-    addLog('info', 'Side panel initialized')
+    addLog('info', 'Side panel initialized');
     // 저장된 리더보드 데이터 로드
-    LeaderboardRepository.getAll().then(entries => {
-      if (entries.length > 0) setLbEntries(entries)
-    }).catch(() => {})
-  }, [])
+    LeaderboardRepository.getAll()
+      .then((entries) => {
+        if (entries.length > 0) setLbEntries(entries);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleRunLeaderboard = async () => {
     try {
-      setLbRunning(true)
-      addLog('info', 'Starting leaderboard backtest...')
+      setLbRunning(true);
+      addLog('info', 'Starting leaderboard backtest...');
 
-      initializeBacktest()
+      initializeBacktest();
 
       // DB에서 캔들 데이터 조회
-      const tickers = await CandleRepository.getTickers()
+      const tickers = await CandleRepository.getTickers();
       if (tickers.length === 0) {
-        addLog('error', 'No candle data. Mine history data first.')
-        setLbRunning(false)
-        return
+        addLog('error', 'No candle data. Mine history data first.');
+        setLbRunning(false);
+        return;
       }
 
-      const ticker = tickers[0]
-      const candles = await CandleRepository.getByTicker(ticker, 5, 10000)
+      const ticker = tickers[0];
+      const candles = await CandleRepository.getByTicker(ticker, 5, 10000);
       if (candles.length < 100) {
-        addLog('error', `Not enough candles (${candles.length}). Need at least 100.`)
-        setLbRunning(false)
-        return
+        addLog('error', `Not enough candles (${candles.length}). Need at least 100.`);
+        setLbRunning(false);
+        return;
       }
 
       const config = {
@@ -81,63 +85,73 @@ function AppContent() {
         expirySeconds: 300,
         volumeMultiplier: 100,
         minTrades: 10,
-      }
+      };
 
       const result = runLeaderboard(
-        candles.map(c => ({ timestamp: c.timestamp, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume })),
+        candles.map((c) => ({
+          timestamp: c.timestamp,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+          volume: c.volume,
+        })),
         config,
-        (progress) => setLbProgress(progress)
-      )
+        (progress) => setLbProgress(progress),
+      );
 
-      setLbEntries(result.entries)
-      await LeaderboardRepository.saveResults(result.entries)
-      addLog('success', `Leaderboard complete: ${result.entries.length} strategies ranked (${result.executionTimeMs}ms)`)
+      setLbEntries(result.entries);
+      await LeaderboardRepository.saveResults(result.entries);
+      addLog(
+        'success',
+        `Leaderboard complete: ${result.entries.length} strategies ranked (${result.executionTimeMs}ms)`,
+      );
     } catch (err: unknown) {
-      addLog('error', `Leaderboard error: ${err instanceof Error ? err.message : String(err)}`)
+      addLog('error', `Leaderboard error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setLbRunning(false)
-      setLbProgress(undefined)
+      setLbRunning(false);
+      setLbProgress(undefined);
     }
-  }
+  };
 
   const handleSignal = (signal: Signal) => {
     // entryPrice can be undefined in some cases
-    const price = signal.entryPrice ?? 0
-    addLog('success', `🎯 ${signal.direction} signal: ${signal.strategy} @ $${price.toFixed(2)}`)
-  }
+    const price = signal.entryPrice ?? 0;
+    addLog('success', `🎯 ${signal.direction} signal: ${signal.strategy} @ $${price.toFixed(2)}`);
+  };
 
   const handleStart = async () => {
-    addLog('info', 'Starting auto-trading...')
-    const result = await startTrading()
+    addLog('info', 'Starting auto-trading...');
+    const result = await startTrading();
     if (result.success) {
-      addLog('success', 'Auto-trading started')
+      addLog('success', 'Auto-trading started');
     } else {
-      addLog('error', `Failed to start: ${result.error}`)
+      addLog('error', `Failed to start: ${result.error}`);
     }
-  }
+  };
 
   const handleStop = async () => {
-    addLog('info', 'Stopping auto-trading...')
-    const result = await stopTrading()
+    addLog('info', 'Stopping auto-trading...');
+    const result = await stopTrading();
     if (result.success) {
-      addLog('success', 'Auto-trading stopped')
+      addLog('success', 'Auto-trading stopped');
     } else {
-      addLog('error', `Failed to stop: ${result.error}`)
+      addLog('error', `Failed to stop: ${result.error}`);
     }
-  }
+  };
 
   return (
     <div className="min-h-screen bg-pocket-darker p-4 flex flex-col gap-4">
       {/* Header */}
       <header className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-white">
-          🎯 Pocket Quant
-        </h1>
-        <span className={`px-2 py-1 rounded text-xs font-medium ${
-          status.isRunning 
-            ? 'bg-pocket-green/20 text-pocket-green' 
-            : 'bg-gray-600/20 text-gray-400'
-        }`}>
+        <h1 className="text-xl font-bold text-white">🎯 Pocket Quant</h1>
+        <span
+          className={`px-2 py-1 rounded text-xs font-medium ${
+            status.isRunning
+              ? 'bg-pocket-green/20 text-pocket-green'
+              : 'bg-gray-600/20 text-gray-400'
+          }`}
+        >
           {status.isRunning ? 'RUNNING' : 'STOPPED'}
         </span>
       </header>
@@ -157,9 +171,7 @@ function AppContent() {
         <button
           onClick={() => setActiveTab('auto')}
           className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
-            activeTab === 'auto'
-              ? 'bg-pocket-green text-white'
-              : 'text-gray-400 hover:text-white'
+            activeTab === 'auto' ? 'bg-pocket-green text-white' : 'text-gray-400 hover:text-white'
           }`}
         >
           🤖 Auto
@@ -167,9 +179,7 @@ function AppContent() {
         <button
           onClick={() => setActiveTab('mining')}
           className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
-            activeTab === 'mining'
-              ? 'bg-pocket-green text-white'
-              : 'text-gray-400 hover:text-white'
+            activeTab === 'mining' ? 'bg-pocket-green text-white' : 'text-gray-400 hover:text-white'
           }`}
         >
           ⛏️ Mine
@@ -177,9 +187,7 @@ function AppContent() {
         <button
           onClick={() => setActiveTab('status')}
           className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
-            activeTab === 'status'
-              ? 'bg-pocket-green text-white'
-              : 'text-gray-400 hover:text-white'
+            activeTab === 'status' ? 'bg-pocket-green text-white' : 'text-gray-400 hover:text-white'
           }`}
         >
           📊 Status
@@ -187,9 +195,7 @@ function AppContent() {
         <button
           onClick={() => setActiveTab('logs')}
           className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
-            activeTab === 'logs'
-              ? 'bg-pocket-green text-white'
-              : 'text-gray-400 hover:text-white'
+            activeTab === 'logs' ? 'bg-pocket-green text-white' : 'text-gray-400 hover:text-white'
           }`}
         >
           📜 Logs
@@ -217,13 +223,9 @@ function AppContent() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'signals' && (
-        <SignalPanel onSignal={handleSignal} />
-      )}
+      {activeTab === 'signals' && <SignalPanel onSignal={handleSignal} />}
 
-      {activeTab === 'auto' && (
-        <AutoTradePanel />
-      )}
+      {activeTab === 'auto' && <AutoTradePanel />}
 
       {activeTab === 'mining' && (
         <div className="flex flex-col gap-4">
@@ -249,22 +251,26 @@ function AppContent() {
         </>
       )}
 
-      {activeTab === 'logs' && (
-        <LogViewer logs={logs} onClear={clearLogs} />
-      )}
+      {activeTab === 'logs' && <LogViewer logs={logs} onClear={clearLogs} />}
 
       {activeTab === 'leaderboard' && (
         <Leaderboard
           entries={lbEntries}
           isRunning={lbRunning}
-          progress={lbProgress ? { completed: lbProgress.completed, total: lbProgress.total, currentStrategy: lbProgress.currentStrategy } : undefined}
+          progress={
+            lbProgress
+              ? {
+                  completed: lbProgress.completed,
+                  total: lbProgress.total,
+                  currentStrategy: lbProgress.currentStrategy,
+                }
+              : undefined
+          }
           onRun={handleRunLeaderboard}
         />
       )}
 
-      {activeTab === 'settings' && (
-        <SettingsPanel />
-      )}
+      {activeTab === 'settings' && <SettingsPanel />}
     </div>
-  )
+  );
 }

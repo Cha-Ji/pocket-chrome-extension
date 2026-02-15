@@ -14,6 +14,6 @@ export type {
   ISafetyGuard,
   IPlatformAdapter,
   IPlatformDetector,
-} from './interfaces'
+} from './interfaces';
 
-export { PlatformRegistry, getPlatformRegistry } from './registry'
+export { PlatformRegistry, getPlatformRegistry } from './registry';

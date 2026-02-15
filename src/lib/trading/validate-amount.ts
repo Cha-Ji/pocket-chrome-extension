@@ -5,16 +5,16 @@
 // NaN, 음수, 상한 초과, 비유한(Infinity) 등을 차단.
 // ============================================================
 
-import { POError, ErrorCode, ErrorSeverity } from '../errors'
+import { POError, ErrorCode, ErrorSeverity } from '../errors';
 
 /** 금액 검증 설정 */
 export interface AmountValidationConfig {
   /** 최소 거래 금액 (기본값: 1) */
-  minAmount: number
+  minAmount: number;
   /** 최대 거래 금액 (기본값: 10000) */
-  maxAmount: number
+  maxAmount: number;
   /** 소수점 이하 허용 자릿수 (기본값: 2) */
-  maxDecimalPlaces: number
+  maxDecimalPlaces: number;
 }
 
 /** 기본 금액 검증 설정 */
@@ -22,17 +22,17 @@ export const DEFAULT_AMOUNT_VALIDATION: AmountValidationConfig = {
   minAmount: 1,
   maxAmount: 10000,
   maxDecimalPlaces: 2,
-}
+};
 
 /** 금액 검증 결과 */
 export interface AmountValidationResult {
-  valid: boolean
+  valid: boolean;
   /** 검증 통과 시 정규화된 금액 (소수점 반올림 적용) */
-  normalizedAmount?: number
+  normalizedAmount?: number;
   /** 검증 실패 시 사유 */
-  reason?: string
+  reason?: string;
   /** 에러 코드 */
-  errorCode?: ErrorCode
+  errorCode?: ErrorCode;
 }
 
 /**
@@ -56,7 +56,7 @@ export function validateTradeAmount(
   amount: unknown,
   config: Partial<AmountValidationConfig> = {},
 ): AmountValidationResult {
-  const cfg: AmountValidationConfig = { ...DEFAULT_AMOUNT_VALIDATION, ...config }
+  const cfg: AmountValidationConfig = { ...DEFAULT_AMOUNT_VALIDATION, ...config };
 
   // 1. undefined/null 체크
   if (amount === undefined || amount === null) {
@@ -64,7 +64,7 @@ export function validateTradeAmount(
       valid: false,
       reason: '거래 금액이 지정되지 않았습니다 (undefined/null)',
       errorCode: ErrorCode.VALIDATION_REQUIRED,
-    }
+    };
   }
 
   // 2. 숫자 타입 체크
@@ -73,7 +73,7 @@ export function validateTradeAmount(
       valid: false,
       reason: `거래 금액이 숫자가 아닙니다 (타입: ${typeof amount}, 값: ${String(amount)})`,
       errorCode: ErrorCode.VALIDATION_TYPE,
-    }
+    };
   }
 
   // 3. NaN 체크
@@ -82,7 +82,7 @@ export function validateTradeAmount(
       valid: false,
       reason: '거래 금액이 NaN입니다',
       errorCode: ErrorCode.VALIDATION_TYPE,
-    }
+    };
   }
 
   // 4. Infinity 체크
@@ -91,7 +91,7 @@ export function validateTradeAmount(
       valid: false,
       reason: `거래 금액이 유한하지 않습니다 (값: ${amount})`,
       errorCode: ErrorCode.VALIDATION_TYPE,
-    }
+    };
   }
 
   // 5. 0 이하 체크
@@ -100,7 +100,7 @@ export function validateTradeAmount(
       valid: false,
       reason: `거래 금액은 0보다 커야 합니다 (값: ${amount})`,
       errorCode: ErrorCode.VALIDATION_RANGE,
-    }
+    };
   }
 
   // 6. 최소 금액 미달 체크
@@ -109,7 +109,7 @@ export function validateTradeAmount(
       valid: false,
       reason: `거래 금액이 최소 금액(${cfg.minAmount}) 미만입니다 (값: ${amount})`,
       errorCode: ErrorCode.VALIDATION_RANGE,
-    }
+    };
   }
 
   // 7. 최대 금액 초과 체크
@@ -118,17 +118,17 @@ export function validateTradeAmount(
       valid: false,
       reason: `거래 금액이 최대 금액(${cfg.maxAmount})을 초과합니다 (값: ${amount})`,
       errorCode: ErrorCode.VALIDATION_RANGE,
-    }
+    };
   }
 
   // 8. 소수점 자릿수 정규화 (반올림)
-  const factor = Math.pow(10, cfg.maxDecimalPlaces)
-  const normalizedAmount = Math.round(amount * factor) / factor
+  const factor = Math.pow(10, cfg.maxDecimalPlaces);
+  const normalizedAmount = Math.round(amount * factor) / factor;
 
   return {
     valid: true,
     normalizedAmount,
-  }
+  };
 }
 
 /**
@@ -146,7 +146,7 @@ export function assertValidTradeAmount(
   context: { module: string; function: string },
   config: Partial<AmountValidationConfig> = {},
 ): number {
-  const result = validateTradeAmount(amount, config)
+  const result = validateTradeAmount(amount, config);
 
   if (!result.valid) {
     throw new POError({
@@ -158,8 +158,8 @@ export function assertValidTradeAmount(
         extra: { amount, validationConfig: config },
       },
       severity: ErrorSeverity.CRITICAL,
-    })
+    });
   }
 
-  return result.normalizedAmount!
+  return result.normalizedAmount!;
 }

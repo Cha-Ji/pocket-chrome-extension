@@ -5,26 +5,26 @@
 
 console.log('[PO] >>> SCRIPT LOADED <<<');
 
-import { createContext } from './app/context'
-import { initialize, setupTelegramStorageListener } from './app/bootstrap'
-import { registerMessageListener } from './app/message-handler'
-import { getSystemStatus as _getSystemStatus } from './app/message-handler'
+import { createContext } from './app/context';
+import { initialize, setupTelegramStorageListener } from './app/bootstrap';
+import { registerMessageListener } from './app/message-handler';
+import { getSystemStatus as _getSystemStatus } from './app/message-handler';
 
-const ctx = createContext()
+const ctx = createContext();
 
-registerMessageListener(ctx)
-setupTelegramStorageListener(ctx)
+registerMessageListener(ctx);
+setupTelegramStorageListener(ctx);
 
 function start(): void {
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => initialize(ctx))
+    document.addEventListener('DOMContentLoaded', () => initialize(ctx));
   } else {
-    initialize(ctx)
+    initialize(ctx);
   }
 }
 
-start()
+start();
 
 // Re-export with bound context for backward compat (no external consumers currently)
-const getSystemStatus = () => _getSystemStatus(ctx)
-export { getSystemStatus }
+const getSystemStatus = () => _getSystemStatus(ctx);
+export { getSystemStatus };

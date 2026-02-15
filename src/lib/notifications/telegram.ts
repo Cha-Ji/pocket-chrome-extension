@@ -1,11 +1,10 @@
-
 // ============================================================
 // Telegram Notification Service
 // ============================================================
 
-import type { TelegramConfig } from '../types'
+import type { TelegramConfig } from '../types';
 
-export type { TelegramConfig }
+export type { TelegramConfig };
 
 export const DEFAULT_TELEGRAM_CONFIG: TelegramConfig = {
   botToken: '',
@@ -14,50 +13,50 @@ export const DEFAULT_TELEGRAM_CONFIG: TelegramConfig = {
   notifySignals: true,
   notifyTrades: true,
   notifyErrors: true,
-}
+};
 
 /** Shape expected by notifySignal (accepts both Signal and legacy shapes) */
 export interface SignalNotification {
-  direction: string
-  ticker?: string
-  symbol?: string
-  strategy: string
-  price?: number
-  entryPrice?: number
-  timestamp: number
+  direction: string;
+  ticker?: string;
+  symbol?: string;
+  strategy: string;
+  price?: number;
+  entryPrice?: number;
+  timestamp: number;
 }
 
 /** Shape expected by notifyTrade */
 export interface TradeNotification {
-  result: string
-  ticker: string
-  profit: number
-  entryPrice: number
-  exitPrice: number
+  result: string;
+  ticker: string;
+  profit: number;
+  entryPrice: number;
+  exitPrice: number;
 }
 
 export class TelegramService {
-  private config: TelegramConfig
+  private config: TelegramConfig;
 
   constructor(config: TelegramConfig = DEFAULT_TELEGRAM_CONFIG) {
-    this.config = config
+    this.config = config;
   }
 
   updateConfig(newConfig: Partial<TelegramConfig>): void {
-    this.config = { ...this.config, ...newConfig }
+    this.config = { ...this.config, ...newConfig };
   }
 
   getConfig(): TelegramConfig {
-    return this.config
+    return this.config;
   }
 
   async sendMessage(text: string): Promise<boolean> {
     if (!this.config.enabled || !this.config.botToken || !this.config.chatId) {
-      return false
+      return false;
     }
 
     try {
-      const url = `https://api.telegram.org/bot${this.config.botToken}/sendMessage`
+      const url = `https://api.telegram.org/bot${this.config.botToken}/sendMessage`;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -66,17 +65,17 @@ export class TelegramService {
           text: text,
           parse_mode: 'HTML',
         }),
-      })
+      });
 
-      const data = await response.json()
+      const data = await response.json();
       if (!data.ok) {
-        console.error('[Telegram] API Error:', data.description)
-        return false
+        console.error('[Telegram] API Error:', data.description);
+        return false;
       }
-      return true
+      return true;
     } catch (error) {
-      console.error('[Telegram] Network Error:', error)
-      return false
+      console.error('[Telegram] Network Error:', error);
+      return false;
     }
   }
 
@@ -85,52 +84,52 @@ export class TelegramService {
   // ============================================================
 
   async notifySignal(signal: SignalNotification): Promise<void> {
-    if (!this.config.notifySignals) return
+    if (!this.config.notifySignals) return;
 
-    const emoji = signal.direction === 'CALL' ? '🟢 <b>CALL (Buy)</b>' : '🔴 <b>PUT (Sell)</b>'
-    const ticker = signal.ticker || signal.symbol || 'UNKNOWN'
-    const price = signal.price ?? signal.entryPrice ?? 0
+    const emoji = signal.direction === 'CALL' ? '🟢 <b>CALL (Buy)</b>' : '🔴 <b>PUT (Sell)</b>';
+    const ticker = signal.ticker || signal.symbol || 'UNKNOWN';
+    const price = signal.price ?? signal.entryPrice ?? 0;
     const message = `
 ${emoji}
 <b>Asset:</b> ${ticker}
 <b>Strategy:</b> ${signal.strategy}
 <b>Price:</b> ${price}
 <b>Time:</b> ${new Date(signal.timestamp).toLocaleTimeString()}
-    `.trim()
+    `.trim();
 
-    await this.sendMessage(message)
+    await this.sendMessage(message);
   }
 
   async notifyTrade(trade: TradeNotification): Promise<void> {
-    if (!this.config.notifyTrades) return
+    if (!this.config.notifyTrades) return;
 
-    const resultEmoji = trade.result === 'WIN' ? '💰 <b>WIN</b>' : '💸 <b>LOSS</b>'
+    const resultEmoji = trade.result === 'WIN' ? '💰 <b>WIN</b>' : '💸 <b>LOSS</b>';
     const message = `
 ${resultEmoji}
 <b>Asset:</b> ${trade.ticker}
 <b>Profit:</b> $${trade.profit}
 <b>Entry:</b> ${trade.entryPrice}
 <b>Exit:</b> ${trade.exitPrice}
-    `.trim()
+    `.trim();
 
-    await this.sendMessage(message)
+    await this.sendMessage(message);
   }
 
   async notifyError(error: string): Promise<void> {
-    if (!this.config.notifyErrors) return
-    await this.sendMessage(`⚠️ <b>System Error</b>\n${error}`)
+    if (!this.config.notifyErrors) return;
+    await this.sendMessage(`⚠️ <b>System Error</b>\n${error}`);
   }
 
   /**
    * Send a system status update (useful for session starts)
    */
   async notifyStatus(status: string): Promise<void> {
-    await this.sendMessage(`ℹ️ <b>System Status</b>\n${status}`)
+    await this.sendMessage(`ℹ️ <b>System Status</b>\n${status}`);
   }
 }
 
 // Singleton for global use
-let telegramInstance: TelegramService | null = null
+let telegramInstance: TelegramService | null = null;
 
 export async function getTelegramService(): Promise<TelegramService> {
   if (!telegramInstance) {
@@ -138,22 +137,22 @@ export async function getTelegramService(): Promise<TelegramService> {
     const [localResult, sessionResult] = await Promise.all([
       chrome.storage.local.get('appConfig'),
       chrome.storage.session.get('telegramSecure'),
-    ])
+    ]);
 
-    const appConfig = localResult.appConfig || {}
-    const telegramLocal = appConfig.telegram || {}
-    const secureData = sessionResult.telegramSecure || {}
+    const appConfig = localResult.appConfig || {};
+    const telegramLocal = appConfig.telegram || {};
+    const secureData = sessionResult.telegramSecure || {};
 
     const config: TelegramConfig = {
       ...DEFAULT_TELEGRAM_CONFIG,
       ...telegramLocal,
       // session storage에서 botToken 복원
       botToken: secureData.botToken || '',
-    }
+    };
 
-    telegramInstance = new TelegramService(config)
+    telegramInstance = new TelegramService(config);
   }
-  return telegramInstance
+  return telegramInstance;
 }
 
 /**
@@ -161,5 +160,5 @@ export async function getTelegramService(): Promise<TelegramService> {
  * storage에서 최신 설정을 다시 로드하게 한다.
  */
 export function resetTelegramService(): void {
-  telegramInstance = null
+  telegramInstance = null;
 }

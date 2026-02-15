@@ -2,11 +2,11 @@
 // Platform Registry - 어댑터 자동 감지 및 관리
 // ============================================================
 
-import type { IPlatformAdapter, IPlatformDetector } from './interfaces'
+import type { IPlatformAdapter, IPlatformDetector } from './interfaces';
 
 class PlatformRegistry {
-  private detectors: IPlatformDetector[] = []
-  private activeAdapter: IPlatformAdapter | null = null
+  private detectors: IPlatformDetector[] = [];
+  private activeAdapter: IPlatformAdapter | null = null;
 
   /**
    * 플랫폼 감지기 등록
@@ -15,75 +15,67 @@ class PlatformRegistry {
   register(detector: IPlatformDetector): void {
     // 중복 등록 방지
     if (this.detectors.some((d) => d.platformId === detector.platformId)) {
-      console.warn(
-        `[PlatformRegistry] Detector already registered: ${detector.platformId}`,
-      )
-      return
+      console.warn(`[PlatformRegistry] Detector already registered: ${detector.platformId}`);
+      return;
     }
-    this.detectors.push(detector)
+    this.detectors.push(detector);
   }
 
   /**
    * 등록된 감지기 제거
    */
   unregister(platformId: string): void {
-    this.detectors = this.detectors.filter((d) => d.platformId !== platformId)
+    this.detectors = this.detectors.filter((d) => d.platformId !== platformId);
   }
 
   /**
    * 현재 페이지에서 플랫폼 자동 감지 → 가장 확신도 높은 어댑터 반환
    */
   detect(url: string, doc: Document): IPlatformAdapter | null {
-    let bestDetector: IPlatformDetector | null = null
-    let bestScore = 0
+    let bestDetector: IPlatformDetector | null = null;
+    let bestScore = 0;
 
     for (const detector of this.detectors) {
-      const score = detector.detect(url, doc)
+      const score = detector.detect(url, doc);
       if (score > bestScore) {
-        bestScore = score
-        bestDetector = detector
+        bestScore = score;
+        bestDetector = detector;
       }
     }
 
     if (bestDetector && bestScore > 0) {
-      return bestDetector.createAdapter()
+      return bestDetector.createAdapter();
     }
 
-    return null
+    return null;
   }
 
   /**
    * 감지 + 초기화까지 한 번에 수행
    */
-  async detectAndInitialize(
-    url: string,
-    doc: Document,
-  ): Promise<IPlatformAdapter | null> {
+  async detectAndInitialize(url: string, doc: Document): Promise<IPlatformAdapter | null> {
     // 기존 어댑터가 있으면 정리
     if (this.activeAdapter) {
-      this.activeAdapter.dispose()
-      this.activeAdapter = null
+      this.activeAdapter.dispose();
+      this.activeAdapter = null;
     }
 
-    const adapter = this.detect(url, doc)
+    const adapter = this.detect(url, doc);
     if (!adapter) {
-      console.warn('[PlatformRegistry] No platform detected for:', url)
-      return null
+      console.warn('[PlatformRegistry] No platform detected for:', url);
+      return null;
     }
 
     try {
-      await adapter.initialize()
-      this.activeAdapter = adapter
+      await adapter.initialize();
+      this.activeAdapter = adapter;
       console.log(
         `[PlatformRegistry] Initialized: ${adapter.platformName} (${adapter.platformId})`,
-      )
-      return adapter
+      );
+      return adapter;
     } catch (error) {
-      console.error(
-        `[PlatformRegistry] Failed to initialize ${adapter.platformId}:`,
-        error,
-      )
-      return null
+      console.error(`[PlatformRegistry] Failed to initialize ${adapter.platformId}:`, error);
+      return null;
     }
   }
 
@@ -91,14 +83,14 @@ class PlatformRegistry {
    * 현재 활성 어댑터 반환
    */
   getActiveAdapter(): IPlatformAdapter | null {
-    return this.activeAdapter
+    return this.activeAdapter;
   }
 
   /**
    * 등록된 모든 플랫폼 ID 목록
    */
   getRegisteredPlatforms(): string[] {
-    return this.detectors.map((d) => d.platformId)
+    return this.detectors.map((d) => d.platformId);
   }
 
   /**
@@ -106,20 +98,20 @@ class PlatformRegistry {
    */
   dispose(): void {
     if (this.activeAdapter) {
-      this.activeAdapter.dispose()
-      this.activeAdapter = null
+      this.activeAdapter.dispose();
+      this.activeAdapter = null;
     }
   }
 }
 
 // 싱글톤
-let registryInstance: PlatformRegistry | null = null
+let registryInstance: PlatformRegistry | null = null;
 
 export function getPlatformRegistry(): PlatformRegistry {
   if (!registryInstance) {
-    registryInstance = new PlatformRegistry()
+    registryInstance = new PlatformRegistry();
   }
-  return registryInstance
+  return registryInstance;
 }
 
-export { PlatformRegistry }
+export { PlatformRegistry };

@@ -63,11 +63,7 @@ export const Result = {
   /**
    * POError로 실패 Result 생성 (편의 함수)
    */
-  fail: (
-    code: ErrorCode,
-    message: string,
-    context?: Partial<ErrorContext>
-  ): Failure<POError> =>
+  fail: (code: ErrorCode, message: string, context?: Partial<ErrorContext>): Failure<POError> =>
     Result.err(new POError({ code, message, context })),
 
   /**
@@ -93,10 +89,7 @@ export const Result = {
   /**
    * 성공 값에 Result 반환 함수 적용 (flatMap/chain)
    */
-  flatMap: <T, U, E>(
-    result: Result<T, E>,
-    fn: (data: T) => Result<U, E>
-  ): Result<U, E> => {
+  flatMap: <T, U, E>(result: Result<T, E>, fn: (data: T) => Result<U, E>): Result<U, E> => {
     if (result.success) {
       return fn(result.data);
     }
@@ -176,9 +169,10 @@ export const Result = {
   /**
    * 여러 Result를 하나로 결합 (모두 성공해야 성공)
    */
-  all: <T extends readonly unknown[], E>(
-    results: { [K in keyof T]: Result<T[K], E> }
-  ): Result<T, E> => {
+  all: <T extends readonly unknown[], E>(results: { [K in keyof T]: Result<T[K], E> }): Result<
+    T,
+    E
+  > => {
     const data: unknown[] = [];
     for (const result of results) {
       if (!result.success) {
@@ -195,7 +189,7 @@ export const Result = {
    */
   fromPromise: async <T>(
     promise: Promise<T>,
-    context?: Partial<ErrorContext>
+    context?: Partial<ErrorContext>,
   ): Promise<Result<T>> => {
     try {
       const data = await promise;
@@ -208,10 +202,7 @@ export const Result = {
   /**
    * nullable 값을 Result로 변환
    */
-  fromNullable: <T>(
-    value: T | null | undefined,
-    error: POError
-  ): Result<T> => {
+  fromNullable: <T>(value: T | null | undefined, error: POError): Result<T> => {
     if (value === null || value === undefined) {
       return Result.err(error);
     }
@@ -223,7 +214,7 @@ export const Result = {
    */
   fromLegacy: <T>(
     legacy: { success: boolean; data?: T; error?: string },
-    context?: Partial<ErrorContext>
+    context?: Partial<ErrorContext>,
   ): Result<T> => {
     if (legacy.success && legacy.data !== undefined) {
       return Result.ok(legacy.data);
@@ -233,7 +224,7 @@ export const Result = {
         code: ErrorCode.UNKNOWN,
         message: legacy.error ?? 'Unknown error',
         context,
-      })
+      }),
     );
   },
 
@@ -253,11 +244,7 @@ export const Result = {
   /**
    * 조건이 참이면 성공, 거짓이면 실패
    */
-  fromPredicate: <T>(
-    value: T,
-    predicate: (value: T) => boolean,
-    error: POError
-  ): Result<T> => {
+  fromPredicate: <T>(value: T, predicate: (value: T) => boolean, error: POError): Result<T> => {
     if (predicate(value)) {
       return Result.ok(value);
     }

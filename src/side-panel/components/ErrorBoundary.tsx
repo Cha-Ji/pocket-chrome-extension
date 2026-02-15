@@ -1,22 +1,17 @@
-import { Component, ErrorInfo, ReactNode } from 'react'
-import {
-  POError,
-  errorHandler,
-  ErrorLogEntry,
-  ErrorStats,
-} from '../../lib/errors'
+import { Component, ErrorInfo, ReactNode } from 'react';
+import { POError, errorHandler, ErrorLogEntry, ErrorStats } from '../../lib/errors';
 
 interface Props {
-  children: ReactNode
+  children: ReactNode;
 }
 
 interface State {
-  hasError: boolean
-  error: Error | null
-  errorInfo: ErrorInfo | null
-  errorHistory: ErrorLogEntry[]
-  errorStats: ErrorStats | null
-  showHistory: boolean
+  hasError: boolean;
+  error: Error | null;
+  errorInfo: ErrorInfo | null;
+  errorHistory: ErrorLogEntry[];
+  errorStats: ErrorStats | null;
+  showHistory: boolean;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -27,10 +22,10 @@ export class ErrorBoundary extends Component<Props, State> {
     errorHistory: [],
     errorStats: null,
     showHistory: false,
-  }
+  };
 
   public static getDerivedStateFromError(error: Error): Partial<State> {
-    return { hasError: true, error, errorInfo: null }
+    return { hasError: true, error, errorInfo: null };
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -39,15 +34,15 @@ export class ErrorBoundary extends Component<Props, State> {
       module: 'side-panel',
       function: 'ErrorBoundary.componentDidCatch',
       extra: { componentStack: errorInfo.componentStack },
-    })
-    errorHandler.logError(poError)
+    });
+    errorHandler.logError(poError);
 
     this.setState({
       error,
       errorInfo,
       errorHistory: errorHandler.getHistory(10),
       errorStats: errorHandler.getStats(),
-    })
+    });
   }
 
   private toggleHistory = () => {
@@ -55,32 +50,28 @@ export class ErrorBoundary extends Component<Props, State> {
       showHistory: !prev.showHistory,
       errorHistory: errorHandler.getHistory(20),
       errorStats: errorHandler.getStats(),
-    }))
-  }
+    }));
+  };
 
   private copyErrorToClipboard = () => {
-    const { error, errorInfo } = this.state
-    const isPOError = error instanceof POError
+    const { error, errorInfo } = this.state;
+    const isPOError = error instanceof POError;
 
     const errorText = isPOError
       ? (error as POError).toReadableString()
-      : `${error?.toString()}\n\nComponent Stack:\n${errorInfo?.componentStack}`
+      : `${error?.toString()}\n\nComponent Stack:\n${errorInfo?.componentStack}`;
 
     navigator.clipboard.writeText(errorText).then(() => {
-      alert('Error copied to clipboard')
-    })
-  }
+      alert('Error copied to clipboard');
+    });
+  };
 
   private renderPOError(error: POError) {
     return (
       <>
         <div className="mb-2">
-          <span className="bg-red-700 px-2 py-1 rounded text-sm font-mono">
-            {error.code}
-          </span>
-          <span className="ml-2 bg-yellow-700 px-2 py-1 rounded text-sm">
-            {error.severity}
-          </span>
+          <span className="bg-red-700 px-2 py-1 rounded text-sm font-mono">{error.code}</span>
+          <span className="ml-2 bg-yellow-700 px-2 py-1 rounded text-sm">{error.severity}</span>
         </div>
 
         <pre className="bg-black p-3 rounded text-xs font-mono whitespace-pre-wrap mb-4">
@@ -99,24 +90,18 @@ export class ErrorBoundary extends Component<Props, State> {
           {error.context.path.length > 0 && (
             <div className="col-span-2">
               <span className="text-gray-400">Path:</span>{' '}
-              <span className="font-mono text-yellow-300">
-                {error.context.path.join(' → ')}
-              </span>
+              <span className="font-mono text-yellow-300">{error.context.path.join(' → ')}</span>
             </div>
           )}
           <div className="col-span-2">
             <span className="text-gray-400">Time:</span>{' '}
-            <span className="font-mono">
-              {new Date(error.context.timestamp).toISOString()}
-            </span>
+            <span className="font-mono">{new Date(error.context.timestamp).toISOString()}</span>
           </div>
         </div>
 
         {error.context.extra && (
           <details className="mb-4">
-            <summary className="cursor-pointer font-bold text-sm">
-              Extra Context
-            </summary>
+            <summary className="cursor-pointer font-bold text-sm">Extra Context</summary>
             <pre className="bg-black p-2 rounded text-xs font-mono mt-2 whitespace-pre-wrap">
               {JSON.stringify(error.context.extra, null, 2)}
             </pre>
@@ -125,9 +110,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
         {error.cause && (
           <details className="mb-4">
-            <summary className="cursor-pointer font-bold text-sm">
-              Caused By
-            </summary>
+            <summary className="cursor-pointer font-bold text-sm">Caused By</summary>
             <pre className="bg-black p-2 rounded text-xs font-mono mt-2 whitespace-pre-wrap">
               {error.cause.message}
               {'\n\n'}
@@ -136,7 +119,7 @@ export class ErrorBoundary extends Component<Props, State> {
           </details>
         )}
       </>
-    )
+    );
   }
 
   private renderGenericError(error: Error | null, errorInfo: ErrorInfo | null) {
@@ -148,9 +131,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
         {errorInfo?.componentStack && (
           <details className="mb-4">
-            <summary className="cursor-pointer font-bold text-sm">
-              Component Stack
-            </summary>
+            <summary className="cursor-pointer font-bold text-sm">Component Stack</summary>
             <pre className="bg-black p-2 rounded text-xs font-mono mt-2 whitespace-pre-wrap">
               {errorInfo.componentStack}
             </pre>
@@ -159,21 +140,19 @@ export class ErrorBoundary extends Component<Props, State> {
 
         {error?.stack && (
           <details className="mb-4">
-            <summary className="cursor-pointer font-bold text-sm">
-              Stack Trace
-            </summary>
+            <summary className="cursor-pointer font-bold text-sm">Stack Trace</summary>
             <pre className="bg-black p-2 rounded text-xs font-mono mt-2 whitespace-pre-wrap">
               {error.stack}
             </pre>
           </details>
         )}
       </>
-    )
+    );
   }
 
   private renderErrorStats() {
-    const { errorStats } = this.state
-    if (!errorStats) return null
+    const { errorStats } = this.state;
+    if (!errorStats) return null;
 
     return (
       <div className="bg-gray-800 p-3 rounded mb-4">
@@ -182,9 +161,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <div>Total Errors: {errorStats.total}</div>
           <div>
             Last Error:{' '}
-            {errorStats.lastErrorAt
-              ? new Date(errorStats.lastErrorAt).toLocaleTimeString()
-              : 'N/A'}
+            {errorStats.lastErrorAt ? new Date(errorStats.lastErrorAt).toLocaleTimeString() : 'N/A'}
           </div>
         </div>
         {Object.entries(errorStats.bySeverity).some(([, v]) => v > 0) && (
@@ -196,37 +173,32 @@ export class ErrorBoundary extends Component<Props, State> {
                   <span key={severity} className="bg-gray-700 px-2 py-1 rounded">
                     {severity}: {count}
                   </span>
-                ) : null
+                ) : null,
               )}
             </div>
           </div>
         )}
       </div>
-    )
+    );
   }
 
   private renderErrorHistory() {
-    const { errorHistory, showHistory } = this.state
-    if (!showHistory || errorHistory.length === 0) return null
+    const { errorHistory, showHistory } = this.state;
+    if (!showHistory || errorHistory.length === 0) return null;
 
     return (
       <div className="bg-gray-800 p-3 rounded mb-4">
         <h4 className="font-bold text-sm mb-2">Recent Errors ({errorHistory.length})</h4>
         <div className="max-h-48 overflow-y-auto space-y-2">
           {errorHistory.map((entry) => (
-            <div
-              key={entry.id}
-              className="bg-gray-900 p-2 rounded text-xs font-mono"
-            >
+            <div key={entry.id} className="bg-gray-900 p-2 rounded text-xs font-mono">
               <div className="flex justify-between items-start">
                 <span className="text-yellow-400">[{entry.error.code}]</span>
                 <span className="text-gray-500">
                   {new Date(entry.timestamp).toLocaleTimeString()}
                 </span>
               </div>
-              <div className="text-gray-300 mt-1 truncate">
-                {entry.error.message}
-              </div>
+              <div className="text-gray-300 mt-1 truncate">{entry.error.message}</div>
               <div className="text-gray-500 text-xs mt-1">
                 {entry.error.context.module}.{entry.error.context.function}
               </div>
@@ -234,13 +206,13 @@ export class ErrorBoundary extends Component<Props, State> {
           ))}
         </div>
       </div>
-    )
+    );
   }
 
   public render() {
     if (this.state.hasError) {
-      const { error, errorInfo } = this.state
-      const isPOError = error instanceof POError
+      const { error, errorInfo } = this.state;
+      const isPOError = error instanceof POError;
 
       return (
         <div className="p-4 bg-red-900 text-white min-h-screen overflow-auto">
@@ -281,9 +253,9 @@ export class ErrorBoundary extends Component<Props, State> {
             </button>
           </div>
         </div>
-      )
+      );
     }
 
-    return this.props.children
+    return this.props.children;
   }
 }

@@ -1,9 +1,4 @@
-import {
-  ErrorCode,
-  ErrorSeverity,
-  ERROR_SEVERITY_MAP,
-  ERROR_MESSAGES,
-} from './error-codes';
+import { ErrorCode, ErrorSeverity, ERROR_SEVERITY_MAP, ERROR_MESSAGES } from './error-codes';
 
 /**
  * 에러 발생 모듈 타입
@@ -239,7 +234,7 @@ export class POError extends Error {
   static from(
     error: unknown,
     context?: Partial<ErrorContext>,
-    code: ErrorCode = ErrorCode.UNKNOWN
+    code: ErrorCode = ErrorCode.UNKNOWN,
   ): POError {
     if (error instanceof POError) {
       // 이미 POError면 컨텍스트만 병합

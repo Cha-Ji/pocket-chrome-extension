@@ -4,8 +4,8 @@
 // MACD crossover and histogram-based strategies
 // ============================================================
 
-import { Candle, Strategy, StrategySignal, Direction } from '../types'
-import { MACD } from '../../indicators'
+import { Candle, Strategy, StrategySignal, Direction } from '../types';
+import { MACD } from '../../indicators';
 
 /**
  * MACD Signal Line Crossover Strategy
@@ -23,30 +23,30 @@ export const MACDCrossover: Strategy = {
   },
 
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null {
-    const { fastPeriod, slowPeriod, signalPeriod } = params
+    const { fastPeriod, slowPeriod, signalPeriod } = params;
 
-    if (candles.length < slowPeriod + signalPeriod + 2) return null
+    if (candles.length < slowPeriod + signalPeriod + 2) return null;
 
-    const closes = candles.map(c => c.close)
-    const macdValues = MACD.calculate(closes, fastPeriod, slowPeriod, signalPeriod)
+    const closes = candles.map((c) => c.close);
+    const macdValues = MACD.calculate(closes, fastPeriod, slowPeriod, signalPeriod);
 
-    if (macdValues.length < 2) return null
+    if (macdValues.length < 2) return null;
 
-    const current = macdValues[macdValues.length - 1]
-    const prev = macdValues[macdValues.length - 2]
+    const current = macdValues[macdValues.length - 1];
+    const prev = macdValues[macdValues.length - 2];
 
-    let direction: Direction | null = null
-    let confidence = 0
+    let direction: Direction | null = null;
+    let confidence = 0;
 
     // Bullish crossover: MACD crosses above Signal
     if (prev.macd <= prev.signal && current.macd > current.signal) {
-      direction = 'CALL'
-      confidence = Math.min(1, Math.abs(current.histogram) / 0.5)
+      direction = 'CALL';
+      confidence = Math.min(1, Math.abs(current.histogram) / 0.5);
     }
     // Bearish crossover: MACD crosses below Signal
     else if (prev.macd >= prev.signal && current.macd < current.signal) {
-      direction = 'PUT'
-      confidence = Math.min(1, Math.abs(current.histogram) / 0.5)
+      direction = 'PUT';
+      confidence = Math.min(1, Math.abs(current.histogram) / 0.5);
     }
 
     return {
@@ -62,9 +62,9 @@ export const MACDCrossover: Strategy = {
       reason: direction
         ? `MACD ${direction === 'CALL' ? 'bullish' : 'bearish'} crossover`
         : undefined,
-    }
+    };
   },
-}
+};
 
 /**
  * MACD Histogram Reversal Strategy
@@ -83,21 +83,21 @@ export const MACDHistogramReversal: Strategy = {
   },
 
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null {
-    const { fastPeriod, slowPeriod, signalPeriod, minHistogram } = params
+    const { fastPeriod, slowPeriod, signalPeriod, minHistogram } = params;
 
-    if (candles.length < slowPeriod + signalPeriod + 3) return null
+    if (candles.length < slowPeriod + signalPeriod + 3) return null;
 
-    const closes = candles.map(c => c.close)
-    const macdValues = MACD.calculate(closes, fastPeriod, slowPeriod, signalPeriod)
+    const closes = candles.map((c) => c.close);
+    const macdValues = MACD.calculate(closes, fastPeriod, slowPeriod, signalPeriod);
 
-    if (macdValues.length < 3) return null
+    if (macdValues.length < 3) return null;
 
-    const current = macdValues[macdValues.length - 1]
-    const prev = macdValues[macdValues.length - 2]
-    const prev2 = macdValues[macdValues.length - 3]
+    const current = macdValues[macdValues.length - 1];
+    const prev = macdValues[macdValues.length - 2];
+    const prev2 = macdValues[macdValues.length - 3];
 
-    let direction: Direction | null = null
-    let confidence = 0
+    let direction: Direction | null = null;
+    let confidence = 0;
 
     // Bullish reversal: histogram was declining, now rising from negative
     if (
@@ -106,8 +106,8 @@ export const MACDHistogramReversal: Strategy = {
       current.histogram > prev.histogram &&
       Math.abs(current.histogram) >= minHistogram
     ) {
-      direction = 'CALL'
-      confidence = Math.min(1, (current.histogram - prev.histogram) / minHistogram)
+      direction = 'CALL';
+      confidence = Math.min(1, (current.histogram - prev.histogram) / minHistogram);
     }
     // Bearish reversal: histogram was rising, now falling from positive
     else if (
@@ -116,8 +116,8 @@ export const MACDHistogramReversal: Strategy = {
       current.histogram < prev.histogram &&
       Math.abs(current.histogram) >= minHistogram
     ) {
-      direction = 'PUT'
-      confidence = Math.min(1, (prev.histogram - current.histogram) / minHistogram)
+      direction = 'PUT';
+      confidence = Math.min(1, (prev.histogram - current.histogram) / minHistogram);
     }
 
     return {
@@ -132,9 +132,9 @@ export const MACDHistogramReversal: Strategy = {
       reason: direction
         ? `MACD histogram ${direction === 'CALL' ? 'bullish' : 'bearish'} reversal`
         : undefined,
-    }
+    };
   },
-}
+};
 
 /**
  * MACD Zero Line Crossover Strategy
@@ -152,30 +152,30 @@ export const MACDZeroCross: Strategy = {
   },
 
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null {
-    const { fastPeriod, slowPeriod, signalPeriod } = params
+    const { fastPeriod, slowPeriod, signalPeriod } = params;
 
-    if (candles.length < slowPeriod + signalPeriod + 2) return null
+    if (candles.length < slowPeriod + signalPeriod + 2) return null;
 
-    const closes = candles.map(c => c.close)
-    const macdValues = MACD.calculate(closes, fastPeriod, slowPeriod, signalPeriod)
+    const closes = candles.map((c) => c.close);
+    const macdValues = MACD.calculate(closes, fastPeriod, slowPeriod, signalPeriod);
 
-    if (macdValues.length < 2) return null
+    if (macdValues.length < 2) return null;
 
-    const current = macdValues[macdValues.length - 1]
-    const prev = macdValues[macdValues.length - 2]
+    const current = macdValues[macdValues.length - 1];
+    const prev = macdValues[macdValues.length - 2];
 
-    let direction: Direction | null = null
-    let confidence = 0
+    let direction: Direction | null = null;
+    let confidence = 0;
 
     // Bullish: MACD crosses above zero
     if (prev.macd <= 0 && current.macd > 0) {
-      direction = 'CALL'
-      confidence = Math.min(1, Math.abs(current.macd) / 0.5)
+      direction = 'CALL';
+      confidence = Math.min(1, Math.abs(current.macd) / 0.5);
     }
     // Bearish: MACD crosses below zero
     else if (prev.macd >= 0 && current.macd < 0) {
-      direction = 'PUT'
-      confidence = Math.min(1, Math.abs(current.macd) / 0.5)
+      direction = 'PUT';
+      confidence = Math.min(1, Math.abs(current.macd) / 0.5);
     }
 
     return {
@@ -190,9 +190,9 @@ export const MACDZeroCross: Strategy = {
       reason: direction
         ? `MACD zero line ${direction === 'CALL' ? 'bullish' : 'bearish'} cross`
         : undefined,
-    }
+    };
   },
-}
+};
 
 /**
  * MACD Divergence Strategy
@@ -211,40 +211,40 @@ export const MACDDivergence: Strategy = {
   },
 
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null {
-    const { fastPeriod, slowPeriod, signalPeriod, lookback } = params
+    const { fastPeriod, slowPeriod, signalPeriod, lookback } = params;
 
-    if (candles.length < slowPeriod + signalPeriod + lookback) return null
+    if (candles.length < slowPeriod + signalPeriod + lookback) return null;
 
-    const closes = candles.map(c => c.close)
-    const macdValues = MACD.calculate(closes, fastPeriod, slowPeriod, signalPeriod)
+    const closes = candles.map((c) => c.close);
+    const macdValues = MACD.calculate(closes, fastPeriod, slowPeriod, signalPeriod);
 
-    if (macdValues.length < lookback) return null
+    if (macdValues.length < lookback) return null;
 
     // Get recent values
-    const recentCloses = closes.slice(-lookback)
-    const recentMACD = macdValues.slice(-lookback).map(m => m.histogram)
+    const recentCloses = closes.slice(-lookback);
+    const recentMACD = macdValues.slice(-lookback).map((m) => m.histogram);
 
     // Find swing points
-    const priceLL = Math.min(...recentCloses)
-    const priceHH = Math.max(...recentCloses)
-    const macdLL = Math.min(...recentMACD)
-    const macdHH = Math.max(...recentMACD)
+    const priceLL = Math.min(...recentCloses);
+    const priceHH = Math.max(...recentCloses);
+    const macdLL = Math.min(...recentMACD);
+    const macdHH = Math.max(...recentMACD);
 
-    const currentPrice = closes[closes.length - 1]
-    const currentMACD = macdValues[macdValues.length - 1].histogram
+    const currentPrice = closes[closes.length - 1];
+    const currentMACD = macdValues[macdValues.length - 1].histogram;
 
-    let direction: Direction | null = null
-    let confidence = 0
+    let direction: Direction | null = null;
+    let confidence = 0;
 
     // Bullish divergence: price at low, MACD not at low
     if (currentPrice <= priceLL * 1.005 && currentMACD > macdLL * 0.8) {
-      direction = 'CALL'
-      confidence = Math.min(1, Math.abs(currentMACD - macdLL) / Math.abs(macdLL) || 0.5)
+      direction = 'CALL';
+      confidence = Math.min(1, Math.abs(currentMACD - macdLL) / Math.abs(macdLL) || 0.5);
     }
     // Bearish divergence: price at high, MACD not at high
     else if (currentPrice >= priceHH * 0.995 && currentMACD < macdHH * 0.8) {
-      direction = 'PUT'
-      confidence = Math.min(1, Math.abs(macdHH - currentMACD) / Math.abs(macdHH) || 0.5)
+      direction = 'PUT';
+      confidence = Math.min(1, Math.abs(macdHH - currentMACD) / Math.abs(macdHH) || 0.5);
     }
 
     return {
@@ -261,14 +261,9 @@ export const MACDDivergence: Strategy = {
       reason: direction
         ? `MACD ${direction === 'CALL' ? 'bullish' : 'bearish'} divergence`
         : undefined,
-    }
+    };
   },
-}
+};
 
 // Export all MACD strategies
-export const MACDStrategies = [
-  MACDCrossover,
-  MACDHistogramReversal,
-  MACDZeroCross,
-  MACDDivergence,
-]
+export const MACDStrategies = [MACDCrossover, MACDHistogramReversal, MACDZeroCross, MACDDivergence];

@@ -26,24 +26,24 @@
  *  'Alibaba OTC' → 'ALIBABA-OTC'
  */
 export function normalizeSymbol(raw: string): string {
-  let s = raw.trim()
+  let s = raw.trim();
   // leading '#' 제거
-  if (s.startsWith('#')) s = s.slice(1)
+  if (s.startsWith('#')) s = s.slice(1);
 
   // OTC suffix 감지 및 분리 ([-_ ]?otc$ 패턴)
-  const isOTC = /[-_ ]?otc$/i.test(s)
-  if (isOTC) s = s.replace(/[-_ ]?otc$/i, '')
+  const isOTC = /[-_ ]?otc$/i.test(s);
+  if (isOTC) s = s.replace(/[-_ ]?otc$/i, '');
 
   // 모든 separators 제거 (/, -, _, space)
-  s = s.replace(/[/\-\s_]+/g, '')
+  s = s.replace(/[/\-\s_]+/g, '');
 
   // uppercase
-  s = s.toUpperCase()
+  s = s.toUpperCase();
 
   // OTC suffix 재부착
-  if (isOTC) s += '-OTC'
+  if (isOTC) s += '-OTC';
 
-  return s
+  return s;
 }
 
 /**
@@ -54,6 +54,6 @@ export function normalizeSymbol(raw: string): string {
  *  - 그 외에는 이미 밀리초로 간주하고 그대로 반환
  */
 export function normalizeTimestampMs(ts: number): number {
-  if (ts < 1e12) return ts * 1000
-  return ts
+  if (ts < 1e12) return ts * 1000;
+  return ts;
 }

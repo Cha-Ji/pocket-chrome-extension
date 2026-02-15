@@ -93,11 +93,7 @@ class ErrorHandler {
    * 에러 처리
    * unknown 타입의 에러를 POError로 정규화하고 로깅
    */
-  handle(
-    error: unknown,
-    context?: Partial<ErrorContext>,
-    code?: ErrorCode
-  ): POError {
+  handle(error: unknown, context?: Partial<ErrorContext>, code?: ErrorCode): POError {
     const poError = this.normalize(error, context, code);
     const entry = this.log(poError);
     this.notify(poError, entry);
@@ -116,11 +112,7 @@ class ErrorHandler {
   /**
    * 에러를 POError로 정규화
    */
-  normalize(
-    error: unknown,
-    context?: Partial<ErrorContext>,
-    code?: ErrorCode
-  ): POError {
+  normalize(error: unknown, context?: Partial<ErrorContext>, code?: ErrorCode): POError {
     return POError.from(error, context, code);
   }
 
@@ -182,9 +174,7 @@ class ErrorHandler {
       ErrorSeverity.ERROR,
       ErrorSeverity.CRITICAL,
     ];
-    return (
-      order.indexOf(severity) >= order.indexOf(this.config.minLogSeverity)
-    );
+    return order.indexOf(severity) >= order.indexOf(this.config.minLogSeverity);
   }
 
   /**
@@ -244,9 +234,7 @@ class ErrorHandler {
    * 특정 모듈의 에러만 조회
    */
   getHistoryByModule(module: string, limit?: number): ErrorLogEntry[] {
-    const filtered = this.history.filter(
-      (entry) => entry.error.context.module === module
-    );
+    const filtered = this.history.filter((entry) => entry.error.context.module === module);
     if (limit) {
       return filtered.slice(0, limit);
     }
@@ -316,6 +304,5 @@ export const errorHandler = new ErrorHandler();
 /**
  * 새로운 ErrorHandler 인스턴스 생성 (테스트용)
  */
-export const createErrorHandler = (
-  config?: Partial<ErrorHandlerConfig>
-): ErrorHandler => new ErrorHandler(config);
+export const createErrorHandler = (config?: Partial<ErrorHandlerConfig>): ErrorHandler =>
+  new ErrorHandler(config);

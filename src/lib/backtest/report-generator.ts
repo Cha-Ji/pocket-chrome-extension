@@ -4,43 +4,43 @@
 // Generates HTML reports with charts and statistics
 // ============================================================
 
-import { BacktestTrade } from './types'
+import { BacktestTrade } from './types';
 
 export interface ReportData {
-  title: string
-  symbol: string
-  timeframe: string
-  startDate: string
-  endDate: string
-  strategy: string
+  title: string;
+  symbol: string;
+  timeframe: string;
+  startDate: string;
+  endDate: string;
+  strategy: string;
   stats: {
-    totalTrades: number
-    wins: number
-    losses: number
-    winRate: number
-    netProfit: number
-    profitFactor: number
-    maxDrawdown: number
-    expectancy: number
-  }
-  trades: BacktestTrade[]
-  equityCurve: { timestamp: number; balance: number }[]
+    totalTrades: number;
+    wins: number;
+    losses: number;
+    winRate: number;
+    netProfit: number;
+    profitFactor: number;
+    maxDrawdown: number;
+    expectancy: number;
+  };
+  trades: BacktestTrade[];
+  equityCurve: { timestamp: number; balance: number }[];
 }
 
 export function generateHTMLReport(data: ReportData): string {
-  const equityChartData = data.equityCurve.map(e => ({
+  const equityChartData = data.equityCurve.map((e) => ({
     x: new Date(e.timestamp).toLocaleDateString(),
-    y: e.balance
-  }))
+    y: e.balance,
+  }));
 
-  const tradesByHour = new Array(24).fill(0)
-  const winsByHour = new Array(24).fill(0)
-  data.trades.forEach(t => {
-    const hour = new Date(t.entryTime).getHours()
-    tradesByHour[hour]++
-    if (t.result === 'WIN') winsByHour[hour]++
-  })
-  const winRateByHour = tradesByHour.map((t, i) => t > 0 ? (winsByHour[i] / t * 100) : 0)
+  const tradesByHour = new Array(24).fill(0);
+  const winsByHour = new Array(24).fill(0);
+  data.trades.forEach((t) => {
+    const hour = new Date(t.entryTime).getHours();
+    tradesByHour[hour]++;
+    if (t.result === 'WIN') winsByHour[hour]++;
+  });
+  const winRateByHour = tradesByHour.map((t, i) => (t > 0 ? (winsByHour[i] / t) * 100 : 0));
 
   return `
 <!DOCTYPE html>
@@ -174,7 +174,11 @@ export function generateHTMLReport(data: ReportData): string {
           </tr>
         </thead>
         <tbody>
-          ${data.trades.slice(-50).reverse().map(t => `
+          ${data.trades
+            .slice(-50)
+            .reverse()
+            .map(
+              (t) => `
             <tr>
               <td>${new Date(t.entryTime).toLocaleString()}</td>
               <td class="${t.direction.toLowerCase()}">${t.direction}</td>
@@ -183,7 +187,9 @@ export function generateHTMLReport(data: ReportData): string {
               <td class="${t.result.toLowerCase()}">${t.result}</td>
               <td class="${t.profit >= 0 ? 'win' : 'loss'}">$${t.profit.toFixed(2)}</td>
             </tr>
-          `).join('')}
+          `,
+            )
+            .join('')}
         </tbody>
       </table>
     </div>
@@ -194,10 +200,10 @@ export function generateHTMLReport(data: ReportData): string {
     new Chart(document.getElementById('equityChart'), {
       type: 'line',
       data: {
-        labels: ${JSON.stringify(equityChartData.map(e => e.x))},
+        labels: ${JSON.stringify(equityChartData.map((e) => e.x))},
         datasets: [{
           label: 'Balance',
-          data: ${JSON.stringify(equityChartData.map(e => e.y))},
+          data: ${JSON.stringify(equityChartData.map((e) => e.y))},
           borderColor: '#4ade80',
           backgroundColor: 'rgba(74, 222, 128, 0.1)',
           fill: true,
@@ -218,11 +224,11 @@ export function generateHTMLReport(data: ReportData): string {
     new Chart(document.getElementById('hourChart'), {
       type: 'bar',
       data: {
-        labels: ${JSON.stringify(Array.from({length: 24}, (_, i) => `${i}:00`))},
+        labels: ${JSON.stringify(Array.from({ length: 24 }, (_, i) => `${i}:00`))},
         datasets: [{
           label: 'Win Rate %',
           data: ${JSON.stringify(winRateByHour)},
-          backgroundColor: ${JSON.stringify(winRateByHour.map(r => r >= 53 ? 'rgba(74, 222, 128, 0.6)' : 'rgba(248, 113, 113, 0.6)'))}
+          backgroundColor: ${JSON.stringify(winRateByHour.map((r) => (r >= 53 ? 'rgba(74, 222, 128, 0.6)' : 'rgba(248, 113, 113, 0.6)')))}
         }]
       },
       options: {
@@ -237,48 +243,52 @@ export function generateHTMLReport(data: ReportData): string {
   </script>
 </body>
 </html>
-`
+`;
 }
 
 export function generateConsoleReport(data: ReportData): string {
-  const lines: string[] = []
-  
-  lines.push('')
-  lines.push('╔════════════════════════════════════════════════════════╗')
-  lines.push(`║  ${data.title.padEnd(52)}  ║`)
-  lines.push('╚════════════════════════════════════════════════════════╝')
-  lines.push('')
-  lines.push(`📊 ${data.symbol} | ${data.timeframe} | ${data.strategy}`)
-  lines.push(`📅 ${data.startDate} ~ ${data.endDate}`)
-  lines.push('')
-  lines.push('─'.repeat(58))
-  lines.push('')
-  
-  const winStatus = data.stats.winRate >= 53 ? '✅' : '❌'
-  const profitStatus = data.stats.netProfit >= 0 ? '📈' : '📉'
-  
-  lines.push(`  Total Trades:   ${data.stats.totalTrades}`)
-  lines.push(`  Win Rate:       ${data.stats.winRate.toFixed(1)}% ${winStatus}`)
-  lines.push(`  Net Profit:     $${data.stats.netProfit.toFixed(0)} ${profitStatus}`)
-  lines.push(`  Profit Factor:  ${data.stats.profitFactor.toFixed(2)}`)
-  lines.push(`  Max Drawdown:   ${data.stats.maxDrawdown.toFixed(1)}%`)
-  lines.push(`  Expectancy:     $${data.stats.expectancy.toFixed(2)}`)
-  lines.push('')
-  lines.push('─'.repeat(58))
-  lines.push('')
-  
+  const lines: string[] = [];
+
+  lines.push('');
+  lines.push('╔════════════════════════════════════════════════════════╗');
+  lines.push(`║  ${data.title.padEnd(52)}  ║`);
+  lines.push('╚════════════════════════════════════════════════════════╝');
+  lines.push('');
+  lines.push(`📊 ${data.symbol} | ${data.timeframe} | ${data.strategy}`);
+  lines.push(`📅 ${data.startDate} ~ ${data.endDate}`);
+  lines.push('');
+  lines.push('─'.repeat(58));
+  lines.push('');
+
+  const winStatus = data.stats.winRate >= 53 ? '✅' : '❌';
+  const profitStatus = data.stats.netProfit >= 0 ? '📈' : '📉';
+
+  lines.push(`  Total Trades:   ${data.stats.totalTrades}`);
+  lines.push(`  Win Rate:       ${data.stats.winRate.toFixed(1)}% ${winStatus}`);
+  lines.push(`  Net Profit:     $${data.stats.netProfit.toFixed(0)} ${profitStatus}`);
+  lines.push(`  Profit Factor:  ${data.stats.profitFactor.toFixed(2)}`);
+  lines.push(`  Max Drawdown:   ${data.stats.maxDrawdown.toFixed(1)}%`);
+  lines.push(`  Expectancy:     $${data.stats.expectancy.toFixed(2)}`);
+  lines.push('');
+  lines.push('─'.repeat(58));
+  lines.push('');
+
   // Direction breakdown
-  const calls = data.trades.filter(t => t.direction === 'CALL')
-  const puts = data.trades.filter(t => t.direction === 'PUT')
-  const callWins = calls.filter(t => t.result === 'WIN').length
-  const putWins = puts.filter(t => t.result === 'WIN').length
-  
-  lines.push('  Direction Breakdown:')
-  lines.push(`    CALL: ${calls.length} trades (${calls.length > 0 ? (callWins / calls.length * 100).toFixed(1) : 0}% win)`)
-  lines.push(`    PUT:  ${puts.length} trades (${puts.length > 0 ? (putWins / puts.length * 100).toFixed(1) : 0}% win)`)
-  lines.push('')
-  
-  return lines.join('\n')
+  const calls = data.trades.filter((t) => t.direction === 'CALL');
+  const puts = data.trades.filter((t) => t.direction === 'PUT');
+  const callWins = calls.filter((t) => t.result === 'WIN').length;
+  const putWins = puts.filter((t) => t.result === 'WIN').length;
+
+  lines.push('  Direction Breakdown:');
+  lines.push(
+    `    CALL: ${calls.length} trades (${calls.length > 0 ? ((callWins / calls.length) * 100).toFixed(1) : 0}% win)`,
+  );
+  lines.push(
+    `    PUT:  ${puts.length} trades (${puts.length > 0 ? ((putWins / puts.length) * 100).toFixed(1) : 0}% win)`,
+  );
+  lines.push('');
+
+  return lines.join('\n');
 }
 
 // ============================================================
@@ -286,5 +296,5 @@ export function generateConsoleReport(data: ReportData): string {
 // ============================================================
 
 export function exportToJSON(data: ReportData): string {
-  return JSON.stringify(data, null, 2)
+  return JSON.stringify(data, null, 2);
 }

@@ -12,10 +12,10 @@ describe('ErrorHandler', () => {
 
   describe('handle', () => {
     it('should normalize unknown error to POError', () => {
-      const result = errorHandler.handle(
-        new Error('test error'),
-        { module: 'lib', function: 'test' }
-      );
+      const result = errorHandler.handle(new Error('test error'), {
+        module: 'lib',
+        function: 'test',
+      });
 
       expect(result).toBeInstanceOf(POError);
       expect(result.message).toBe('test error');
@@ -49,7 +49,7 @@ describe('ErrorHandler', () => {
       const result = errorHandler.handle(
         new Error('test'),
         { module: 'lib', function: 'test' },
-        ErrorCode.NETWORK_TIMEOUT
+        ErrorCode.NETWORK_TIMEOUT,
       );
 
       expect(result.code).toBe(ErrorCode.NETWORK_TIMEOUT);
@@ -163,9 +163,21 @@ describe('ErrorHandler', () => {
 
   describe('getStats', () => {
     it('should return error statistics', () => {
-      errorHandler.handle(new Error('e1'), { module: 'background', function: 'f1' }, ErrorCode.NETWORK_TIMEOUT);
-      errorHandler.handle(new Error('e2'), { module: 'background', function: 'f2' }, ErrorCode.NETWORK_TIMEOUT);
-      errorHandler.handle(new Error('e3'), { module: 'content-script', function: 'f3' }, ErrorCode.DB_WRITE_FAILED);
+      errorHandler.handle(
+        new Error('e1'),
+        { module: 'background', function: 'f1' },
+        ErrorCode.NETWORK_TIMEOUT,
+      );
+      errorHandler.handle(
+        new Error('e2'),
+        { module: 'background', function: 'f2' },
+        ErrorCode.NETWORK_TIMEOUT,
+      );
+      errorHandler.handle(
+        new Error('e3'),
+        { module: 'content-script', function: 'f3' },
+        ErrorCode.DB_WRITE_FAILED,
+      );
 
       const stats = errorHandler.getStats();
 
