@@ -11,8 +11,8 @@
  * cause ConstraintError failures.
  */
 
-import type { Tick, TickStoragePolicy } from '../lib/types'
-import { TickRepository } from '../lib/db'
+import type { Tick, TickStoragePolicy } from '../lib/types';
+import { TickRepository } from '../lib/db';
 
 export const DEFAULT_TICK_POLICY: TickStoragePolicy = {
   sampleIntervalMs: 500,
@@ -21,15 +21,15 @@ export const DEFAULT_TICK_POLICY: TickStoragePolicy = {
   maxTicks: 5000,
   maxAgeMs: 2 * 60 * 60 * 1000, // 2 hours
   retentionIntervalMs: 30_000,
-}
+};
 
 export class TickBuffer {
-  private buffer: Omit<Tick, 'id'>[] = []
-  private lastSavedAt = new Map<string, number>()
-  private flushTimer: ReturnType<typeof setTimeout> | null = null
-  private retentionTimer: ReturnType<typeof setInterval> | null = null
-  private policy: TickStoragePolicy
-  private onFlushError?: (error: unknown, tickCount: number) => void
+  private buffer: Omit<Tick, 'id'>[] = [];
+  private lastSavedAt = new Map<string, number>();
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private retentionTimer: ReturnType<typeof setInterval> | null = null;
+  private policy: TickStoragePolicy;
+  private onFlushError?: (error: unknown, tickCount: number) => void;
 
   /** Counters for observability */
   private _stats = {
@@ -39,36 +39,36 @@ export class TickBuffer {
     flushErrors: 0,
     retentionRuns: 0,
     retentionDeleted: 0,
-  }
+  };
 
   constructor(
     policy?: Partial<TickStoragePolicy>,
     options?: { onFlushError?: (error: unknown, tickCount: number) => void },
   ) {
-    this.policy = { ...DEFAULT_TICK_POLICY, ...policy }
-    this.onFlushError = options?.onFlushError
+    this.policy = { ...DEFAULT_TICK_POLICY, ...policy };
+    this.onFlushError = options?.onFlushError;
   }
 
   /** Start periodic retention sweep. Call once at init. */
   start(): void {
-    if (this.retentionTimer) return
+    if (this.retentionTimer) return;
     this.retentionTimer = setInterval(
       () => void this.runRetention(),
       this.policy.retentionIntervalMs,
-    )
+    );
   }
 
   /** Stop timers and flush remaining buffer. */
   async stop(): Promise<void> {
     if (this.flushTimer) {
-      clearTimeout(this.flushTimer)
-      this.flushTimer = null
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
     }
     if (this.retentionTimer) {
-      clearInterval(this.retentionTimer)
-      this.retentionTimer = null
+      clearInterval(this.retentionTimer);
+      this.retentionTimer = null;
     }
-    await this.flush()
+    await this.flush();
   }
 
   /**
@@ -77,81 +77,78 @@ export class TickBuffer {
    */
   ingest(tick: Omit<Tick, 'id'>): boolean {
     if (!tick || !tick.ticker || !tick.timestamp) {
-      this._stats.dropped++
-      return false
+      this._stats.dropped++;
+      return false;
     }
 
     // Sampling gate: skip if last stored tick for this ticker is too recent
-    const lastTs = this.lastSavedAt.get(tick.ticker) ?? 0
+    const lastTs = this.lastSavedAt.get(tick.ticker) ?? 0;
     if (tick.timestamp - lastTs < this.policy.sampleIntervalMs) {
-      this._stats.dropped++
-      return false
+      this._stats.dropped++;
+      return false;
     }
 
-    this.lastSavedAt.set(tick.ticker, tick.timestamp)
-    this.buffer.push(tick)
-    this._stats.accepted++
+    this.lastSavedAt.set(tick.ticker, tick.timestamp);
+    this.buffer.push(tick);
+    this._stats.accepted++;
 
     // Flush if batch is full
     if (this.buffer.length >= this.policy.batchSize) {
-      void this.flush()
+      void this.flush();
     } else if (!this.flushTimer) {
       // Schedule a timer-based flush
-      this.flushTimer = setTimeout(
-        () => void this.flush(),
-        this.policy.flushIntervalMs,
-      )
+      this.flushTimer = setTimeout(() => void this.flush(), this.policy.flushIntervalMs);
     }
 
-    return true
+    return true;
   }
 
   /** Flush the in-memory buffer to IndexedDB. */
   async flush(): Promise<number> {
     if (this.flushTimer) {
-      clearTimeout(this.flushTimer)
-      this.flushTimer = null
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
     }
 
-    const batch = this.buffer.splice(0)
-    if (batch.length === 0) return 0
+    const batch = this.buffer.splice(0);
+    if (batch.length === 0) return 0;
 
     try {
-      await TickRepository.bulkPut(batch)
-      this._stats.flushed += batch.length
-      return batch.length
+      await TickRepository.bulkPut(batch);
+      this._stats.flushed += batch.length;
+      return batch.length;
     } catch (error) {
-      this._stats.flushErrors++
+      this._stats.flushErrors++;
       // Put ticks back into the buffer front (up to batchSize to avoid unbounded growth)
-      const spaceLeft = this.policy.batchSize - this.buffer.length
+      const spaceLeft = this.policy.batchSize - this.buffer.length;
       if (spaceLeft > 0) {
-        this.buffer.unshift(...batch.slice(0, spaceLeft))
+        this.buffer.unshift(...batch.slice(0, spaceLeft));
       }
-      this.onFlushError?.(error, batch.length)
-      return 0
+      this.onFlushError?.(error, batch.length);
+      return 0;
     }
   }
 
   /** Run retention: delete by age, then enforce count cap. */
   async runRetention(): Promise<{ ageDeleted: number; capDeleted: number }> {
-    this._stats.retentionRuns++
-    let ageDeleted = 0
-    let capDeleted = 0
+    this._stats.retentionRuns++;
+    let ageDeleted = 0;
+    let capDeleted = 0;
 
     try {
       // 1. Delete ticks older than maxAgeMs
-      const ageCutoff = Date.now() - this.policy.maxAgeMs
-      ageDeleted = (await TickRepository.deleteOlderThan(ageCutoff)) ?? 0
+      const ageCutoff = Date.now() - this.policy.maxAgeMs;
+      ageDeleted = (await TickRepository.deleteOlderThan(ageCutoff)) ?? 0;
 
       // 2. Enforce hard cap
-      capDeleted = await TickRepository.deleteOldestToLimit(this.policy.maxTicks)
+      capDeleted = await TickRepository.deleteOldestToLimit(this.policy.maxTicks);
 
-      this._stats.retentionDeleted += ageDeleted + capDeleted
+      this._stats.retentionDeleted += ageDeleted + capDeleted;
     } catch {
       // Retention errors are non-fatal; will retry on next interval
     }
 
-    return { ageDeleted, capDeleted }
+    return { ageDeleted, capDeleted };
   }
 
   /** Get buffer and lifetime stats for observability. */
@@ -160,11 +157,11 @@ export class TickBuffer {
       bufferSize: this.buffer.length,
       ...this._stats,
       policy: { ...this.policy },
-    }
+    };
   }
 
   /** Get the current policy (read-only copy). */
   getPolicy(): TickStoragePolicy {
-    return { ...this.policy }
+    return { ...this.policy };
   }
 }

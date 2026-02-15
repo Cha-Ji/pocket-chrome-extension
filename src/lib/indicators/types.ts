@@ -2,96 +2,96 @@
 // Technical Indicator Types
 // ============================================================
 
-import type { Candle } from '../backtest/types'
+import type { Candle } from '../backtest/types';
 
 // Re-export Candle for convenience
-export type { Candle }
+export type { Candle };
 
 /**
  * OHLCV data arrays for indicator calculations
  */
 export interface OHLCVArrays {
-  opens: number[]
-  highs: number[]
-  lows: number[]
-  closes: number[]
-  volumes?: number[]
+  opens: number[];
+  highs: number[];
+  lows: number[];
+  closes: number[];
+  volumes?: number[];
 }
 
 /**
  * Oscillator result with value between fixed bounds (e.g., 0-100)
  */
 export interface OscillatorResult {
-  value: number
+  value: number;
 }
 
 /**
  * Stochastic oscillator result
  */
 export interface StochasticResult {
-  k: number
-  d: number
+  k: number;
+  d: number;
 }
 
 /**
  * MACD indicator result
  */
 export interface MACDResult {
-  macd: number
-  signal: number
-  histogram: number
+  macd: number;
+  signal: number;
+  histogram: number;
 }
 
 /**
  * Bollinger Bands result
  */
 export interface BollingerBandsResult {
-  upper: number
-  middle: number
-  lower: number
+  upper: number;
+  middle: number;
+  lower: number;
 }
 
 /**
  * ADX indicator result
  */
 export interface ADXResult {
-  adx: number
-  plusDI: number
-  minusDI: number
+  adx: number;
+  plusDI: number;
+  minusDI: number;
 }
 
 /**
  * Stochastic RSI result
  */
 export interface StochasticRSIResult {
-  k: number
-  d: number
-  rsi?: number
+  k: number;
+  d: number;
+  rsi?: number;
 }
 
 /**
  * Triple Stochastic result
  */
 export interface TripleStochasticResult {
-  short: StochasticResult | null
-  mid: StochasticResult | null
-  long: StochasticResult | null
+  short: StochasticResult | null;
+  mid: StochasticResult | null;
+  long: StochasticResult | null;
 }
 
 /**
  * Stochastic zone classification
  */
-export type ZoneType = 'overbought' | 'oversold' | 'neutral'
+export type ZoneType = 'overbought' | 'oversold' | 'neutral';
 
 /**
  * Triple Stochastic zone analysis result
  */
 export interface TripleStochasticZone {
-  short: ZoneType
-  mid: ZoneType
-  long: ZoneType
-  allOverbought: boolean
-  allOversold: boolean
+  short: ZoneType;
+  mid: ZoneType;
+  long: ZoneType;
+  allOverbought: boolean;
+  allOversold: boolean;
 }
 
 /**
@@ -99,8 +99,8 @@ export interface TripleStochasticZone {
  * Used for indicators that return an array of values
  */
 export interface IndicatorSeries<T> {
-  values: T[]
-  period: number
+  values: T[];
+  period: number;
 }
 
 /**
@@ -108,11 +108,11 @@ export interface IndicatorSeries<T> {
  */
 export interface IndicatorOptions {
   /** Number of periods for calculation */
-  period?: number
+  period?: number;
   /** Standard deviation multiplier (for Bollinger Bands) */
-  stdDev?: number
+  stdDev?: number;
   /** Smoothing factor */
-  smoothing?: number
+  smoothing?: number;
 }
 
 /**
@@ -120,17 +120,17 @@ export interface IndicatorOptions {
  */
 export function candlesToOHLCV(candles: Candle[]): OHLCVArrays {
   return {
-    opens: candles.map(c => c.open),
-    highs: candles.map(c => c.high),
-    lows: candles.map(c => c.low),
-    closes: candles.map(c => c.close),
-    volumes: candles.map(c => c.volume ?? 0),
-  }
+    opens: candles.map((c) => c.open),
+    highs: candles.map((c) => c.high),
+    lows: candles.map((c) => c.low),
+    closes: candles.map((c) => c.close),
+    volumes: candles.map((c) => c.volume ?? 0),
+  };
 }
 
 /**
  * Utility function to get closes from candles
  */
 export function candlesToCloses(candles: Candle[]): number[] {
-  return candles.map(c => c.close)
+  return candles.map((c) => c.close);
 }

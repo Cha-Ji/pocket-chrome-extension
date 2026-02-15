@@ -11,7 +11,7 @@
  */
 
 /** Port channel name used by chrome.runtime.connect() */
-export const PORT_CHANNEL = 'side-panel' as const
+export const PORT_CHANNEL = 'side-panel' as const;
 
 /**
  * Message types that background relays from content script to side panels.
@@ -29,7 +29,11 @@ export const RELAY_MESSAGE_TYPES: Set<string> = new Set([
   'MINING_STOPPED',
   'MINER_STATUS_PUSH',
   'INDICATOR_UPDATE',
-])
+  // P0-4: Register WS relay types to prevent MSG_INVALID_TYPE errors
+  'WS_PRICE_UPDATE',
+  'WS_MESSAGE',
+  'WS_CONNECTION',
+]);
 
 /**
  * High-frequency message types that get throttled before relaying.
@@ -38,4 +42,6 @@ export const RELAY_MESSAGE_TYPES: Set<string> = new Set([
 export const THROTTLE_CONFIG: Record<string, number> = {
   INDICATOR_UPDATE: 2000,
   MINER_STATUS_PUSH: 1000,
-}
+  // P0-4: Throttle high-frequency WS price updates (every tick)
+  WS_PRICE_UPDATE: 500,
+};

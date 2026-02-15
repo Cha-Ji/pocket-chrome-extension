@@ -23,7 +23,7 @@ import { errorHandler } from './handler';
 export async function tryCatchAsync<T>(
   fn: () => Promise<T>,
   context: Partial<ErrorContext>,
-  code?: ErrorCode
+  code?: ErrorCode,
 ): AsyncResult<T> {
   try {
     const data = await fn();
@@ -48,7 +48,7 @@ export async function tryCatchAsync<T>(
 export function tryCatch<T>(
   fn: () => T,
   context: Partial<ErrorContext>,
-  code?: ErrorCode
+  code?: ErrorCode,
 ): Result<T> {
   try {
     const data = fn();
@@ -79,7 +79,7 @@ export function assertDefined<T>(
   value: T | null | undefined,
   message: string,
   context: Partial<ErrorContext>,
-  code: ErrorCode = ErrorCode.VALIDATION_REQUIRED
+  code: ErrorCode = ErrorCode.VALIDATION_REQUIRED,
 ): asserts value is T {
   if (value === null || value === undefined) {
     throw new POError({ code, message, context });
@@ -104,7 +104,7 @@ export function assert(
   condition: boolean,
   message: string,
   context: Partial<ErrorContext>,
-  code: ErrorCode = ErrorCode.VALIDATION_REQUIRED
+  code: ErrorCode = ErrorCode.VALIDATION_REQUIRED,
 ): asserts condition {
   if (!condition) {
     throw new POError({ code, message, context });
@@ -126,7 +126,7 @@ export function assert(
 export function queryElement<T extends Element>(
   selector: string,
   context: Partial<ErrorContext>,
-  parent: ParentNode = document
+  parent: ParentNode = document,
 ): T {
   const element = parent.querySelector<T>(selector);
   if (!element) {
@@ -157,7 +157,7 @@ export function queryElement<T extends Element>(
 export function queryElementSafe<T extends Element>(
   selector: string,
   context: Partial<ErrorContext>,
-  parent: ParentNode = document
+  parent: ParentNode = document,
 ): Result<T> {
   const element = parent.querySelector<T>(selector);
   if (!element) {
@@ -166,7 +166,7 @@ export function queryElementSafe<T extends Element>(
         code: ErrorCode.DOM_ELEMENT_NOT_FOUND,
         message: `요소를 찾을 수 없습니다: ${selector}`,
         context: { ...context, extra: { selector } },
-      })
+      }),
     );
   }
   return Result.ok(element);
@@ -196,7 +196,7 @@ export async function retry<T>(
     context: Partial<ErrorContext>;
     code?: ErrorCode;
     shouldRetry?: (error: POError, attempt: number) => boolean;
-  }
+  },
 ): AsyncResult<T> {
   const {
     maxAttempts = 3,
@@ -254,7 +254,7 @@ export function sleep(ms: number): Promise<void> {
 export async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
-  context: Partial<ErrorContext>
+  context: Partial<ErrorContext>,
 ): AsyncResult<T> {
   let timeoutId: ReturnType<typeof setTimeout>;
 
@@ -265,7 +265,7 @@ export async function withTimeout<T>(
           code: ErrorCode.NETWORK_TIMEOUT,
           message: `작업이 ${timeoutMs}ms 내에 완료되지 않았습니다`,
           context,
-        })
+        }),
       );
     }, timeoutMs);
   });
@@ -316,7 +316,7 @@ export function rethrowWithPath(error: unknown, location: string): POError {
 export async function ignoreError<T>(
   fn: () => Promise<T>,
   context: Partial<ErrorContext>,
-  options?: { logLevel?: 'none' | 'warn' | 'error' }
+  options?: { logLevel?: 'none' | 'warn' | 'error' },
 ): Promise<T | undefined> {
   const logLevel = options?.logLevel ?? 'warn';
 
@@ -341,7 +341,7 @@ export async function ignoreError<T>(
 export function ignoreErrorSync<T>(
   fn: () => T,
   context: Partial<ErrorContext>,
-  options?: { logLevel?: 'none' | 'warn' | 'error' }
+  options?: { logLevel?: 'none' | 'warn' | 'error' },
 ): T | undefined {
   const logLevel = options?.logLevel ?? 'warn';
 
@@ -376,7 +376,7 @@ export function ignoreErrorSync<T>(
  */
 export async function executeAll<T>(
   tasks: Array<() => Promise<T>>,
-  context: Partial<ErrorContext>
+  context: Partial<ErrorContext>,
 ): Promise<{
   results: Result<T>[];
   successes: T[];

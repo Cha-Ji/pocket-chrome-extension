@@ -4,9 +4,10 @@
 // 모든 전략을 일괄 백테스트하고 비교/랭킹하는 엔진
 // ============================================================
 
-import { Candle, BacktestConfig, BacktestResult, Strategy } from './types'
-import { getBacktestEngine } from './engine'
-import { calculateDetailedStatistics } from './statistics'
+import { Candle, BacktestConfig, BacktestResult, Strategy } from './types';
+import { getBacktestEngine } from './engine';
+import { calculateDetailedStatistics } from './statistics';
+import { calculateScore } from './scoring';
 import {
   LeaderboardEntry,
   LeaderboardConfig,
@@ -14,7 +15,7 @@ import {
   LeaderboardProgress,
   LeaderboardResult,
   DEFAULT_WEIGHTS,
-} from './leaderboard-types'
+} from './leaderboard-types';
 
 // ============================================================
 // Batch Runner - 모든 전략 일괄 백테스트
@@ -31,32 +32,32 @@ import {
 export function runLeaderboard(
   candles: Candle[],
   config: LeaderboardConfig,
-  onProgress?: (progress: LeaderboardProgress) => void
+  onProgress?: (progress: LeaderboardProgress) => void,
 ): LeaderboardResult {
-  const startTs = Date.now()
-  const engine = getBacktestEngine()
-  const strategies = engine.getStrategies()
-  const weights = config.weights ?? DEFAULT_WEIGHTS
-  const minTrades = config.minTrades ?? 30
+  const startTs = Date.now();
+  const engine = getBacktestEngine();
+  const strategies = engine.getStrategies();
+  const weights = config.weights ?? DEFAULT_WEIGHTS;
+  const minTrades = config.minTrades ?? 30;
 
-  const entries: LeaderboardEntry[] = []
-  let filteredOut = 0
+  const entries: LeaderboardEntry[] = [];
+  let filteredOut = 0;
 
   for (let i = 0; i < strategies.length; i++) {
-    const strategy = strategies[i]
+    const strategy = strategies[i];
 
     onProgress?.({
       total: strategies.length,
       completed: i,
       currentStrategy: strategy.name,
       status: 'running',
-    })
+    });
 
     try {
       // 기본 파라미터로 백테스트 실행
-      const defaultParams: Record<string, number> = {}
+      const defaultParams: Record<string, number> = {};
       for (const [key, def] of Object.entries(strategy.params)) {
-        defaultParams[key] = def.default
+        defaultParams[key] = def.default;
       }
 
       const btConfig: BacktestConfig = {
@@ -70,39 +71,39 @@ export function runLeaderboard(
         expirySeconds: config.expirySeconds,
         strategyId: strategy.id,
         strategyParams: defaultParams,
-      }
+      };
 
-      const result = engine.run(btConfig, candles)
+      const result = engine.run(btConfig, candles);
 
       // 최소 거래 횟수 필터
       if (result.totalTrades < minTrades) {
-        filteredOut++
-        continue
+        filteredOut++;
+        continue;
       }
 
       // 최소 승률 필터
       if (config.minWinRate && result.winRate < config.minWinRate) {
-        filteredOut++
-        continue
+        filteredOut++;
+        continue;
       }
 
-      const entry = buildLeaderboardEntry(result, strategy, config)
-      entries.push(entry)
+      const entry = buildLeaderboardEntry(result, strategy, config);
+      entries.push(entry);
     } catch {
       // 전략 실행 실패 시 건너뜀
-      filteredOut++
+      filteredOut++;
     }
   }
 
   // 종합 점수 계산 및 랭킹
-  scoreAndRankEntries(entries, weights)
+  scoreAndRankEntries(entries, weights);
 
   onProgress?.({
     total: strategies.length,
     completed: strategies.length,
     currentStrategy: '',
     status: 'complete',
-  })
+  });
 
   return {
     entries,
@@ -111,7 +112,7 @@ export function runLeaderboard(
     totalStrategies: strategies.length,
     filteredOut,
     executionTimeMs: Date.now() - startTs,
-  }
+  };
 }
 
 // ============================================================
@@ -121,48 +122,44 @@ export function runLeaderboard(
 function buildLeaderboardEntry(
   result: BacktestResult,
   strategy: Strategy,
-  config: LeaderboardConfig
+  config: LeaderboardConfig,
 ): LeaderboardEntry {
-  const stats = calculateDetailedStatistics(
-    result.trades,
-    config.initialBalance
-  )
+  const stats = calculateDetailedStatistics(result.trades, config.initialBalance);
 
   // 거래일수 계산
-  const tradeDateSet = new Set<string>()
+  const tradeDateSet = new Set<string>();
   for (const trade of result.trades) {
-    const d = new Date(trade.entryTime)
-    tradeDateSet.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`)
+    const d = new Date(trade.entryTime);
+    tradeDateSet.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
   }
-  const tradingDays = Math.max(tradeDateSet.size, 1)
+  const tradingDays = Math.max(tradeDateSet.size, 1);
 
   // 일일 거래 지표
-  const tradesPerDay = result.totalTrades / tradingDays
-  const betAmount = config.betType === 'fixed'
-    ? config.betAmount
-    : config.initialBalance * (config.betAmount / 100)
-  const totalVolume = result.totalTrades * betAmount
-  const dailyVolume = totalVolume / tradingDays
+  const tradesPerDay = result.totalTrades / tradingDays;
+  const betAmount =
+    config.betType === 'fixed'
+      ? config.betAmount
+      : config.initialBalance * (config.betAmount / 100);
+  const totalVolume = result.totalTrades * betAmount;
+  const dailyVolume = totalVolume / tradingDays;
 
   // 거래량 목표 달성 소요일
-  const volumeTarget = config.initialBalance * config.volumeMultiplier
-  const daysToVolumeTarget = dailyVolume > 0
-    ? Math.ceil(volumeTarget / dailyVolume)
-    : null
+  const volumeTarget = config.initialBalance * config.volumeMultiplier;
+  const daysToVolumeTarget = dailyVolume > 0 ? Math.ceil(volumeTarget / dailyVolume) : null;
 
   // 주별 승률 표준편차 (안정성 지표)
-  const winRateStdDev = calculateWeeklyWinRateStdDev(result)
+  const winRateStdDev = calculateWeeklyWinRateStdDev(result);
 
   // Kelly Criterion: f* = (p * b - q) / b
   // p = 승률, q = 패률, b = 페이아웃 비율
-  const p = stats.winRate / 100
-  const q = 1 - p
-  const b = config.payout / 100
-  const kellyRaw = p > 0 && b > 0 ? (p * b - q) / b : 0
-  const kellyFraction = Math.max(0, kellyRaw * 100) // % 단위
+  const p = stats.winRate / 100;
+  const q = 1 - p;
+  const b = config.payout / 100;
+  const kellyRaw = p > 0 && b > 0 ? (p * b - q) / b : 0;
+  const kellyFraction = Math.max(0, kellyRaw * 100); // % 단위
 
   // 최소 필요 자금: MDD의 3배 (안전 마진)
-  const minRequiredBalance = stats.maxDrawdown * 3
+  const minRequiredBalance = stats.maxDrawdown * 3;
 
   return {
     strategyId: strategy.id,
@@ -200,15 +197,32 @@ function buildLeaderboardEntry(
     compositeScore: 0, // 이후 scoreAndRankEntries에서 계산
     rank: 0,
 
+    // P2-2: 절대 점수 (scoring.ts calculateScore)
+    ...(() => {
+      const scoreResult = calculateScore({
+        wins: result.wins,
+        losses: result.losses,
+        ties: result.ties,
+        payoutPercent: config.payout,
+        totalTrades: result.totalTrades,
+        maxDrawdownPercent: stats.maxDrawdownPercent,
+        maxLosingStreak: stats.maxConsecutiveLosses,
+        profitFactor: stats.profitFactor,
+        winRateStdDev,
+      });
+      return { absoluteScore: scoreResult.score, grade: scoreResult.grade };
+    })(),
+
     dataRange: { start: result.startTime, end: result.endTime },
-    candleCount: result.trades.length > 0
-      ? Math.round((result.endTime - result.startTime) / (config.expirySeconds * 1000))
-      : 0,
+    candleCount:
+      result.trades.length > 0
+        ? Math.round((result.endTime - result.startTime) / (config.expirySeconds * 1000))
+        : 0,
     betAmount,
     payout: config.payout,
     expirySeconds: config.expirySeconds,
     createdAt: Date.now(),
-  }
+  };
 }
 
 // ============================================================
@@ -221,30 +235,30 @@ function buildLeaderboardEntry(
  */
 export function scoreAndRankEntries(
   entries: LeaderboardEntry[],
-  weights: LeaderboardWeights = DEFAULT_WEIGHTS
+  weights: LeaderboardWeights = DEFAULT_WEIGHTS,
 ): void {
-  if (entries.length === 0) return
+  if (entries.length === 0) return;
 
   // 각 지표의 min/max 수집
   const ranges = {
-    winRate: getRange(entries, e => e.winRate),
-    profitFactor: getRange(entries, e => clampProfitFactor(e.profitFactor)),
-    maxDrawdownPercent: getRange(entries, e => e.maxDrawdownPercent),
-    maxConsecutiveLosses: getRange(entries, e => e.maxConsecutiveLosses),
-    tradesPerDay: getRange(entries, e => e.tradesPerDay),
-    recoveryFactor: getRange(entries, e => clampRecoveryFactor(e.recoveryFactor)),
-  }
+    winRate: getRange(entries, (e) => e.winRate),
+    profitFactor: getRange(entries, (e) => clampProfitFactor(e.profitFactor)),
+    maxDrawdownPercent: getRange(entries, (e) => e.maxDrawdownPercent),
+    maxConsecutiveLosses: getRange(entries, (e) => e.maxConsecutiveLosses),
+    tradesPerDay: getRange(entries, (e) => e.tradesPerDay),
+    recoveryFactor: getRange(entries, (e) => clampRecoveryFactor(e.recoveryFactor)),
+  };
 
   for (const entry of entries) {
     // 정방향 지표 (높을수록 좋음): 0-100 정규화
-    const winRateScore = normalize(entry.winRate, ranges.winRate)
-    const pfScore = normalize(clampProfitFactor(entry.profitFactor), ranges.profitFactor)
-    const tpdScore = normalize(entry.tradesPerDay, ranges.tradesPerDay)
-    const rfScore = normalize(clampRecoveryFactor(entry.recoveryFactor), ranges.recoveryFactor)
+    const winRateScore = normalize(entry.winRate, ranges.winRate);
+    const pfScore = normalize(clampProfitFactor(entry.profitFactor), ranges.profitFactor);
+    const tpdScore = normalize(entry.tradesPerDay, ranges.tradesPerDay);
+    const rfScore = normalize(clampRecoveryFactor(entry.recoveryFactor), ranges.recoveryFactor);
 
     // 역방향 지표 (낮을수록 좋음): 100 - 정규화값
-    const mddScore = 100 - normalize(entry.maxDrawdownPercent, ranges.maxDrawdownPercent)
-    const mclScore = 100 - normalize(entry.maxConsecutiveLosses, ranges.maxConsecutiveLosses)
+    const mddScore = 100 - normalize(entry.maxDrawdownPercent, ranges.maxDrawdownPercent);
+    const mclScore = 100 - normalize(entry.maxConsecutiveLosses, ranges.maxConsecutiveLosses);
 
     entry.compositeScore =
       winRateScore * weights.winRate +
@@ -252,15 +266,15 @@ export function scoreAndRankEntries(
       mddScore * weights.maxDrawdown +
       mclScore * weights.maxConsecutiveLosses +
       tpdScore * weights.tradesPerDay +
-      rfScore * weights.recoveryFactor
+      rfScore * weights.recoveryFactor;
   }
 
   // 종합 점수 기준 정렬
-  entries.sort((a, b) => b.compositeScore - a.compositeScore)
+  entries.sort((a, b) => b.compositeScore - a.compositeScore);
 
   // 순위 부여
   for (let i = 0; i < entries.length; i++) {
-    entries[i].rank = i + 1
+    entries[i].rank = i + 1;
   }
 }
 
@@ -269,70 +283,75 @@ export function scoreAndRankEntries(
 // ============================================================
 
 function calculateWeeklyWinRateStdDev(result: BacktestResult): number {
-  if (result.trades.length === 0) return 0
+  if (result.trades.length === 0) return 0;
 
   // 주 단위로 거래를 그룹화
-  const weekMap = new Map<string, { wins: number; total: number }>()
+  const weekMap = new Map<string, { wins: number; total: number }>();
 
   for (const trade of result.trades) {
-    const d = new Date(trade.entryTime)
+    const d = new Date(trade.entryTime);
     // ISO 주 기반 키
-    const year = d.getFullYear()
-    const weekStart = new Date(d)
-    weekStart.setDate(d.getDate() - d.getDay())
-    const key = `${year}-${weekStart.getMonth()}-${weekStart.getDate()}`
+    const year = d.getFullYear();
+    const weekStart = new Date(d);
+    weekStart.setDate(d.getDate() - d.getDay());
+    const key = `${year}-${weekStart.getMonth()}-${weekStart.getDate()}`;
 
-    const week = weekMap.get(key) ?? { wins: 0, total: 0 }
-    week.total++
-    if (trade.result === 'WIN') week.wins++
-    weekMap.set(key, week)
+    const week = weekMap.get(key) ?? { wins: 0, total: 0 };
+    week.total++;
+    if (trade.result === 'WIN') week.wins++;
+    weekMap.set(key, week);
   }
 
   // 주별 승률 배열
-  const weeklyRates: number[] = []
+  const weeklyRates: number[] = [];
   for (const week of weekMap.values()) {
-    if (week.total >= 5) { // 최소 5거래 이상인 주만 포함
-      weeklyRates.push((week.wins / week.total) * 100)
+    if (week.total >= 5) {
+      // 최소 5거래 이상인 주만 포함
+      weeklyRates.push((week.wins / week.total) * 100);
     }
   }
 
-  if (weeklyRates.length < 2) return 0
+  if (weeklyRates.length < 2) return 0;
 
-  const mean = weeklyRates.reduce((a, b) => a + b, 0) / weeklyRates.length
-  const variance = weeklyRates.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / weeklyRates.length
-  return Math.sqrt(variance)
+  const mean = weeklyRates.reduce((a, b) => a + b, 0) / weeklyRates.length;
+  const variance =
+    weeklyRates.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / weeklyRates.length;
+  return Math.sqrt(variance);
 }
 
 // ============================================================
 // Helper Functions
 // ============================================================
 
-function getRange(entries: LeaderboardEntry[], getter: (e: LeaderboardEntry) => number): { min: number; max: number } {
-  let min = Infinity
-  let max = -Infinity
+function getRange(
+  entries: LeaderboardEntry[],
+  getter: (e: LeaderboardEntry) => number,
+): { min: number; max: number } {
+  let min = Infinity;
+  let max = -Infinity;
   for (const e of entries) {
-    const v = getter(e)
-    if (v < min) min = v
-    if (v > max) max = v
+    const v = getter(e);
+    if (v < min) min = v;
+    if (v > max) max = v;
   }
-  return { min, max }
+  return { min, max };
 }
 
 function normalize(value: number, range: { min: number; max: number }): number {
-  if (range.max === range.min) return 50 // 모든 값이 같으면 중간값
-  return ((value - range.min) / (range.max - range.min)) * 100
+  if (range.max === range.min) return 50; // 모든 값이 같으면 중간값
+  return ((value - range.min) / (range.max - range.min)) * 100;
 }
 
 /** Infinity 방지를 위한 profitFactor 클램핑 */
 function clampProfitFactor(pf: number): number {
-  if (!isFinite(pf)) return 10
-  return Math.min(pf, 10)
+  if (!isFinite(pf)) return 10;
+  return Math.min(pf, 10);
 }
 
 /** Infinity 방지를 위한 recoveryFactor 클램핑 */
 function clampRecoveryFactor(rf: number): number {
-  if (!isFinite(rf)) return 50
-  return Math.min(rf, 50)
+  if (!isFinite(rf)) return 50;
+  return Math.min(rf, 50);
 }
 
 // ============================================================
@@ -351,23 +370,22 @@ export function formatLeaderboardReport(result: LeaderboardResult): string {
     `  Execution: ${result.executionTimeMs}ms`,
     '════════════════════════════════════════════════════════════════',
     '',
-  ]
+  ];
 
   for (const entry of result.entries) {
-    const profitable = entry.winRate >= 52.1 ? '+' : '-'
-    const volumeDays = entry.daysToVolumeTarget !== null
-      ? `${entry.daysToVolumeTarget}d`
-      : 'N/A'
+    const profitable = entry.winRate >= 52.1 ? '+' : '-';
+    const volumeDays = entry.daysToVolumeTarget !== null ? `${entry.daysToVolumeTarget}d` : 'N/A';
 
+    const gradeStr = entry.grade ? ` [${entry.grade}]` : '';
     lines.push(
-      `#${entry.rank} [${profitable}] ${entry.strategyName}`,
-      `   Score: ${entry.compositeScore.toFixed(1)} | WR: ${entry.winRate.toFixed(1)}% | PF: ${entry.profitFactor.toFixed(2)} | Net: $${entry.netProfit.toFixed(2)}`,
+      `#${entry.rank} [${profitable}] ${entry.strategyName}${gradeStr}`,
+      `   Score: ${entry.compositeScore.toFixed(1)} (abs: ${entry.absoluteScore?.toFixed(1) ?? '-'}) | WR: ${entry.winRate.toFixed(1)}% | PF: ${entry.profitFactor.toFixed(2)} | Net: $${entry.netProfit.toFixed(2)}`,
       `   MDD: ${entry.maxDrawdownPercent.toFixed(1)}% | MaxLoss: ${entry.maxConsecutiveLosses}x | Trades/Day: ${entry.tradesPerDay.toFixed(1)}`,
       `   Daily Vol: $${entry.dailyVolume.toFixed(0)} | Vol Target: ${volumeDays} | Kelly: ${entry.kellyFraction.toFixed(1)}%`,
       `   Min Balance: $${entry.minRequiredBalance.toFixed(0)} | Stability: ±${entry.winRateStdDev.toFixed(1)}%`,
       '────────────────────────────────────────────────────────────────',
-    )
+    );
   }
 
-  return lines.join('\n')
+  return lines.join('\n');
 }

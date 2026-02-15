@@ -1,55 +1,56 @@
-import { getWebSocketParser, WebSocketParser, CandleData } from './websocket-parser'
-import type {
+import { getWebSocketParser, WebSocketParser, CandleData } from './websocket-parser';
+import type { PriceUpdate, WebSocketConnection, WebSocketMessage } from './websocket-types';
+
+export type {
   PriceUpdate,
   WebSocketConnection,
   WebSocketMessage,
-} from './websocket-types'
+  WebSocketEvent,
+} from './websocket-types';
 
-export type { PriceUpdate, WebSocketConnection, WebSocketMessage, WebSocketEvent } from './websocket-types'
-
-type PriceUpdateCallback = (update: PriceUpdate) => void
-type HistoryCallback = (candles: CandleData[]) => void
-type MessageCallback = (message: WebSocketMessage) => void
-type ConnectionCallback = (connection: WebSocketConnection) => void
+type PriceUpdateCallback = (update: PriceUpdate) => void;
+type HistoryCallback = (candles: CandleData[]) => void;
+type MessageCallback = (message: WebSocketMessage) => void;
+type ConnectionCallback = (connection: WebSocketConnection) => void;
 
 class WebSocketInterceptor {
-  private messageBuffer: WebSocketMessage[] = []
-  private isListening = false
-  private analysisMode = true
-  private parser: WebSocketParser
-  private boundHandler: (event: MessageEvent) => void
+  private messageBuffer: WebSocketMessage[] = [];
+  private isListening = false;
+  private analysisMode = true;
+  private parser: WebSocketParser;
+  private boundHandler: (event: MessageEvent) => void;
 
-  private priceUpdateCallbacks: PriceUpdateCallback[] = []
-  private historyCallbacks: HistoryCallback[] = []
-  private messageCallbacks: MessageCallback[] = []
-  private connectionCallbacks: ConnectionCallback[] = []
+  private priceUpdateCallbacks: PriceUpdateCallback[] = [];
+  private historyCallbacks: HistoryCallback[] = [];
+  private messageCallbacks: MessageCallback[] = [];
+  private connectionCallbacks: ConnectionCallback[] = [];
 
   // [PO-17] 실시간 자산 코드 추적
   private lastAssetId: string | null = null;
 
-  private static instance: WebSocketInterceptor | null = null
+  private static instance: WebSocketInterceptor | null = null;
 
   static getInstance(): WebSocketInterceptor {
-    if (!WebSocketInterceptor.instance) WebSocketInterceptor.instance = new WebSocketInterceptor()
-    return WebSocketInterceptor.instance
+    if (!WebSocketInterceptor.instance) WebSocketInterceptor.instance = new WebSocketInterceptor();
+    return WebSocketInterceptor.instance;
   }
 
   private constructor() {
-    this.parser = getWebSocketParser()
-    this.boundHandler = this.handleBridgeMessage.bind(this)
+    this.parser = getWebSocketParser();
+    this.boundHandler = this.handleBridgeMessage.bind(this);
   }
 
   start(): void {
-    if (this.isListening) return
-    this.setupEventListener()
-    this.injectScript()
-    this.isListening = true
+    if (this.isListening) return;
+    this.setupEventListener();
+    this.injectScript();
+    this.isListening = true;
   }
 
   stop(): void {
-    if (!this.isListening) return
-    window.removeEventListener('message', this.boundHandler)
-    this.isListening = false
+    if (!this.isListening) return;
+    window.removeEventListener('message', this.boundHandler);
+    this.isListening = false;
   }
 
   private injectScript(): void {
@@ -60,7 +61,7 @@ class WebSocketInterceptor {
   }
 
   private setupEventListener(): void {
-    window.addEventListener('message', this.boundHandler)
+    window.addEventListener('message', this.boundHandler);
   }
 
   /**
@@ -84,7 +85,7 @@ class WebSocketInterceptor {
         rawType: data.dataType || (data.text ? 'string' : typeof data.raw),
         timestamp: data.timestamp || Date.now(),
         raw: data.raw,
-        text: data.text ?? null
+        text: data.text ?? null,
       };
       this.handleMessage(message, message.timestamp);
     } else if (event.data.type === 'ws-asset-change') {
@@ -101,7 +102,12 @@ class WebSocketInterceptor {
 
   // 파서가 반환하는 유효한 ParsedMessage 타입 목록
   private static readonly VALID_PARSED_TYPES = new Set([
-    'price_update', 'candle_data', 'candle_history', 'orderbook', 'trade', 'heartbeat'
+    'price_update',
+    'candle_data',
+    'candle_history',
+    'orderbook',
+    'trade',
+    'heartbeat',
   ]);
 
   private handleMessage(data: WebSocketMessage, timestamp: number): void {
@@ -110,56 +116,74 @@ class WebSocketInterceptor {
     let parsed = data.parsed;
     if (!parsed || !WebSocketInterceptor.VALID_PARSED_TYPES.has(parsed.type)) {
       // binary_payload는 파서의 패턴 10이 처리할 수 있으므로 원본 객체를 전달
-      const toParse = (parsed?.type === 'binary_payload') ? parsed : (data.text ?? data.raw);
+      const toParse = parsed?.type === 'binary_payload' ? parsed : (data.text ?? data.raw);
       parsed = this.parser.parse(toParse);
     }
 
-    const enriched: WebSocketMessage = { ...data, parsed }
-    this.messageCallbacks.forEach(cb => cb(enriched))
+    const enriched: WebSocketMessage = { ...data, parsed };
+    this.messageCallbacks.forEach((cb) => cb(enriched));
 
     // [Fix 5] 수신 WS 메시지에서 asset ID 자동 추적 (2가지 전략)
     this.trackAssetFromMessage(parsed, data);
 
     if (parsed && parsed.type === 'candle_history') {
-       const candles = parsed.data as CandleData[];
-       console.log(`[PO] [WS-Interceptor] Candle History Detected! Count: ${candles?.length || 0}`);
-       if (candles && candles.length > 0) {
-          const symbol = candles[0].symbol || 'UNKNOWN';
-          console.log(`[PO] [WS] History/Bulk Captured: ${candles.length} candles for ${symbol}`);
-          this.historyCallbacks.forEach(cb => cb(candles));
-       }
-    } else if (parsed && (parsed.type === 'candle_data' || parsed.type === 'price_update') && !Array.isArray(parsed.data)) {
-        // 단일 객체 대응
-        const candle = parsed.data as CandleData;
-        if (candle && candle.open && candle.close) {
-           this.historyCallbacks.forEach(cb => cb([candle]));
-        }
+      const candles = parsed.data as CandleData[];
+      console.log(`[PO] [WS-Interceptor] Candle History Detected! Count: ${candles?.length || 0}`);
+      if (candles && candles.length > 0) {
+        const symbol = candles[0].symbol || 'UNKNOWN';
+        console.log(`[PO] [WS] History/Bulk Captured: ${candles.length} candles for ${symbol}`);
+        this.historyCallbacks.forEach((cb) => cb(candles));
+      }
+    } else if (
+      parsed &&
+      (parsed.type === 'candle_data' || parsed.type === 'price_update') &&
+      !Array.isArray(parsed.data)
+    ) {
+      // 단일 객체 대응
+      const candle = parsed.data as CandleData;
+      if (candle && candle.open && candle.close) {
+        this.historyCallbacks.forEach((cb) => cb([candle]));
+      }
     }
 
-    const priceUpdate = parsed ? this.parser.extractPrice(parsed.raw ?? parsed) : null
+    const priceUpdate = parsed ? this.parser.extractPrice(parsed.raw ?? parsed) : null;
     if (priceUpdate) {
-      this.priceUpdateCallbacks.forEach(cb => cb({ ...priceUpdate, timestamp: priceUpdate.timestamp || timestamp }))
+      this.priceUpdateCallbacks.forEach((cb) =>
+        cb({ ...priceUpdate, timestamp: priceUpdate.timestamp || timestamp }),
+      );
     }
   }
 
   onPriceUpdate(callback: PriceUpdateCallback): () => void {
-    this.priceUpdateCallbacks.push(callback)
-    return () => { const i = this.priceUpdateCallbacks.indexOf(callback); if (i > -1) this.priceUpdateCallbacks.splice(i, 1) }
+    this.priceUpdateCallbacks.push(callback);
+    return () => {
+      const i = this.priceUpdateCallbacks.indexOf(callback);
+      if (i > -1) this.priceUpdateCallbacks.splice(i, 1);
+    };
   }
 
   onHistoryReceived(callback: HistoryCallback): () => void {
-    this.historyCallbacks.push(callback)
-    return () => { const i = this.historyCallbacks.indexOf(callback); if (i > -1) this.historyCallbacks.splice(i, 1) }
+    this.historyCallbacks.push(callback);
+    return () => {
+      const i = this.historyCallbacks.indexOf(callback);
+      if (i > -1) this.historyCallbacks.splice(i, 1);
+    };
   }
 
   onMessage(callback: MessageCallback): () => void {
-    this.messageCallbacks.push(callback)
-    return () => { const i = this.messageCallbacks.indexOf(callback); if (i > -1) this.messageCallbacks.splice(i, 1) }
+    this.messageCallbacks.push(callback);
+    return () => {
+      const i = this.messageCallbacks.indexOf(callback);
+      if (i > -1) this.messageCallbacks.splice(i, 1);
+    };
   }
 
   onConnectionChange(callback: ConnectionCallback): () => void {
-    this.connectionCallbacks.push(callback)
-    return () => { const i = this.connectionCallbacks.indexOf(callback); if (i > -1) this.connectionCallbacks.splice(i, 1) }
+    this.connectionCallbacks.push(callback);
+    return () => {
+      const i = this.connectionCallbacks.indexOf(callback);
+      if (i > -1) this.connectionCallbacks.splice(i, 1);
+    };
   }
 
   getStatus() {
@@ -167,7 +191,7 @@ class WebSocketInterceptor {
       isListening: this.isListening,
       analysisMode: this.analysisMode,
       messageCount: this.messageBuffer.length,
-    }
+    };
   }
 
   /**
@@ -175,12 +199,15 @@ class WebSocketInterceptor {
    */
   send(payload: any, urlPart?: string): void {
     // [#47] targetOrigin을 명시하여 의도한 페이지에서만 수신 가능하도록
-    window.postMessage({
-      source: 'pq-content',
-      type: 'ws-send',
-      payload,
-      urlPart
-    }, window.location.origin);
+    window.postMessage(
+      {
+        source: 'pq-content',
+        type: 'ws-send',
+        payload,
+        urlPart,
+      },
+      window.location.origin,
+    );
   }
 
   /**
@@ -222,5 +249,5 @@ class WebSocketInterceptor {
 }
 
 export function getWebSocketInterceptor(): WebSocketInterceptor {
-  return WebSocketInterceptor.getInstance()
+  return WebSocketInterceptor.getInstance();
 }

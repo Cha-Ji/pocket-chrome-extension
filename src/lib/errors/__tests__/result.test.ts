@@ -23,11 +23,10 @@ describe('Result', () => {
 
   describe('fail', () => {
     it('should create failure with POError', () => {
-      const result = Result.fail(
-        ErrorCode.VALIDATION_REQUIRED,
-        'Field is required',
-        { module: 'lib', function: 'validate' }
-      );
+      const result = Result.fail(ErrorCode.VALIDATION_REQUIRED, 'Field is required', {
+        module: 'lib',
+        function: 'validate',
+      });
 
       expect(result.success).toBe(false);
       expect(result.error.code).toBe(ErrorCode.VALIDATION_REQUIRED);
@@ -83,7 +82,7 @@ describe('Result', () => {
     it('should chain success results', () => {
       const result = Result.ok(5);
       const chained = Result.flatMap(result, (x) =>
-        x > 0 ? Result.ok(x * 2) : Result.fail(ErrorCode.VALIDATION_RANGE, 'Must be positive')
+        x > 0 ? Result.ok(x * 2) : Result.fail(ErrorCode.VALIDATION_RANGE, 'Must be positive'),
       );
 
       expect(Result.isOk(chained)).toBe(true);
@@ -93,7 +92,7 @@ describe('Result', () => {
     it('should short-circuit on failure', () => {
       const result = Result.ok(-5);
       const chained = Result.flatMap(result, (x) =>
-        x > 0 ? Result.ok(x * 2) : Result.fail(ErrorCode.VALIDATION_RANGE, 'Must be positive')
+        x > 0 ? Result.ok(x * 2) : Result.fail(ErrorCode.VALIDATION_RANGE, 'Must be positive'),
       );
 
       expect(Result.isErr(chained)).toBe(true);
@@ -157,9 +156,7 @@ describe('Result', () => {
       const error = new POError({ code: ErrorCode.UNKNOWN });
       const result: Result<number> = Result.err(error);
 
-      expect(Result.unwrapOrElse(result, (e) => e.message.length)).toBe(
-        error.message.length
-      );
+      expect(Result.unwrapOrElse(result, (e) => e.message.length)).toBe(error.message.length);
     });
   });
 
@@ -233,10 +230,10 @@ describe('Result', () => {
     });
 
     it('should wrap rejected promise', async () => {
-      const result = await Result.fromPromise(
-        Promise.reject(new Error('test error')),
-        { module: 'lib', function: 'test' }
-      );
+      const result = await Result.fromPromise(Promise.reject(new Error('test error')), {
+        module: 'lib',
+        function: 'test',
+      });
 
       expect(Result.isErr(result)).toBe(true);
       expect((result as Failure).error.message).toBe('test error');
@@ -245,10 +242,7 @@ describe('Result', () => {
 
   describe('fromNullable', () => {
     it('should create success for non-null value', () => {
-      const result = Result.fromNullable(
-        42,
-        new POError({ code: ErrorCode.VALIDATION_REQUIRED })
-      );
+      const result = Result.fromNullable(42, new POError({ code: ErrorCode.VALIDATION_REQUIRED }));
 
       expect(Result.isOk(result)).toBe(true);
       expect((result as Success<number>).data).toBe(42);
@@ -296,7 +290,7 @@ describe('Result', () => {
 
     it('should convert to legacy failure format', () => {
       const result: Result<number> = Result.err(
-        new POError({ code: ErrorCode.UNKNOWN, message: 'test error' })
+        new POError({ code: ErrorCode.UNKNOWN, message: 'test error' }),
       );
       const legacy = Result.toLegacy(result);
 
@@ -317,7 +311,7 @@ describe('Result', () => {
         () => {
           throw new Error('sync error');
         },
-        { module: 'lib', function: 'test' }
+        { module: 'lib', function: 'test' },
       );
 
       expect(Result.isErr(result)).toBe(true);

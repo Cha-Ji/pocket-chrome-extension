@@ -8,7 +8,7 @@ export async function runFullVerification() {
     timestamp: new Date().toISOString(),
     selectors: {},
     interactions: {},
-    reactContext: {}
+    reactContext: {},
   };
 
   const SELECTORS = {
@@ -17,7 +17,7 @@ export async function runFullVerification() {
     assetList: '.assets-block__alist.alist',
     assetItem: '.alist__item',
     assetLabel: '.alist__label',
-    assetPayout: '.alist__payout'
+    assetPayout: '.alist__payout',
   };
 
   // 1. Selector Verification
@@ -29,42 +29,50 @@ export async function runFullVerification() {
       found: !!el,
       count,
       className: el?.className,
-      isVisible: el ? (el as HTMLElement).offsetWidth > 0 : false
+      isVisible: el ? (el as HTMLElement).offsetWidth > 0 : false,
     };
-    console.log(`- ${key}: ${count} elements found (${results.selectors[key].isVisible ? 'VISIBLE' : 'HIDDEN'})`);
+    console.log(
+      `- ${key}: ${count} elements found (${results.selectors[key].isVisible ? 'VISIBLE' : 'HIDDEN'})`,
+    );
   }
 
   // 2. React Internal Props Verification
   console.log('[PO] [Step 2] Verifying React Event Handlers...');
   const trigger = document.querySelector(SELECTORS.pairWrap) as HTMLElement;
   if (trigger) {
-    const props = Object.keys(trigger).filter(k => k.startsWith('__reactProps'));
+    const props = Object.keys(trigger).filter((k) => k.startsWith('__reactProps'));
     results.reactContext.trigger = {
       keys: props,
-      hasOnClick: props.some(k => typeof (trigger as any)[k]?.onClick === 'function')
+      hasOnClick: props.some((k) => typeof (trigger as any)[k]?.onClick === 'function'),
     };
-    console.log(`- Trigger (${SELECTORS.pairWrap}) has React onClick: ${results.reactContext.trigger.hasOnClick}`);
+    console.log(
+      `- Trigger (${SELECTORS.pairWrap}) has React onClick: ${results.reactContext.trigger.hasOnClick}`,
+    );
   }
 
   const firstItem = document.querySelector('.alist__link') as HTMLElement;
   if (firstItem) {
-    const props = Object.keys(firstItem).filter(k => k.startsWith('__reactProps'));
+    const props = Object.keys(firstItem).filter((k) => k.startsWith('__reactProps'));
     results.reactContext.assetItem = {
       keys: props,
-      hasOnClick: props.some(k => typeof (firstItem as any)[k]?.onClick === 'function')
+      hasOnClick: props.some((k) => typeof (firstItem as any)[k]?.onClick === 'function'),
     };
-    console.log(`- Asset Link (.alist__link) has React onClick: ${results.reactContext.assetItem.hasOnClick}`);
+    console.log(
+      `- Asset Link (.alist__link) has React onClick: ${results.reactContext.assetItem.hasOnClick}`,
+    );
   }
 
   // 3. Data Integrity Verification
   console.log('[PO] [Step 3] Verifying Data Scraping Logic...');
   const items = document.querySelectorAll(SELECTORS.assetItem);
   if (items.length > 0) {
-    const samples = Array.from(items).slice(0, 3).map(item => {
-      const label = item.querySelector(SELECTORS.assetLabel)?.textContent?.trim();
-      const payout = item.querySelector(SELECTORS.assetPayout)?.textContent?.trim();
-      return { label, payout };
-    });
+    const samples = Array.from(items)
+      .slice(0, 3)
+      .map((item) => {
+        const label = item.querySelector(SELECTORS.assetLabel)?.textContent?.trim();
+        const payout = item.querySelector(SELECTORS.assetPayout)?.textContent?.trim();
+        return { label, payout };
+      });
     results.data = { samples, total: items.length };
     console.log(`- Data Sample:`, samples);
   } else {

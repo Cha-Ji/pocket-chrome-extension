@@ -170,9 +170,7 @@ describe('POError', () => {
 
       const output = error.toShortString();
 
-      expect(output).toBe(
-        '[TRADE_EXECUTION_FAILED] 거래 실패 @ content-script.executeTrade'
-      );
+      expect(output).toBe('[TRADE_EXECUTION_FAILED] 거래 실패 @ content-script.executeTrade');
     });
 
     it('should include path in short string', () => {
@@ -253,11 +251,7 @@ describe('POError', () => {
     });
 
     it('should use provided code', () => {
-      const result = POError.from(
-        new Error('test'),
-        undefined,
-        ErrorCode.NETWORK_TIMEOUT
-      );
+      const result = POError.from(new Error('test'), undefined, ErrorCode.NETWORK_TIMEOUT);
 
       expect(result.code).toBe(ErrorCode.NETWORK_TIMEOUT);
     });
@@ -299,11 +293,10 @@ describe('Errors helpers', () => {
   });
 
   it('should create trade error with CRITICAL severity', () => {
-    const error = Errors.trade(
-      ErrorCode.TRADE_EXECUTION_FAILED,
-      'Trade failed',
-      { module: 'content-script', function: 'executeTrade' }
-    );
+    const error = Errors.trade(ErrorCode.TRADE_EXECUTION_FAILED, 'Trade failed', {
+      module: 'content-script',
+      function: 'executeTrade',
+    });
 
     expect(error.severity).toBe(ErrorSeverity.CRITICAL);
   });

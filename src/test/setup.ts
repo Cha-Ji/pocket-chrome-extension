@@ -1,9 +1,9 @@
-import { vi } from 'vitest'
-import '@testing-library/jest-dom/vitest'
+import { vi } from 'vitest';
+import '@testing-library/jest-dom/vitest';
 
 // Increase max listeners to prevent warnings during parallel tests
 if (typeof process !== 'undefined') {
-  process.setMaxListeners(15)
+  process.setMaxListeners(15);
 }
 
 // Mock Chrome APIs
@@ -40,12 +40,12 @@ const chromeMock = {
       addListener: vi.fn(),
     },
   },
-}
+};
 
 // @ts-ignore
-globalThis.chrome = chromeMock
+globalThis.chrome = chromeMock;
 
 // Reset mocks before each test
 beforeEach(() => {
-  vi.clearAllMocks()
-})
+  vi.clearAllMocks();
+});

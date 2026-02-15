@@ -1,18 +1,15 @@
-
 interface ControlPanelProps {
-  isRunning: boolean
-  isLoading: boolean
-  onStart: () => void
-  onStop: () => void
+  isRunning: boolean;
+  isLoading: boolean;
+  onStart: () => void;
+  onStop: () => void;
 }
 
 export function ControlPanel({ isRunning, isLoading, onStart, onStop }: ControlPanelProps) {
   return (
     <div className="bg-pocket-dark rounded-lg p-4 space-y-3">
-      <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">
-        Controls
-      </h2>
-      
+      <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">Controls</h2>
+
       <div className="flex gap-2">
         {!isRunning ? (
           <button
@@ -53,5 +50,5 @@ export function ControlPanel({ isRunning, isLoading, onStart, onStop }: ControlP
         </button>
       </div>
     </div>
-  )
+  );
 }

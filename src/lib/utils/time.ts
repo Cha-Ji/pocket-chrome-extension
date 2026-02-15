@@ -24,27 +24,27 @@
  */
 export function toEpochMs(input: number | string): number {
   if (typeof input === 'string' && input.trim() === '') {
-    throw new Error(`invalid timestamp: ${input}`)
+    throw new Error(`invalid timestamp: ${input}`);
   }
 
-  const n = typeof input === 'string' ? Number(input) : input
+  const n = typeof input === 'string' ? Number(input) : input;
 
   if (!Number.isFinite(n)) {
-    throw new Error(`invalid timestamp: ${input}`)
+    throw new Error(`invalid timestamp: ${input}`);
   }
 
   // 소수점이 있으면 sec로 취급 → ms 변환
   if (!Number.isInteger(n)) {
-    return Math.floor(n * 1000)
+    return Math.floor(n * 1000);
   }
 
   // 13자리 이상: 이미 ms
   if (n >= 1e12) {
-    return n
+    return n;
   }
 
   // 그 외: sec → ms
-  return n * 1000
+  return n * 1000;
 }
 
 /**
@@ -55,7 +55,7 @@ export function toEpochMs(input: number | string): number {
  * @returns 초 단위 timestamp (소수)
  */
 export function toEpochSec(tsMs: number): number {
-  return tsMs / 1000
+  return tsMs / 1000;
 }
 
 /**
@@ -65,7 +65,7 @@ export function toEpochSec(tsMs: number): number {
  * @returns ms이면 true
  */
 export function isMilliseconds(ts: number): boolean {
-  return ts >= 1e12
+  return ts >= 1e12;
 }
 
 /**
@@ -75,35 +75,35 @@ export function isMilliseconds(ts: number): boolean {
  * @returns 진단 결과 (단위별 개수, 혼재 여부)
  */
 export function diagnoseTimestamps(timestamps: number[]): {
-  totalCount: number
-  msCount: number
-  secCount: number
-  secFloatCount: number
-  isMixed: boolean
-  recommendation: string
+  totalCount: number;
+  msCount: number;
+  secCount: number;
+  secFloatCount: number;
+  isMixed: boolean;
+  recommendation: string;
 } {
-  let msCount = 0
-  let secCount = 0
-  let secFloatCount = 0
+  let msCount = 0;
+  let secCount = 0;
+  let secFloatCount = 0;
 
   for (const ts of timestamps) {
     if (!Number.isInteger(ts)) {
-      secFloatCount++
+      secFloatCount++;
     } else if (ts >= 1e12) {
-      msCount++
+      msCount++;
     } else {
-      secCount++
+      secCount++;
     }
   }
 
-  const distinctTypes = [msCount, secCount, secFloatCount].filter(c => c > 0).length
-  const isMixed = distinctTypes > 1
+  const distinctTypes = [msCount, secCount, secFloatCount].filter((c) => c > 0).length;
+  const isMixed = distinctTypes > 1;
 
-  let recommendation: string
+  let recommendation: string;
   if (!isMixed) {
-    recommendation = 'Timestamps are uniform. No migration needed.'
+    recommendation = 'Timestamps are uniform. No migration needed.';
   } else {
-    recommendation = `Mixed timestamps detected: ${msCount} ms, ${secCount} sec(int), ${secFloatCount} sec(float). Run migration to normalize all to ms.`
+    recommendation = `Mixed timestamps detected: ${msCount} ms, ${secCount} sec(int), ${secFloatCount} sec(float). Run migration to normalize all to ms.`;
   }
 
   return {
@@ -113,5 +113,5 @@ export function diagnoseTimestamps(timestamps: number[]): {
     secFloatCount,
     isMixed,
     recommendation,
-  }
+  };
 }

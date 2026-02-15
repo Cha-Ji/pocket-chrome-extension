@@ -5,9 +5,9 @@
 // DOM에서 직접 읽어오는 모듈
 // ============================================================
 
-import type { IndicatorValues } from '../lib/types'
+import type { IndicatorValues } from '../lib/types';
 
-export type { IndicatorValues }
+export type { IndicatorValues };
 
 // Pocket Option 인디케이터 DOM 셀렉터
 // 실제 사이트 구조에 따라 조정 필요
@@ -35,16 +35,8 @@ const INDICATOR_SELECTORS = {
   ],
 
   // Stochastic K/D 라인 개별 셀렉터
-  stochasticK: [
-    '.stochastic-k',
-    '.stoch-k-value',
-    '[data-line="k"]',
-  ],
-  stochasticD: [
-    '.stochastic-d',
-    '.stoch-d-value',
-    '[data-line="d"]',
-  ],
+  stochasticK: ['.stochastic-k', '.stoch-k-value', '[data-line="k"]'],
+  stochasticD: ['.stochastic-d', '.stoch-d-value', '[data-line="d"]'],
 
   // MACD 셀렉터
   macd: [
@@ -70,100 +62,99 @@ const INDICATOR_SELECTORS = {
     '.indicators-block',
     '.chart-bottom-panel',
   ],
-}
+};
 
 export class IndicatorReader {
-  private observer: MutationObserver | null = null
-  private pollingInterval: ReturnType<typeof setInterval> | null = null
-  private _isReading = false
-  private lastValues: IndicatorValues | null = null
-  private listeners: ((values: IndicatorValues) => void)[] = []
+  private observer: MutationObserver | null = null;
+  private pollingInterval: ReturnType<typeof setInterval> | null = null;
+  private _isReading = false;
+  private lastValues: IndicatorValues | null = null;
+  private listeners: ((values: IndicatorValues) => void)[] = [];
 
   get isReading(): boolean {
-    return this._isReading
+    return this._isReading;
   }
 
   /**
    * Start reading indicator values
    */
   start(): void {
-    if (this._isReading) return
+    if (this._isReading) return;
 
-    console.log('[PO] [IndicatorReader] Starting indicator reading...')
-    this._isReading = true
+    console.log('[PO] [IndicatorReader] Starting indicator reading...');
+    this._isReading = true;
 
     // MutationObserver로 인디케이터 변화 감지
-    this.setupObserver()
+    this.setupObserver();
 
     // 폴링 백업 (1초마다)
-    this.startPolling()
+    this.startPolling();
 
-    console.log('[PO] [IndicatorReader] Reading started')
+    console.log('[PO] [IndicatorReader] Reading started');
   }
 
   /**
    * Stop reading
    */
   stop(): void {
-    if (!this._isReading) return
+    if (!this._isReading) return;
 
-    console.log('[PO] [IndicatorReader] Stopping indicator reading...')
+    console.log('[PO] [IndicatorReader] Stopping indicator reading...');
 
-    this.observer?.disconnect()
-    this.observer = null
+    this.observer?.disconnect();
+    this.observer = null;
 
     if (this.pollingInterval) {
-      clearInterval(this.pollingInterval)
-      this.pollingInterval = null
+      clearInterval(this.pollingInterval);
+      this.pollingInterval = null;
     }
 
-    this._isReading = false
-    console.log('[PO] [IndicatorReader] Reading stopped')
+    this._isReading = false;
+    console.log('[PO] [IndicatorReader] Reading stopped');
   }
 
   /**
    * Get current indicator values
    */
   getValues(): IndicatorValues | null {
-    return this.lastValues
+    return this.lastValues;
   }
 
   /**
    * Get RSI value
    */
   getRSI(): number | null {
-    return this.lastValues?.rsi ?? null
+    return this.lastValues?.rsi ?? null;
   }
 
   /**
    * Get Stochastic values
    */
   getStochastic(): { k: number; d: number } | null {
-    if (this.lastValues?.stochasticK !== undefined &&
-        this.lastValues?.stochasticD !== undefined) {
+    if (this.lastValues?.stochasticK !== undefined && this.lastValues?.stochasticD !== undefined) {
       return {
         k: this.lastValues.stochasticK,
-        d: this.lastValues.stochasticD
-      }
+        d: this.lastValues.stochasticD,
+      };
     }
-    return null
+    return null;
   }
 
   /**
    * Subscribe to indicator updates
    */
   onUpdate(callback: (values: IndicatorValues) => void): () => void {
-    this.listeners.push(callback)
+    this.listeners.push(callback);
     return () => {
-      this.listeners = this.listeners.filter(l => l !== callback)
-    }
+      this.listeners = this.listeners.filter((l) => l !== callback);
+    };
   }
 
   /**
    * Force read current values
    */
   readNow(): IndicatorValues {
-    return this.readAllIndicators()
+    return this.readAllIndicators();
   }
 
   // ============================================================
@@ -175,35 +166,35 @@ export class IndicatorReader {
    */
   private readAllIndicators(): IndicatorValues {
     const values: IndicatorValues = {
-      timestamp: Date.now()
-    }
+      timestamp: Date.now(),
+    };
 
     // RSI 읽기
-    const rsi = this.readRSI()
+    const rsi = this.readRSI();
     if (rsi !== null) {
-      values.rsi = rsi
+      values.rsi = rsi;
     }
 
     // Stochastic 읽기
-    const stoch = this.readStochastic()
+    const stoch = this.readStochastic();
     if (stoch) {
-      values.stochasticK = stoch.k
-      values.stochasticD = stoch.d
+      values.stochasticK = stoch.k;
+      values.stochasticD = stoch.d;
     }
 
     // MACD 읽기
-    const macd = this.readMACD()
+    const macd = this.readMACD();
     if (macd) {
-      values.macd = macd
+      values.macd = macd;
     }
 
     // 볼린저 밴드 읽기
-    const bb = this.readBollingerBands()
+    const bb = this.readBollingerBands();
     if (bb) {
-      values.bollingerBands = bb
+      values.bollingerBands = bb;
     }
 
-    return values
+    return values;
   }
 
   /**
@@ -212,58 +203,58 @@ export class IndicatorReader {
   private readRSI(): number | null {
     // 방법 1: 직접 셀렉터로 찾기
     for (const selector of INDICATOR_SELECTORS.rsi) {
-      const el = document.querySelector(selector)
+      const el = document.querySelector(selector);
       if (el) {
-        const value = this.parseNumber(el.textContent || '')
+        const value = this.parseNumber(el.textContent || '');
         if (value !== null && value >= 0 && value <= 100) {
-          console.log(`[IndicatorReader] RSI found with selector "${selector}": ${value}`)
-          return value
+          console.log(`[IndicatorReader] RSI found with selector "${selector}": ${value}`);
+          return value;
         }
       }
     }
 
     // 방법 2: 인디케이터 컨테이너에서 RSI 텍스트 패턴 찾기
-    const rsiFromText = this.findIndicatorByPattern('RSI', 0, 100)
+    const rsiFromText = this.findIndicatorByPattern('RSI', 0, 100);
     if (rsiFromText !== null) {
-      return rsiFromText
+      return rsiFromText;
     }
 
     // 방법 3: 숫자만 있는 인디케이터 영역 탐색
-    const rsiFromContainer = this.searchInIndicatorContainers('rsi', 0, 100)
+    const rsiFromContainer = this.searchInIndicatorContainers('rsi', 0, 100);
     if (rsiFromContainer !== null) {
-      return rsiFromContainer
+      return rsiFromContainer;
     }
 
-    return null
+    return null;
   }
 
   /**
    * Read Stochastic values from DOM
    */
   private readStochastic(): { k: number; d: number } | null {
-    let k: number | null = null
-    let d: number | null = null
+    let k: number | null = null;
+    let d: number | null = null;
 
     // K 라인 읽기
     for (const selector of INDICATOR_SELECTORS.stochasticK) {
-      const el = document.querySelector(selector)
+      const el = document.querySelector(selector);
       if (el) {
-        const value = this.parseNumber(el.textContent || '')
+        const value = this.parseNumber(el.textContent || '');
         if (value !== null && value >= 0 && value <= 100) {
-          k = value
-          break
+          k = value;
+          break;
         }
       }
     }
 
     // D 라인 읽기
     for (const selector of INDICATOR_SELECTORS.stochasticD) {
-      const el = document.querySelector(selector)
+      const el = document.querySelector(selector);
       if (el) {
-        const value = this.parseNumber(el.textContent || '')
+        const value = this.parseNumber(el.textContent || '');
         if (value !== null && value >= 0 && value <= 100) {
-          d = value
-          break
+          d = value;
+          break;
         }
       }
     }
@@ -271,28 +262,28 @@ export class IndicatorReader {
     // 일반 Stochastic 셀렉터에서 K/D 추출 시도
     if (k === null || d === null) {
       for (const selector of INDICATOR_SELECTORS.stochastic) {
-        const el = document.querySelector(selector)
+        const el = document.querySelector(selector);
         if (el) {
-          const text = el.textContent || ''
-          const parsed = this.parseStochasticText(text)
+          const text = el.textContent || '';
+          const parsed = this.parseStochasticText(text);
           if (parsed) {
-            return parsed
+            return parsed;
           }
         }
       }
     }
 
     // 텍스트 패턴으로 찾기
-    const stochFromText = this.findStochasticByPattern()
+    const stochFromText = this.findStochasticByPattern();
     if (stochFromText) {
-      return stochFromText
+      return stochFromText;
     }
 
     if (k !== null && d !== null) {
-      return { k, d }
+      return { k, d };
     }
 
-    return null
+    return null;
   }
 
   /**
@@ -300,16 +291,16 @@ export class IndicatorReader {
    */
   private readMACD(): { macd: number; signal: number; histogram: number } | null {
     for (const selector of INDICATOR_SELECTORS.macd) {
-      const el = document.querySelector(selector)
+      const el = document.querySelector(selector);
       if (el) {
-        const text = el.textContent || ''
-        const parsed = this.parseMACDText(text)
+        const text = el.textContent || '';
+        const parsed = this.parseMACDText(text);
         if (parsed) {
-          return parsed
+          return parsed;
         }
       }
     }
-    return null
+    return null;
   }
 
   /**
@@ -317,16 +308,16 @@ export class IndicatorReader {
    */
   private readBollingerBands(): { upper: number; middle: number; lower: number } | null {
     for (const selector of INDICATOR_SELECTORS.bollingerBands) {
-      const el = document.querySelector(selector)
+      const el = document.querySelector(selector);
       if (el) {
-        const text = el.textContent || ''
-        const parsed = this.parseBBText(text)
+        const text = el.textContent || '';
+        const parsed = this.parseBBText(text);
         if (parsed) {
-          return parsed
+          return parsed;
         }
       }
     }
-    return null
+    return null;
   }
 
   // ============================================================
@@ -338,24 +329,24 @@ export class IndicatorReader {
    */
   private findIndicatorByPattern(name: string, min: number, max: number): number | null {
     // 모든 텍스트 노드에서 "RSI: 45.6" 또는 "RSI 45.6" 패턴 찾기
-    const regex = new RegExp(`${name}[:\\s]*(\\d+\\.?\\d*)`, 'i')
+    const regex = new RegExp(`${name}[:\\s]*(\\d+\\.?\\d*)`, 'i');
 
     for (const selector of INDICATOR_SELECTORS.indicatorContainer) {
-      const container = document.querySelector(selector)
+      const container = document.querySelector(selector);
       if (container) {
-        const text = container.textContent || ''
-        const match = text.match(regex)
+        const text = container.textContent || '';
+        const match = text.match(regex);
         if (match && match[1]) {
-          const value = parseFloat(match[1])
+          const value = parseFloat(match[1]);
           if (!isNaN(value) && value >= min && value <= max) {
-            console.log(`[IndicatorReader] Found ${name} by pattern: ${value}`)
-            return value
+            console.log(`[IndicatorReader] Found ${name} by pattern: ${value}`);
+            return value;
           }
         }
       }
     }
 
-    return null
+    return null;
   }
 
   /**
@@ -367,58 +358,61 @@ export class IndicatorReader {
       /K[:\s]*(\d+\.?\d*)\s*D[:\s]*(\d+\.?\d*)/i,
       /Stoch[astic]*[:\s]*(\d+\.?\d*)\s*[\/,]\s*(\d+\.?\d*)/i,
       /(\d+\.?\d*)\s*[\/,]\s*(\d+\.?\d*)/,
-    ]
+    ];
 
     for (const selector of INDICATOR_SELECTORS.indicatorContainer) {
-      const container = document.querySelector(selector)
+      const container = document.querySelector(selector);
       if (container) {
-        const text = container.textContent || ''
+        const text = container.textContent || '';
 
         for (const pattern of patterns) {
-          const match = text.match(pattern)
+          const match = text.match(pattern);
           if (match && match[1] && match[2]) {
-            const k = parseFloat(match[1])
-            const d = parseFloat(match[2])
-            if (!isNaN(k) && !isNaN(d) &&
-                k >= 0 && k <= 100 && d >= 0 && d <= 100) {
-              console.log(`[IndicatorReader] Found Stochastic by pattern: K=${k}, D=${d}`)
-              return { k, d }
+            const k = parseFloat(match[1]);
+            const d = parseFloat(match[2]);
+            if (!isNaN(k) && !isNaN(d) && k >= 0 && k <= 100 && d >= 0 && d <= 100) {
+              console.log(`[IndicatorReader] Found Stochastic by pattern: K=${k}, D=${d}`);
+              return { k, d };
             }
           }
         }
       }
     }
 
-    return null
+    return null;
   }
 
   /**
    * Search in indicator containers
    */
-  private searchInIndicatorContainers(indicatorName: string, min: number, max: number): number | null {
+  private searchInIndicatorContainers(
+    indicatorName: string,
+    min: number,
+    max: number,
+  ): number | null {
     for (const selector of INDICATOR_SELECTORS.indicatorContainer) {
-      const container = document.querySelector(selector)
-      if (!container) continue
+      const container = document.querySelector(selector);
+      if (!container) continue;
 
       // 인디케이터 이름을 포함하는 요소 찾기
-      const elements = container.querySelectorAll('*')
+      const elements = container.querySelectorAll('*');
       for (const el of elements) {
-        const text = el.textContent?.toLowerCase() || ''
+        const text = el.textContent?.toLowerCase() || '';
         if (text.includes(indicatorName.toLowerCase())) {
           // 근처 요소에서 숫자 찾기
-          const numbers = text.match(/\d+\.?\d*/g)
+          const numbers = text.match(/\d+\.?\d*/g);
           if (numbers) {
             for (const numStr of numbers) {
-              const num = parseFloat(numStr)
+              const num = parseFloat(numStr);
               if (!isNaN(num) && num >= min && num <= max) {
-                return num
+                return num;
               }
             }
           }
         }
       }
     }
-    return null
+    return null;
   }
 
   // ============================================================
@@ -429,13 +423,13 @@ export class IndicatorReader {
    * Parse number from text
    */
   private parseNumber(text: string): number | null {
-    const cleaned = text.replace(/[,\s]/g, '')
-    const match = cleaned.match(/-?[\d.]+/)
+    const cleaned = text.replace(/[,\s]/g, '');
+    const match = cleaned.match(/-?[\d.]+/);
     if (match) {
-      const num = parseFloat(match[0])
-      return isNaN(num) ? null : num
+      const num = parseFloat(match[0]);
+      return isNaN(num) ? null : num;
     }
-    return null
+    return null;
   }
 
   /**
@@ -443,46 +437,46 @@ export class IndicatorReader {
    */
   private parseStochasticText(text: string): { k: number; d: number } | null {
     // "45.6 / 32.1" 또는 "K: 45.6 D: 32.1" 형태
-    const numbers = text.match(/-?\d+\.?\d*/g)
+    const numbers = text.match(/-?\d+\.?\d*/g);
     if (numbers && numbers.length >= 2) {
-      const k = parseFloat(numbers[0])
-      const d = parseFloat(numbers[1])
+      const k = parseFloat(numbers[0]);
+      const d = parseFloat(numbers[1]);
       if (!isNaN(k) && !isNaN(d) && k >= 0 && k <= 100 && d >= 0 && d <= 100) {
-        return { k, d }
+        return { k, d };
       }
     }
-    return null
+    return null;
   }
 
   /**
    * Parse MACD text
    */
   private parseMACDText(text: string): { macd: number; signal: number; histogram: number } | null {
-    const numbers = text.match(/-?\d+\.?\d*/g)
+    const numbers = text.match(/-?\d+\.?\d*/g);
     if (numbers && numbers.length >= 3) {
       return {
         macd: parseFloat(numbers[0]),
         signal: parseFloat(numbers[1]),
-        histogram: parseFloat(numbers[2])
-      }
+        histogram: parseFloat(numbers[2]),
+      };
     }
-    return null
+    return null;
   }
 
   /**
    * Parse Bollinger Bands text
    */
   private parseBBText(text: string): { upper: number; middle: number; lower: number } | null {
-    const numbers = text.match(/-?\d+\.?\d*/g)
+    const numbers = text.match(/-?\d+\.?\d*/g);
     if (numbers && numbers.length >= 3) {
-      const sorted = numbers.map(n => parseFloat(n)).sort((a, b) => b - a)
+      const sorted = numbers.map((n) => parseFloat(n)).sort((a, b) => b - a);
       return {
         upper: sorted[0],
         middle: sorted[1],
-        lower: sorted[2]
-      }
+        lower: sorted[2],
+      };
     }
-    return null
+    return null;
   }
 
   // ============================================================
@@ -493,31 +487,31 @@ export class IndicatorReader {
    * Setup MutationObserver
    */
   private setupObserver(): void {
-    const targets: Element[] = []
+    const targets: Element[] = [];
 
     for (const selector of INDICATOR_SELECTORS.indicatorContainer) {
-      const el = document.querySelector(selector)
-      if (el) targets.push(el)
+      const el = document.querySelector(selector);
+      if (el) targets.push(el);
     }
 
     if (targets.length === 0) {
-      console.warn('[IndicatorReader] No indicator containers found. Using polling only.')
-      return
+      console.warn('[IndicatorReader] No indicator containers found. Using polling only.');
+      return;
     }
 
     this.observer = new MutationObserver(() => {
-      this.processUpdate()
-    })
+      this.processUpdate();
+    });
 
-    targets.forEach(target => {
+    targets.forEach((target) => {
       this.observer!.observe(target, {
         characterData: true,
         childList: true,
         subtree: true,
-      })
-    })
+      });
+    });
 
-    console.log(`[IndicatorReader] Observing ${targets.length} indicator containers`)
+    console.log(`[IndicatorReader] Observing ${targets.length} indicator containers`);
   }
 
   /**
@@ -525,25 +519,25 @@ export class IndicatorReader {
    */
   private startPolling(): void {
     this.pollingInterval = setInterval(() => {
-      this.processUpdate()
-    }, 1000) // 1초마다 폴링
+      this.processUpdate();
+    }, 1000); // 1초마다 폴링
   }
 
   /**
    * Process indicator update
    */
   private processUpdate(): void {
-    const values = this.readAllIndicators()
+    const values = this.readAllIndicators();
 
     // 값이 변경되었는지 확인
     if (this.hasChanged(values)) {
-      this.lastValues = values
+      this.lastValues = values;
 
       // 리스너에 알림
-      this.listeners.forEach(l => l(values))
+      this.listeners.forEach((l) => l(values));
 
       // Background에 알림
-      this.notifyBackground(values)
+      this.notifyBackground(values);
     }
   }
 
@@ -551,25 +545,27 @@ export class IndicatorReader {
    * Check if values changed
    */
   private hasChanged(newValues: IndicatorValues): boolean {
-    if (!this.lastValues) return true
+    if (!this.lastValues) return true;
 
     return (
       this.lastValues.rsi !== newValues.rsi ||
       this.lastValues.stochasticK !== newValues.stochasticK ||
       this.lastValues.stochasticD !== newValues.stochasticD
-    )
+    );
   }
 
   /**
    * Notify background script
    */
   private notifyBackground(values: IndicatorValues): void {
-    chrome.runtime.sendMessage({
-      type: 'INDICATOR_VALUES',
-      payload: values
-    }).catch(() => {
-      // Background script may not be ready
-    })
+    chrome.runtime
+      .sendMessage({
+        type: 'INDICATOR_VALUES',
+        payload: values,
+      })
+      .catch(() => {
+        // Background script may not be ready
+      });
   }
 }
 
@@ -577,11 +573,11 @@ export class IndicatorReader {
 // Singleton Instance
 // ============================================================
 
-let readerInstance: IndicatorReader | null = null
+let readerInstance: IndicatorReader | null = null;
 
 export function getIndicatorReader(): IndicatorReader {
   if (!readerInstance) {
-    readerInstance = new IndicatorReader()
+    readerInstance = new IndicatorReader();
   }
-  return readerInstance
+  return readerInstance;
 }

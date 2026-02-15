@@ -2,6 +2,35 @@
 
 **최종 업데이트:** 2026-02-15 KST
 
+## (2026-02-15) P2 구조 개선 완료 — Observability + Scoring 통합 + CI 강화
+
+### 완료 항목
+- **[P2-1] GET_DB_MONITOR_STATUS 확장**: candleDatasets 메타 추가, Dashboard UI에 Candle Datasets 섹션
+- **[P2-2] Scoring/Leaderboard 통합**: `calculateScore()` → `absoluteScore`/`grade` 필드를 LeaderboardEntry에 추가, GradeBadge UI
+- **[P2-3] CI format:check**: `npm run format:check` 스텝을 ci.yml에 추가
+
+### 테스트 결과
+- 전체: 855 tests passed (45 suites), 0 failures
+- TypeScript: 0 errors
+
+### 상세: `docs/issues/PO-P0-pipeline-fix/`
+
+---
+
+## (2026-02-15) P0 데이터 파이프라인 버그 수정 + P1 안정화
+
+### 완료 항목
+- **[P0-2] handleNewSignal() onlyRSI 필터 교체**: `evaluateSignalGates()` 순수 함수 사용
+- **[P0-3] pendingTrades 누수 제거**: `settleTrade()` 시작에 `clearTimeout(pending.timerId)` 추가
+- **[P0-4] WS_PRICE_UPDATE ERROR 스팸 해결**: `RELAY_MESSAGE_TYPES`에 WS 타입 등록 + 500ms throttle
+- **[P1-1] candleCount 메타데이터 수정**: 델타 → 총량으로 변경
+- **[P1-2] sendResponse 누락 방지**: background + content-script에 `.catch` 추가
+- **[P1-3] SET_CONFIG_V2 검증**: `validateConfigUpdate()` 순수 함수, 범위 밖 값 strip
+- 신규: 27 tests 추가
+- 상세: `docs/issues/PO-P0-pipeline-fix/`
+
+---
+
 ## (2026-02-15) P0 버그 수정 + Background 핸들러 통합
 
 ### 완료 항목

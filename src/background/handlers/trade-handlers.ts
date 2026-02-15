@@ -5,26 +5,26 @@
 // Dependencies are injected via the Deps interface.
 // ============================================================
 
-import type { MessagePayloadMap, Trade, TradingStatus } from '../../lib/types'
+import type { MessagePayloadMap, Trade, TradingStatus } from '../../lib/types';
 
 /** Minimal repository interface for testing */
 export interface TradeRepo {
-  create(trade: Omit<Trade, 'id'>): Promise<number>
+  create(trade: Omit<Trade, 'id'>): Promise<number>;
   finalize(
     tradeId: number,
     exitPrice: number,
     result: string,
     profit: number,
-  ): Promise<{ updated: boolean; trade?: Trade }>
-  getBySession(sessionId: number): Promise<Trade[]>
-  getRecent(limit: number): Promise<Trade[]>
+  ): Promise<{ updated: boolean; trade?: Trade }>;
+  getBySession(sessionId: number): Promise<Trade[]>;
+  getRecent(limit: number): Promise<Trade[]>;
 }
 
 /** Dependencies injected by background/index.ts */
 export interface TradeHandlerDeps {
-  tradeRepo: TradeRepo
-  tradingStatus: TradingStatus
-  broadcast: (message: { type: string; payload?: unknown }) => void
+  tradeRepo: TradeRepo;
+  tradingStatus: TradingStatus;
+  broadcast: (message: { type: string; payload?: unknown }) => void;
 }
 
 // ============================================================
@@ -37,7 +37,7 @@ export async function handleTradeExecuted(
 ): Promise<{ success: boolean; tradeId?: number; ignored?: boolean }> {
   // Skip failed executions
   if (payload.result === false) {
-    return { success: false, ignored: true }
+    return { success: false, ignored: true };
   }
 
   const trade: Omit<Trade, 'id'> = {
@@ -48,15 +48,15 @@ export async function handleTradeExecuted(
     entryPrice: payload.entryPrice ?? 0,
     result: 'PENDING',
     amount: payload.amount ?? 0,
-  }
+  };
 
-  const id = await deps.tradeRepo.create(trade)
+  const id = await deps.tradeRepo.create(trade);
 
   // Broadcast TRADE_LOGGED to UI
-  const savedTrade: Trade = { ...trade, id }
-  deps.broadcast({ type: 'TRADE_LOGGED', payload: savedTrade })
+  const savedTrade: Trade = { ...trade, id };
+  deps.broadcast({ type: 'TRADE_LOGGED', payload: savedTrade });
 
-  return { success: true, tradeId: id }
+  return { success: true, tradeId: id };
 }
 
 // ============================================================
@@ -72,14 +72,14 @@ export async function handleFinalizeTrade(
     payload.exitPrice,
     payload.result,
     payload.profit,
-  )
+  );
 
   // Idempotency: if already finalized, skip broadcast
   if (!finalizeResult.updated) {
-    return { success: true }
+    return { success: true };
   }
 
-  const exitTime = finalizeResult.trade?.exitTime ?? Date.now()
+  const exitTime = finalizeResult.trade?.exitTime ?? Date.now();
   deps.broadcast({
     type: 'TRADE_SETTLED',
     payload: {
@@ -90,9 +90,9 @@ export async function handleFinalizeTrade(
       profit: payload.profit,
       exitTime,
     },
-  })
+  });
 
-  return { success: true }
+  return { success: true };
 }
 
 // ============================================================
@@ -104,7 +104,7 @@ export async function handleGetTrades(
   deps: TradeHandlerDeps,
 ): Promise<Trade[]> {
   if (payload.sessionId !== undefined) {
-    return deps.tradeRepo.getBySession(payload.sessionId)
+    return deps.tradeRepo.getBySession(payload.sessionId);
   }
-  return deps.tradeRepo.getRecent(payload.limit ?? 50)
+  return deps.tradeRepo.getRecent(payload.limit ?? 50);
 }

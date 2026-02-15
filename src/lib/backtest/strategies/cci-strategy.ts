@@ -5,8 +5,8 @@
 // CCI < -100: Oversold → CALL
 // ============================================================
 
-import { Candle, Strategy, StrategySignal, Direction } from '../types'
-import { CCI } from '../../indicators'
+import { Candle, Strategy, StrategySignal, Direction } from '../types';
+import { CCI } from '../../indicators';
 
 /**
  * Basic CCI Overbought/Oversold Strategy
@@ -24,33 +24,33 @@ export const CCIOverboughtOversold: Strategy = {
   },
 
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null {
-    const { period, overbought, oversold } = params
+    const { period, overbought, oversold } = params;
 
-    if (candles.length < period + 1) return null
+    if (candles.length < period + 1) return null;
 
-    const highs = candles.map(c => c.high)
-    const lows = candles.map(c => c.low)
-    const closes = candles.map(c => c.close)
+    const highs = candles.map((c) => c.high);
+    const lows = candles.map((c) => c.low);
+    const closes = candles.map((c) => c.close);
 
-    const cciValues = CCI.calculate(highs, lows, closes, period)
+    const cciValues = CCI.calculate(highs, lows, closes, period);
 
-    if (cciValues.length < 2) return null
+    if (cciValues.length < 2) return null;
 
-    const currentCCI = cciValues[cciValues.length - 1]
-    const prevCCI = cciValues[cciValues.length - 2]
+    const currentCCI = cciValues[cciValues.length - 1];
+    const prevCCI = cciValues[cciValues.length - 2];
 
-    let direction: Direction | null = null
-    let confidence = 0
+    let direction: Direction | null = null;
+    let confidence = 0;
 
     // CCI crossing up from oversold (reversal up)
     if (prevCCI < oversold && currentCCI >= oversold) {
-      direction = 'CALL'
-      confidence = Math.min(1, Math.abs(prevCCI - oversold) / 50)
+      direction = 'CALL';
+      confidence = Math.min(1, Math.abs(prevCCI - oversold) / 50);
     }
     // CCI crossing down from overbought (reversal down)
     else if (prevCCI > overbought && currentCCI <= overbought) {
-      direction = 'PUT'
-      confidence = Math.min(1, Math.abs(prevCCI - overbought) / 50)
+      direction = 'PUT';
+      confidence = Math.min(1, Math.abs(prevCCI - overbought) / 50);
     }
 
     return {
@@ -60,9 +60,9 @@ export const CCIOverboughtOversold: Strategy = {
       reason: direction
         ? `CCI ${direction === 'CALL' ? 'oversold reversal' : 'overbought reversal'}`
         : undefined,
-    }
+    };
   },
-}
+};
 
 /**
  * CCI Zero Line Cross Strategy
@@ -79,34 +79,34 @@ export const CCIZeroCross: Strategy = {
   },
 
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null {
-    const { period, confirmBars } = params
+    const { period, confirmBars } = params;
 
-    if (candles.length < period + confirmBars) return null
+    if (candles.length < period + confirmBars) return null;
 
-    const highs = candles.map(c => c.high)
-    const lows = candles.map(c => c.low)
-    const closes = candles.map(c => c.close)
+    const highs = candles.map((c) => c.high);
+    const lows = candles.map((c) => c.low);
+    const closes = candles.map((c) => c.close);
 
-    const cciValues = CCI.calculate(highs, lows, closes, period)
+    const cciValues = CCI.calculate(highs, lows, closes, period);
 
-    if (cciValues.length < confirmBars + 1) return null
+    if (cciValues.length < confirmBars + 1) return null;
 
-    const recentCCI = cciValues.slice(-(confirmBars + 1))
-    const prevCCI = recentCCI[0]
-    const currentCCI = recentCCI[recentCCI.length - 1]
+    const recentCCI = cciValues.slice(-(confirmBars + 1));
+    const prevCCI = recentCCI[0];
+    const currentCCI = recentCCI[recentCCI.length - 1];
 
-    let direction: Direction | null = null
-    let confidence = 0
+    let direction: Direction | null = null;
+    let confidence = 0;
 
     // Cross above zero with confirmation
-    if (prevCCI < 0 && recentCCI.slice(1).every(v => v >= 0)) {
-      direction = 'CALL'
-      confidence = Math.min(1, currentCCI / 100)
+    if (prevCCI < 0 && recentCCI.slice(1).every((v) => v >= 0)) {
+      direction = 'CALL';
+      confidence = Math.min(1, currentCCI / 100);
     }
     // Cross below zero with confirmation
-    else if (prevCCI > 0 && recentCCI.slice(1).every(v => v <= 0)) {
-      direction = 'PUT'
-      confidence = Math.min(1, Math.abs(currentCCI) / 100)
+    else if (prevCCI > 0 && recentCCI.slice(1).every((v) => v <= 0)) {
+      direction = 'PUT';
+      confidence = Math.min(1, Math.abs(currentCCI) / 100);
     }
 
     return {
@@ -116,9 +116,9 @@ export const CCIZeroCross: Strategy = {
       reason: direction
         ? `CCI ${direction === 'CALL' ? 'bullish' : 'bearish'} zero cross`
         : undefined,
-    }
+    };
   },
-}
+};
 
 /**
  * CCI Trend Following Strategy
@@ -136,37 +136,37 @@ export const CCITrendFollowing: Strategy = {
   },
 
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null {
-    const { period, threshold, lookback } = params
+    const { period, threshold, lookback } = params;
 
-    if (candles.length < period + lookback) return null
+    if (candles.length < period + lookback) return null;
 
-    const highs = candles.map(c => c.high)
-    const lows = candles.map(c => c.low)
-    const closes = candles.map(c => c.close)
+    const highs = candles.map((c) => c.high);
+    const lows = candles.map((c) => c.low);
+    const closes = candles.map((c) => c.close);
 
-    const cciValues = CCI.calculate(highs, lows, closes, period)
+    const cciValues = CCI.calculate(highs, lows, closes, period);
 
-    if (cciValues.length < lookback) return null
+    if (cciValues.length < lookback) return null;
 
-    const recentCCI = cciValues.slice(-lookback)
-    const currentCCI = recentCCI[recentCCI.length - 1]
+    const recentCCI = cciValues.slice(-lookback);
+    const currentCCI = recentCCI[recentCCI.length - 1];
 
     // Check if CCI is rising or falling
-    const isRising = recentCCI.every((v, i) => i === 0 || v >= recentCCI[i - 1] - 5)
-    const isFalling = recentCCI.every((v, i) => i === 0 || v <= recentCCI[i - 1] + 5)
+    const isRising = recentCCI.every((v, i) => i === 0 || v >= recentCCI[i - 1] - 5);
+    const isFalling = recentCCI.every((v, i) => i === 0 || v <= recentCCI[i - 1] + 5);
 
-    let direction: Direction | null = null
-    let confidence = 0
+    let direction: Direction | null = null;
+    let confidence = 0;
 
     // Strong bullish trend: CCI > threshold and rising
     if (currentCCI > threshold && isRising) {
-      direction = 'CALL'
-      confidence = Math.min(1, (currentCCI - threshold) / 100)
+      direction = 'CALL';
+      confidence = Math.min(1, (currentCCI - threshold) / 100);
     }
     // Strong bearish trend: CCI < -threshold and falling
     else if (currentCCI < -threshold && isFalling) {
-      direction = 'PUT'
-      confidence = Math.min(1, (Math.abs(currentCCI) - threshold) / 100)
+      direction = 'PUT';
+      confidence = Math.min(1, (Math.abs(currentCCI) - threshold) / 100);
     }
 
     return {
@@ -176,9 +176,9 @@ export const CCITrendFollowing: Strategy = {
       reason: direction
         ? `CCI ${direction === 'CALL' ? 'bullish' : 'bearish'} trend continuation`
         : undefined,
-    }
+    };
   },
-}
+};
 
 // Export all CCI strategies
-export const CCIStrategies = [CCIOverboughtOversold, CCIZeroCross, CCITrendFollowing]
+export const CCIStrategies = [CCIOverboughtOversold, CCIZeroCross, CCITrendFollowing];

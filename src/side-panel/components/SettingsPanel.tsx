@@ -1,125 +1,131 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  TelegramConfig,
+  DEFAULT_TELEGRAM_CONFIG,
+  TelegramService,
+} from '../../lib/notifications/telegram';
+import { loadTelegramConfig, saveTelegramConfig } from '../../lib/config';
+import { sendRuntimeMessage } from '../infrastructure/extension-client';
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { TelegramConfig, DEFAULT_TELEGRAM_CONFIG, TelegramService } from '../../lib/notifications/telegram'
-import { loadTelegramConfig, saveTelegramConfig } from '../../lib/config'
-import { sendRuntimeMessage } from '../infrastructure/extension-client'
-
-type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 /** Minimal bot token format check: "digits:alphanumeric" */
 function isValidBotToken(token: string): boolean {
-  if (!token) return true // empty is valid (means unconfigured)
-  return /^\d+:[A-Za-z0-9_-]+$/.test(token)
+  if (!token) return true; // empty is valid (means unconfigured)
+  return /^\d+:[A-Za-z0-9_-]+$/.test(token);
 }
 
 /** Chat ID: numeric, optionally prefixed with "-" */
 function isValidChatId(chatId: string): boolean {
-  if (!chatId) return true // empty is valid (means unconfigured)
-  return /^-?\d+$/.test(chatId)
+  if (!chatId) return true; // empty is valid (means unconfigured)
+  return /^-?\d+$/.test(chatId);
 }
 
 export function SettingsPanel() {
   // Persisted config (source of truth from storage)
-  const [savedConfig, setSavedConfig] = useState<TelegramConfig>(DEFAULT_TELEGRAM_CONFIG)
+  const [savedConfig, setSavedConfig] = useState<TelegramConfig>(DEFAULT_TELEGRAM_CONFIG);
   // Local draft for text fields (botToken, chatId)
-  const [draft, setDraft] = useState<{ botToken: string; chatId: string }>({ botToken: '', chatId: '' })
+  const [draft, setDraft] = useState<{ botToken: string; chatId: string }>({
+    botToken: '',
+    chatId: '',
+  });
 
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
-  const [saveError, setSaveError] = useState<string>('')
-  const [testStatus, setTestStatus] = useState<string>('')
-  const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [saveError, setSaveError] = useState<string>('');
+  const [testStatus, setTestStatus] = useState<string>('');
+  const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
-    loadConfig()
+    loadConfig();
     return () => {
-      if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current)
-    }
-  }, [])
+      if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current);
+    };
+  }, []);
 
   const loadConfig = async () => {
-    const telegramConfig = await loadTelegramConfig()
-    setSavedConfig(telegramConfig)
-    setDraft({ botToken: telegramConfig.botToken, chatId: telegramConfig.chatId })
-  }
+    const telegramConfig = await loadTelegramConfig();
+    setSavedConfig(telegramConfig);
+    setDraft({ botToken: telegramConfig.botToken, chatId: telegramConfig.chatId });
+  };
 
   // ---------- Derived state ----------
 
-  const tokenValid = isValidBotToken(draft.botToken)
-  const chatIdValid = isValidChatId(draft.chatId)
-  const formValid = tokenValid && chatIdValid
+  const tokenValid = isValidBotToken(draft.botToken);
+  const chatIdValid = isValidChatId(draft.chatId);
+  const formValid = tokenValid && chatIdValid;
 
-  const isDirty =
-    draft.botToken !== savedConfig.botToken ||
-    draft.chatId !== savedConfig.chatId
+  const isDirty = draft.botToken !== savedConfig.botToken || draft.chatId !== savedConfig.chatId;
 
   // The "effective" config merges persisted toggles + current draft text (for Test Connection)
   const effectiveConfig: TelegramConfig = {
     ...savedConfig,
     botToken: draft.botToken,
     chatId: draft.chatId,
-  }
+  };
 
   // ---------- Save helpers ----------
 
   const showSaveStatus = useCallback((status: SaveStatus, error = '') => {
-    setSaveStatus(status)
-    setSaveError(error)
-    if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current)
+    setSaveStatus(status);
+    setSaveError(error);
+    if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current);
     if (status === 'saved' || status === 'error') {
-      saveStatusTimerRef.current = setTimeout(() => setSaveStatus('idle'), 3000)
+      saveStatusTimerRef.current = setTimeout(() => setSaveStatus('idle'), 3000);
     }
-  }, [])
+  }, []);
 
   /** Persist a full TelegramConfig to storage + broadcast */
   const persistConfig = async (newConfig: TelegramConfig) => {
-    showSaveStatus('saving')
+    showSaveStatus('saving');
     try {
-      await saveTelegramConfig(newConfig)
-      sendRuntimeMessage('RELOAD_TELEGRAM_CONFIG', newConfig)
-      setSavedConfig(newConfig)
-      showSaveStatus('saved')
-      console.log('[Settings] Telegram config saved')
+      await saveTelegramConfig(newConfig);
+      sendRuntimeMessage('RELOAD_TELEGRAM_CONFIG', newConfig);
+      setSavedConfig(newConfig);
+      showSaveStatus('saved');
+      console.log('[Settings] Telegram config saved');
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Unknown error'
-      showSaveStatus('error', msg)
-      console.error('[Settings] Save failed:', msg)
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      showSaveStatus('error', msg);
+      console.error('[Settings] Save failed:', msg);
     }
-  }
+  };
 
   // ---------- Handlers ----------
 
   /** Checkbox toggles save immediately using persisted text values (never draft text) */
   const handleToggle = (key: 'enabled' | 'notifySignals' | 'notifyTrades', value: boolean) => {
-    persistConfig({ ...savedConfig, [key]: value })
-  }
+    persistConfig({ ...savedConfig, [key]: value });
+  };
 
   /** Text fields update local draft only */
   const handleDraftChange = (key: 'botToken' | 'chatId', value: string) => {
-    setDraft(prev => ({ ...prev, [key]: value }))
+    setDraft((prev) => ({ ...prev, [key]: value }));
     // Clear any stale save error when user starts editing
-    if (saveStatus === 'error') setSaveStatus('idle')
-  }
+    if (saveStatus === 'error') setSaveStatus('idle');
+  };
 
   /** Explicit save: validate + persist */
   const handleSave = () => {
-    if (!formValid || !isDirty) return
-    persistConfig({ ...savedConfig, botToken: draft.botToken, chatId: draft.chatId })
-  }
+    if (!formValid || !isDirty) return;
+    persistConfig({ ...savedConfig, botToken: draft.botToken, chatId: draft.chatId });
+  };
 
   /** Discard draft changes */
   const handleDiscard = () => {
-    setDraft({ botToken: savedConfig.botToken, chatId: savedConfig.chatId })
-    setSaveStatus('idle')
-    setSaveError('')
-  }
+    setDraft({ botToken: savedConfig.botToken, chatId: savedConfig.chatId });
+    setSaveStatus('idle');
+    setSaveError('');
+  };
 
   const handleTest = async () => {
-    setTestStatus('Sending...')
-    const service = new TelegramService(effectiveConfig)
-    const success = await service.sendMessage('🔔 <b>Test Notification</b>\nPocket Quant connected successfully!')
-    setTestStatus(success ? '✅ Success' : '❌ Failed')
-    setTimeout(() => setTestStatus(''), 3000)
-  }
+    setTestStatus('Sending...');
+    const service = new TelegramService(effectiveConfig);
+    const success = await service.sendMessage(
+      '🔔 <b>Test Notification</b>\nPocket Quant connected successfully!',
+    );
+    setTestStatus(success ? '✅ Success' : '❌ Failed');
+    setTimeout(() => setTestStatus(''), 3000);
+  };
 
   // ---------- Render ----------
 
@@ -213,7 +219,9 @@ export function SettingsPanel() {
 
           {/* Save status indicator */}
           {saveStatus === 'saved' && !isDirty && (
-            <p className="text-[10px] text-green-400" role="status">Saved successfully</p>
+            <p className="text-[10px] text-green-400" role="status">
+              Saved successfully
+            </p>
           )}
           {saveStatus === 'error' && (
             <p className="text-[10px] text-red-400" role="alert">
@@ -265,5 +273,5 @@ export function SettingsPanel() {
         <p>4. Get Chat ID via @userinfobot</p>
       </div>
     </div>
-  )
+  );
 }

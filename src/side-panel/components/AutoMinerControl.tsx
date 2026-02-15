@@ -1,29 +1,29 @@
-import { useState, useEffect, useCallback } from 'react'
-import { usePortSubscription } from '../hooks/usePortSubscription'
-import { sendTabMessageCallback, sendTabMessageSafe } from '../infrastructure/extension-client'
+import { useState, useEffect, useCallback } from 'react';
+import { usePortSubscription } from '../hooks/usePortSubscription';
+import { sendTabMessageCallback, sendTabMessageSafe } from '../infrastructure/extension-client';
 
 interface AssetProgress {
-  asset: string
-  totalCandles: number
-  daysCollected: number
-  isComplete: boolean
-  requestCount: number
+  asset: string;
+  totalCandles: number;
+  daysCollected: number;
+  isComplete: boolean;
+  requestCount: number;
 }
 
 interface MinerStatus {
-  isActive: boolean
-  current: string | null
-  completed: number
-  failed: number
-  assetProgress: AssetProgress[]
-  overallCandles: number
-  elapsedSeconds: number
-  candlesPerSecond: number
+  isActive: boolean;
+  current: string | null;
+  completed: number;
+  failed: number;
+  assetProgress: AssetProgress[];
+  overallCandles: number;
+  elapsedSeconds: number;
+  candlesPerSecond: number;
   config: {
-    offsetSeconds: number
-    maxDaysBack: number
-    requestDelayMs: number
-  }
+    offsetSeconds: number;
+    maxDaysBack: number;
+    requestDelayMs: number;
+  };
 }
 
 const DEFAULT_STATUS: MinerStatus = {
@@ -36,49 +36,53 @@ const DEFAULT_STATUS: MinerStatus = {
   elapsedSeconds: 0,
   candlesPerSecond: 0,
   config: { offsetSeconds: 300000, maxDaysBack: 30, requestDelayMs: 500 },
-}
+};
 
 function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
-  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
 
 function formatNumber(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
-  return String(n)
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
 }
 
 export function AutoMinerControl() {
-  const [status, setStatus] = useState<MinerStatus>(DEFAULT_STATUS)
+  const [status, setStatus] = useState<MinerStatus>(DEFAULT_STATUS);
 
   // Subscribe to miner status pushes via port (replaces 1s polling)
   const handleStatusPush = useCallback((payload: unknown) => {
-    if (payload) setStatus(prev => ({ ...DEFAULT_STATUS, ...prev, ...(payload as Partial<MinerStatus>) }))
-  }, [])
-  usePortSubscription('MINER_STATUS_PUSH', handleStatusPush)
+    if (payload)
+      setStatus((prev) => ({ ...DEFAULT_STATUS, ...prev, ...(payload as Partial<MinerStatus>) }));
+  }, []);
+  usePortSubscription('MINER_STATUS_PUSH', handleStatusPush);
 
   // Fetch initial status once on mount
   useEffect(() => {
     sendTabMessageCallback('GET_MINER_STATUS', (res) => {
-      if (res) setStatus(prev => ({ ...DEFAULT_STATUS, ...prev, ...(res as Partial<MinerStatus>) }))
-    })
-  }, [])
+      if (res)
+        setStatus((prev) => ({ ...DEFAULT_STATUS, ...prev, ...(res as Partial<MinerStatus>) }));
+    });
+  }, []);
 
   const toggleMiner = () => {
-    const action = status.isActive ? 'STOP_AUTO_MINER' : 'START_AUTO_MINER'
-    sendTabMessageSafe(action)
-  }
+    const action = status.isActive ? 'STOP_AUTO_MINER' : 'START_AUTO_MINER';
+    sendTabMessageSafe(action);
+  };
 
-  const completedAssets = status.assetProgress?.filter(a => a.isComplete) || []
-  const miningAsset = status.assetProgress?.find(a => !a.isComplete && a.totalCandles > 0)
+  const completedAssets = status.assetProgress?.filter((a) => a.isComplete) || [];
+  const miningAsset = status.assetProgress?.find((a) => !a.isComplete && a.totalCandles > 0);
 
   return (
     <div className="p-4 bg-gray-800 rounded-lg mt-4 border border-purple-500">
       {/* 헤더 */}
       <h3 className="text-lg font-bold text-white mb-3 flex items-center">
         <span>⛏️ Bulk History Miner</span>
-        {status.isActive && <span className="ml-2 w-3 h-3 bg-green-500 rounded-full animate-pulse"/>}
+        {status.isActive && (
+          <span className="ml-2 w-3 h-3 bg-green-500 rounded-full animate-pulse" />
+        )}
       </h3>
 
       {/* 전체 통계 */}
@@ -99,7 +103,10 @@ export function AutoMinerControl() {
           <div className="flex justify-between text-sm">
             <span className="text-gray-400">완료 자산</span>
             <span className="text-yellow-400">
-              {status.completed}개{status.failed > 0 && <span className="text-red-400 ml-1">(실패 {status.failed})</span>}
+              {status.completed}개
+              {status.failed > 0 && (
+                <span className="text-red-400 ml-1">(실패 {status.failed})</span>
+              )}
             </span>
           </div>
         </div>
@@ -130,10 +137,15 @@ export function AutoMinerControl() {
         <div className="mb-3">
           <div className="text-xs text-gray-500 mb-1">완료된 자산</div>
           <div className="space-y-1 max-h-32 overflow-y-auto">
-            {completedAssets.map(a => (
-              <div key={a.asset} className="flex justify-between text-xs bg-gray-900 rounded px-2 py-1">
+            {completedAssets.map((a) => (
+              <div
+                key={a.asset}
+                className="flex justify-between text-xs bg-gray-900 rounded px-2 py-1"
+              >
                 <span className="text-green-400">✅ {a.asset}</span>
-                <span className="text-gray-400">{formatNumber(a.totalCandles)} | {a.daysCollected}d</span>
+                <span className="text-gray-400">
+                  {formatNumber(a.totalCandles)} | {a.daysCollected}d
+                </span>
               </div>
             ))}
           </div>
@@ -156,5 +168,5 @@ export function AutoMinerControl() {
         *92%+ 자산 자동 순회, 자산당 최대 {status.config?.maxDaysBack || 30}일 히스토리 수집
       </p>
     </div>
-  )
+  );
 }

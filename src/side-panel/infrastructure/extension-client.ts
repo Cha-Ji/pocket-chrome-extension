@@ -15,7 +15,7 @@
 // ────────────────────────────────────────────────────
 
 /** Callback for incoming messages; return a cleanup function. */
-export type MessageListener = (message: { type: string; payload?: unknown }) => void
+export type MessageListener = (message: { type: string; payload?: unknown }) => void;
 
 // ────────────────────────────────────────────────────
 // Runtime messaging (side-panel ↔ background)
@@ -25,12 +25,9 @@ export type MessageListener = (message: { type: string; payload?: unknown }) => 
  * Send a message to the background service worker via `chrome.runtime`.
  * Returns the response or `null` on failure.
  */
-export async function sendRuntimeMessage(
-  type: string,
-  payload?: unknown,
-): Promise<unknown> {
-  const message = payload !== undefined ? { type, payload } : { type }
-  return chrome.runtime.sendMessage(message)
+export async function sendRuntimeMessage(type: string, payload?: unknown): Promise<unknown> {
+  const message = payload !== undefined ? { type, payload } : { type };
+  return chrome.runtime.sendMessage(message);
 }
 
 /**
@@ -38,8 +35,8 @@ export async function sendRuntimeMessage(
  * Returns an unsubscribe function — call it in useEffect cleanup.
  */
 export function onRuntimeMessage(listener: MessageListener): () => void {
-  chrome.runtime.onMessage.addListener(listener)
-  return () => chrome.runtime.onMessage.removeListener(listener)
+  chrome.runtime.onMessage.addListener(listener);
+  return () => chrome.runtime.onMessage.removeListener(listener);
 }
 
 // ────────────────────────────────────────────────────
@@ -48,23 +45,20 @@ export function onRuntimeMessage(listener: MessageListener): () => void {
 
 /** Resolve the active Pocket-Option tab id, or `null` if none. */
 async function getActiveTabId(): Promise<number | null> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  return tab?.id ?? null
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab?.id ?? null;
 }
 
 /**
  * Send a message to the active tab's content-script via `chrome.tabs`.
  * Throws if no active tab is available.
  */
-export async function sendTabMessage(
-  type: string,
-  payload?: unknown,
-): Promise<unknown> {
-  const tabId = await getActiveTabId()
-  if (tabId == null) throw new Error('No active tab')
+export async function sendTabMessage(type: string, payload?: unknown): Promise<unknown> {
+  const tabId = await getActiveTabId();
+  if (tabId == null) throw new Error('No active tab');
 
-  const message = payload !== undefined ? { type, payload } : { type }
-  return chrome.tabs.sendMessage(tabId, message)
+  const message = payload !== undefined ? { type, payload } : { type };
+  return chrome.tabs.sendMessage(tabId, message);
 }
 
 /**
@@ -72,12 +66,9 @@ export async function sendTabMessage(
  * Silently swallows errors (useful for toggle/start/stop actions where
  * the caller doesn't need the response).
  */
-export async function sendTabMessageSafe(
-  type: string,
-  payload?: unknown,
-): Promise<void> {
+export async function sendTabMessageSafe(type: string, payload?: unknown): Promise<void> {
   try {
-    await sendTabMessage(type, payload)
+    await sendTabMessage(type, payload);
   } catch {
     // intentionally swallowed
   }
@@ -88,16 +79,13 @@ export async function sendTabMessageSafe(
  * Used only for polling where callback style is more convenient
  * (e.g. inside setInterval with chrome.runtime.lastError check).
  */
-export function sendTabMessageCallback(
-  type: string,
-  callback: (response: unknown) => void,
-): void {
+export function sendTabMessageCallback(type: string, callback: (response: unknown) => void): void {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (tabs[0]?.id) {
       chrome.tabs.sendMessage(tabs[0].id, { type }, (res) => {
-        if (chrome.runtime.lastError) return
-        callback(res)
-      })
+        if (chrome.runtime.lastError) return;
+        callback(res);
+      });
     }
-  })
+  });
 }

@@ -4,8 +4,8 @@
 // Composite indicator combining RSI with Stochastic
 // ============================================================
 
-import { Candle, Strategy, StrategySignal, Direction } from '../types'
-import { StochRSI, EMA } from '../../indicators'
+import { Candle, Strategy, StrategySignal, Direction } from '../types';
+import { StochRSI, EMA } from '../../indicators';
 
 /**
  * Stochastic RSI Crossover Strategy
@@ -26,32 +26,32 @@ export const StochRSICrossover: Strategy = {
   },
 
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null {
-    const { rsiPeriod, stochPeriod, kSmooth, dSmooth, oversold, overbought } = params
+    const { rsiPeriod, stochPeriod, kSmooth, dSmooth, oversold, overbought } = params;
 
-    const minDataNeeded = rsiPeriod + stochPeriod + kSmooth + dSmooth + 1
+    const minDataNeeded = rsiPeriod + stochPeriod + kSmooth + dSmooth + 1;
 
-    if (candles.length < minDataNeeded) return null
+    if (candles.length < minDataNeeded) return null;
 
-    const closes = candles.map(c => c.close)
-    const stochRsiValues = StochRSI.calculate(closes, rsiPeriod, stochPeriod, kSmooth, dSmooth)
+    const closes = candles.map((c) => c.close);
+    const stochRsiValues = StochRSI.calculate(closes, rsiPeriod, stochPeriod, kSmooth, dSmooth);
 
-    if (stochRsiValues.length < 2) return null
+    if (stochRsiValues.length < 2) return null;
 
-    const current = stochRsiValues[stochRsiValues.length - 1]
-    const prev = stochRsiValues[stochRsiValues.length - 2]
+    const current = stochRsiValues[stochRsiValues.length - 1];
+    const prev = stochRsiValues[stochRsiValues.length - 2];
 
-    let direction: Direction | null = null
-    let confidence = 0
+    let direction: Direction | null = null;
+    let confidence = 0;
 
     // Bullish crossover: K crosses above D in oversold zone
     if (prev.k <= prev.d && current.k > current.d && current.k < oversold + 10) {
-      direction = 'CALL'
-      confidence = Math.min(1, (oversold + 10 - current.k) / 20)
+      direction = 'CALL';
+      confidence = Math.min(1, (oversold + 10 - current.k) / 20);
     }
     // Bearish crossover: K crosses below D in overbought zone
     else if (prev.k >= prev.d && current.k < current.d && current.k > overbought - 10) {
-      direction = 'PUT'
-      confidence = Math.min(1, (current.k - overbought + 10) / 20)
+      direction = 'PUT';
+      confidence = Math.min(1, (current.k - overbought + 10) / 20);
     }
 
     return {
@@ -66,9 +66,9 @@ export const StochRSICrossover: Strategy = {
       reason: direction
         ? `StochRSI ${direction === 'CALL' ? 'bullish' : 'bearish'} crossover`
         : undefined,
-    }
+    };
   },
-}
+};
 
 /**
  * Stochastic RSI Extreme Strategy
@@ -89,33 +89,28 @@ export const StochRSIExtreme: Strategy = {
   },
 
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null {
-    const { rsiPeriod, stochPeriod, kSmooth, dSmooth, oversold, overbought } = params
+    const { rsiPeriod, stochPeriod, kSmooth, dSmooth, oversold, overbought } = params;
 
-    const minDataNeeded = rsiPeriod + stochPeriod + kSmooth + dSmooth + 2
+    const minDataNeeded = rsiPeriod + stochPeriod + kSmooth + dSmooth + 2;
 
-    if (candles.length < minDataNeeded) return null
+    if (candles.length < minDataNeeded) return null;
 
-    const closes = candles.map(c => c.close)
-    const stochRsiValues = StochRSI.calculate(closes, rsiPeriod, stochPeriod, kSmooth, dSmooth)
+    const closes = candles.map((c) => c.close);
+    const stochRsiValues = StochRSI.calculate(closes, rsiPeriod, stochPeriod, kSmooth, dSmooth);
 
-    if (stochRsiValues.length < 3) return null
+    if (stochRsiValues.length < 3) return null;
 
-    const current = stochRsiValues[stochRsiValues.length - 1]
-    const prev = stochRsiValues[stochRsiValues.length - 2]
-    const prev2 = stochRsiValues[stochRsiValues.length - 3]
+    const current = stochRsiValues[stochRsiValues.length - 1];
+    const prev = stochRsiValues[stochRsiValues.length - 2];
+    const prev2 = stochRsiValues[stochRsiValues.length - 3];
 
-    let direction: Direction | null = null
-    let confidence = 0
+    let direction: Direction | null = null;
+    let confidence = 0;
 
     // Extreme oversold reversal: both K and D very low, now turning up
-    if (
-      prev.k < oversold &&
-      prev.d < oversold &&
-      current.k > prev.k &&
-      prev.k <= prev2.k
-    ) {
-      direction = 'CALL'
-      confidence = Math.min(1, (oversold - Math.min(prev.k, prev.d)) / oversold)
+    if (prev.k < oversold && prev.d < oversold && current.k > prev.k && prev.k <= prev2.k) {
+      direction = 'CALL';
+      confidence = Math.min(1, (oversold - Math.min(prev.k, prev.d)) / oversold);
     }
     // Extreme overbought reversal: both K and D very high, now turning down
     else if (
@@ -124,8 +119,8 @@ export const StochRSIExtreme: Strategy = {
       current.k < prev.k &&
       prev.k >= prev2.k
     ) {
-      direction = 'PUT'
-      confidence = Math.min(1, (Math.max(prev.k, prev.d) - overbought) / (100 - overbought))
+      direction = 'PUT';
+      confidence = Math.min(1, (Math.max(prev.k, prev.d) - overbought) / (100 - overbought));
     }
 
     return {
@@ -140,9 +135,9 @@ export const StochRSIExtreme: Strategy = {
       reason: direction
         ? `StochRSI extreme ${direction === 'CALL' ? 'oversold' : 'overbought'}`
         : undefined,
-    }
+    };
   },
-}
+};
 
 /**
  * Stochastic RSI Trend Strategy
@@ -163,37 +158,37 @@ export const StochRSITrend: Strategy = {
   },
 
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null {
-    const { rsiPeriod, stochPeriod, kSmooth, dSmooth, threshold, confirmBars } = params
+    const { rsiPeriod, stochPeriod, kSmooth, dSmooth, threshold, confirmBars } = params;
 
-    const minDataNeeded = rsiPeriod + stochPeriod + kSmooth + dSmooth + confirmBars
+    const minDataNeeded = rsiPeriod + stochPeriod + kSmooth + dSmooth + confirmBars;
 
-    if (candles.length < minDataNeeded) return null
+    if (candles.length < minDataNeeded) return null;
 
-    const closes = candles.map(c => c.close)
-    const stochRsiValues = StochRSI.calculate(closes, rsiPeriod, stochPeriod, kSmooth, dSmooth)
+    const closes = candles.map((c) => c.close);
+    const stochRsiValues = StochRSI.calculate(closes, rsiPeriod, stochPeriod, kSmooth, dSmooth);
 
-    if (stochRsiValues.length < confirmBars) return null
+    if (stochRsiValues.length < confirmBars) return null;
 
-    const recentValues = stochRsiValues.slice(-confirmBars)
-    const currentK = recentValues[recentValues.length - 1].k
+    const recentValues = stochRsiValues.slice(-confirmBars);
+    const currentK = recentValues[recentValues.length - 1].k;
 
     // Check if K has been consistently above/below 50 + threshold
-    const allAbove = recentValues.every(v => v.k > 50 + threshold)
-    const allBelow = recentValues.every(v => v.k < 50 - threshold)
+    const allAbove = recentValues.every((v) => v.k > 50 + threshold);
+    const allBelow = recentValues.every((v) => v.k < 50 - threshold);
 
     // Check direction (rising/falling)
-    const rising = recentValues.every((v, i) => i === 0 || v.k >= recentValues[i - 1].k - 2)
-    const falling = recentValues.every((v, i) => i === 0 || v.k <= recentValues[i - 1].k + 2)
+    const rising = recentValues.every((v, i) => i === 0 || v.k >= recentValues[i - 1].k - 2);
+    const falling = recentValues.every((v, i) => i === 0 || v.k <= recentValues[i - 1].k + 2);
 
-    let direction: Direction | null = null
-    let confidence = 0
+    let direction: Direction | null = null;
+    let confidence = 0;
 
     if (allAbove && rising) {
-      direction = 'CALL'
-      confidence = Math.min(1, (currentK - 50) / 40)
+      direction = 'CALL';
+      confidence = Math.min(1, (currentK - 50) / 40);
     } else if (allBelow && falling) {
-      direction = 'PUT'
-      confidence = Math.min(1, (50 - currentK) / 40)
+      direction = 'PUT';
+      confidence = Math.min(1, (50 - currentK) / 40);
     }
 
     return {
@@ -208,9 +203,9 @@ export const StochRSITrend: Strategy = {
       reason: direction
         ? `StochRSI trend ${direction === 'CALL' ? 'bullish' : 'bearish'}`
         : undefined,
-    }
+    };
   },
-}
+};
 
 /**
  * Stochastic RSI + Price EMA Strategy
@@ -232,38 +227,38 @@ export const StochRSIWithEMA: Strategy = {
   },
 
   generateSignal(candles: Candle[], params: Record<string, number>): StrategySignal | null {
-    const { rsiPeriod, stochPeriod, kSmooth, dSmooth, emaPeriod, oversold, overbought } = params
+    const { rsiPeriod, stochPeriod, kSmooth, dSmooth, emaPeriod, oversold, overbought } = params;
 
-    const minDataNeeded = Math.max(rsiPeriod + stochPeriod + kSmooth + dSmooth, emaPeriod) + 1
+    const minDataNeeded = Math.max(rsiPeriod + stochPeriod + kSmooth + dSmooth, emaPeriod) + 1;
 
-    if (candles.length < minDataNeeded) return null
+    if (candles.length < minDataNeeded) return null;
 
-    const closes = candles.map(c => c.close)
-    const stochRsiValues = StochRSI.calculate(closes, rsiPeriod, stochPeriod, kSmooth, dSmooth)
-    const ema = EMA.latest(closes, emaPeriod)
+    const closes = candles.map((c) => c.close);
+    const stochRsiValues = StochRSI.calculate(closes, rsiPeriod, stochPeriod, kSmooth, dSmooth);
+    const ema = EMA.latest(closes, emaPeriod);
 
-    if (stochRsiValues.length < 2 || ema === null) return null
+    if (stochRsiValues.length < 2 || ema === null) return null;
 
-    const current = stochRsiValues[stochRsiValues.length - 1]
-    const prev = stochRsiValues[stochRsiValues.length - 2]
-    const currentClose = closes[closes.length - 1]
+    const current = stochRsiValues[stochRsiValues.length - 1];
+    const prev = stochRsiValues[stochRsiValues.length - 2];
+    const currentClose = closes[closes.length - 1];
 
     // EMA trend filter
-    const aboveEMA = currentClose > ema
-    const belowEMA = currentClose < ema
+    const aboveEMA = currentClose > ema;
+    const belowEMA = currentClose < ema;
 
-    let direction: Direction | null = null
-    let confidence = 0
+    let direction: Direction | null = null;
+    let confidence = 0;
 
     // Bullish: K crosses above D from oversold + price above EMA
     if (prev.k <= prev.d && current.k > current.d && current.k < oversold + 15 && aboveEMA) {
-      direction = 'CALL'
-      confidence = Math.min(1, (oversold + 15 - prev.k) / 30)
+      direction = 'CALL';
+      confidence = Math.min(1, (oversold + 15 - prev.k) / 30);
     }
     // Bearish: K crosses below D from overbought + price below EMA
     else if (prev.k >= prev.d && current.k < current.d && current.k > overbought - 15 && belowEMA) {
-      direction = 'PUT'
-      confidence = Math.min(1, (prev.k - overbought + 15) / 30)
+      direction = 'PUT';
+      confidence = Math.min(1, (prev.k - overbought + 15) / 30);
     }
 
     return {
@@ -279,9 +274,9 @@ export const StochRSIWithEMA: Strategy = {
       reason: direction
         ? `StochRSI + EMA ${direction === 'CALL' ? 'bullish' : 'bearish'}`
         : undefined,
-    }
+    };
   },
-}
+};
 
 // Export all Stochastic RSI strategies
 export const StochRSIStrategies = [
@@ -289,4 +284,4 @@ export const StochRSIStrategies = [
   StochRSIExtreme,
   StochRSITrend,
   StochRSIWithEMA,
-]
+];

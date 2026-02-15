@@ -5,27 +5,27 @@
 // chrome.storage.local 기반 영속 저장 (텔레그램 토큰은 session)
 // ============================================================
 
-import { TelegramConfig, DEFAULT_TELEGRAM_CONFIG } from '../notifications/telegram'
-import { AutoTraderConfig } from '../trading/auto-trader'
-import { BacktestConfig } from '../backtest/types'
+import { TelegramConfig, DEFAULT_TELEGRAM_CONFIG } from '../notifications/telegram';
+import { AutoTraderConfig } from '../trading/auto-trader';
+import { BacktestConfig } from '../backtest/types';
 
 // Content Script의 TradingConfigV2 (원본은 content-script/index.ts에 정의)
 export interface TradingConfigV2 {
-  enabled: boolean
-  autoAssetSwitch: boolean
-  minPayout: number
-  tradeAmount: number
-  maxDrawdown: number
-  maxConsecutiveLosses: number
-  onlyRSI: boolean
+  enabled: boolean;
+  autoAssetSwitch: boolean;
+  minPayout: number;
+  tradeAmount: number;
+  maxDrawdown: number;
+  maxConsecutiveLosses: number;
+  onlyRSI: boolean;
 }
 
 // 통합 AppConfig 인터페이스
 export interface AppConfig {
-  trading: TradingConfigV2
-  autoTrader: Partial<AutoTraderConfig>
-  telegram: TelegramConfig
-  backtest: Partial<BacktestConfig>
+  trading: TradingConfigV2;
+  autoTrader: Partial<AutoTraderConfig>;
+  telegram: TelegramConfig;
+  backtest: Partial<BacktestConfig>;
 }
 
 // 기본값 상수
@@ -37,7 +37,7 @@ export const DEFAULT_TRADING_CONFIG: TradingConfigV2 = {
   maxDrawdown: 20,
   maxConsecutiveLosses: 5,
   onlyRSI: true,
-}
+};
 
 export const DEFAULT_AUTO_TRADER_CONFIG: Partial<AutoTraderConfig> = {
   enabled: false,
@@ -56,7 +56,7 @@ export const DEFAULT_AUTO_TRADER_CONFIG: Partial<AutoTraderConfig> = {
   maxDrawdown: 20,
   maxConsecutiveLosses: 5,
   demoMode: true,
-}
+};
 
 export const DEFAULT_BACKTEST_CONFIG: Partial<BacktestConfig> = {
   symbol: 'BTCUSDT',
@@ -66,22 +66,22 @@ export const DEFAULT_BACKTEST_CONFIG: Partial<BacktestConfig> = {
   payout: 92,
   expirySeconds: 60,
   strategyId: 'rsi-v2',
-}
+};
 
 export const DEFAULT_CONFIG: AppConfig = {
   trading: DEFAULT_TRADING_CONFIG,
   autoTrader: DEFAULT_AUTO_TRADER_CONFIG,
   telegram: DEFAULT_TELEGRAM_CONFIG,
   backtest: DEFAULT_BACKTEST_CONFIG,
-}
+};
 
 // ============================================================
 // Storage Key 상수
 // ============================================================
 
-const STORAGE_KEY = 'appConfig'
+const STORAGE_KEY = 'appConfig';
 // 텔레그램 봇 토큰은 session storage에 별도 저장 (보안)
-const TELEGRAM_SECURE_KEY = 'telegramSecure'
+const TELEGRAM_SECURE_KEY = 'telegramSecure';
 
 // ============================================================
 // Load / Save 함수
@@ -97,10 +97,10 @@ export async function loadAppConfig(): Promise<AppConfig> {
     const [localResult, sessionResult] = await Promise.all([
       chrome.storage.local.get(STORAGE_KEY),
       chrome.storage.session.get(TELEGRAM_SECURE_KEY),
-    ])
+    ]);
 
-    const stored: Partial<AppConfig> = localResult[STORAGE_KEY] || {}
-    const secureData = sessionResult[TELEGRAM_SECURE_KEY] || {}
+    const stored: Partial<AppConfig> = localResult[STORAGE_KEY] || {};
+    const secureData = sessionResult[TELEGRAM_SECURE_KEY] || {};
 
     const config: AppConfig = {
       trading: { ...DEFAULT_CONFIG.trading, ...stored.trading },
@@ -112,11 +112,11 @@ export async function loadAppConfig(): Promise<AppConfig> {
         botToken: secureData.botToken || stored.telegram?.botToken || '',
       },
       backtest: { ...DEFAULT_CONFIG.backtest, ...stored.backtest },
-    }
+    };
 
-    return config
+    return config;
   } catch {
-    return { ...DEFAULT_CONFIG }
+    return { ...DEFAULT_CONFIG };
   }
 }
 
@@ -127,7 +127,7 @@ export async function loadAppConfig(): Promise<AppConfig> {
  */
 export async function saveAppConfig(config: AppConfig): Promise<void> {
   // botToken을 session storage에 분리 저장
-  const botToken = config.telegram.botToken
+  const botToken = config.telegram.botToken;
 
   // local storage에는 botToken 제거 (마스킹)
   const localConfig: AppConfig = {
@@ -136,12 +136,12 @@ export async function saveAppConfig(config: AppConfig): Promise<void> {
       ...config.telegram,
       botToken: '', // local에는 저장하지 않음
     },
-  }
+  };
 
   await Promise.all([
     chrome.storage.local.set({ [STORAGE_KEY]: localConfig }),
     chrome.storage.session.set({ [TELEGRAM_SECURE_KEY]: { botToken } }),
-  ])
+  ]);
 }
 
 /**
@@ -151,13 +151,13 @@ export async function updateConfigSection<K extends keyof AppConfig>(
   section: K,
   updates: Partial<AppConfig[K]>,
 ): Promise<AppConfig> {
-  const current = await loadAppConfig()
+  const current = await loadAppConfig();
   const updated: AppConfig = {
     ...current,
     [section]: { ...current[section], ...updates },
-  }
-  await saveAppConfig(updated)
-  return updated
+  };
+  await saveAppConfig(updated);
+  return updated;
 }
 
 // ============================================================
@@ -169,8 +169,8 @@ export async function updateConfigSection<K extends keyof AppConfig>(
  * session storage에서 토큰을 가져옴
  */
 export async function loadTelegramConfig(): Promise<TelegramConfig> {
-  const config = await loadAppConfig()
-  return config.telegram
+  const config = await loadAppConfig();
+  return config.telegram;
 }
 
 /**
@@ -178,10 +178,10 @@ export async function loadTelegramConfig(): Promise<TelegramConfig> {
  * botToken은 자동으로 session storage로 분리
  */
 export async function saveTelegramConfig(telegramConfig: TelegramConfig): Promise<void> {
-  await updateConfigSection('telegram', telegramConfig)
+  await updateConfigSection('telegram', telegramConfig);
 }
 
 // Re-export 타입들 (각 모듈의 원본 타입은 유지)
-export type { TelegramConfig } from '../notifications/telegram'
-export type { AutoTraderConfig } from '../trading/auto-trader'
-export type { BacktestConfig } from '../backtest/types'
+export type { TelegramConfig } from '../notifications/telegram';
+export type { AutoTraderConfig } from '../trading/auto-trader';
+export type { BacktestConfig } from '../backtest/types';

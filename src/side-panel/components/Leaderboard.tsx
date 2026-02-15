@@ -1,17 +1,20 @@
-import { useState, useMemo, useCallback } from 'react'
-import type { LeaderboardEntry, LeaderboardSortKey } from '../../lib/backtest/leaderboard-types'
-import { formatMoney, formatPercent, formatNumber } from '../utils/format'
+import { useState, useMemo, useCallback } from 'react';
+import type { LeaderboardEntry, LeaderboardSortKey } from '../../lib/backtest/leaderboard-types';
+import { formatMoney, formatPercent, formatNumber } from '../utils/format';
 
 interface LeaderboardProps {
-  entries: LeaderboardEntry[]
-  isRunning: boolean
-  progress?: { completed: number; total: number; currentStrategy: string }
-  onRun: () => void
+  entries: LeaderboardEntry[];
+  isRunning: boolean;
+  progress?: { completed: number; total: number; currentStrategy: string };
+  onRun: () => void;
 }
 
-type SortDir = 'asc' | 'desc'
+type SortDir = 'asc' | 'desc';
 
-const SORT_CONFIGS: Record<LeaderboardSortKey, { label: string; defaultDir: SortDir; higherIsBetter: boolean }> = {
+const SORT_CONFIGS: Record<
+  LeaderboardSortKey,
+  { label: string; defaultDir: SortDir; higherIsBetter: boolean }
+> = {
   compositeScore: { label: 'Score', defaultDir: 'desc', higherIsBetter: true },
   winRate: { label: 'Win Rate', defaultDir: 'desc', higherIsBetter: true },
   netProfit: { label: 'Net Profit', defaultDir: 'desc', higherIsBetter: true },
@@ -24,39 +27,40 @@ const SORT_CONFIGS: Record<LeaderboardSortKey, { label: string; defaultDir: Sort
   sharpeRatio: { label: 'Sharpe', defaultDir: 'desc', higherIsBetter: true },
   recoveryFactor: { label: 'Recovery', defaultDir: 'desc', higherIsBetter: true },
   kellyFraction: { label: 'Kelly %', defaultDir: 'desc', higherIsBetter: true },
-}
+};
 
 export function Leaderboard({ entries, isRunning, progress, onRun }: LeaderboardProps) {
-  const [sortKey, setSortKey] = useState<LeaderboardSortKey>('compositeScore')
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [sortKey, setSortKey] = useState<LeaderboardSortKey>('compositeScore');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const handleSort = useCallback((key: LeaderboardSortKey) => {
-    if (sortKey === key) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortKey(key)
-      setSortDir(SORT_CONFIGS[key].defaultDir)
-    }
-  }, [sortKey])
+  const handleSort = useCallback(
+    (key: LeaderboardSortKey) => {
+      if (sortKey === key) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      } else {
+        setSortKey(key);
+        setSortDir(SORT_CONFIGS[key].defaultDir);
+      }
+    },
+    [sortKey],
+  );
 
   const sorted = useMemo(() => {
-    const list = [...entries]
+    const list = [...entries];
     list.sort((a, b) => {
-      const aVal = getSortValue(a, sortKey)
-      const bVal = getSortValue(b, sortKey)
-      return sortDir === 'asc' ? aVal - bVal : bVal - aVal
-    })
-    return list
-  }, [entries, sortKey, sortDir])
+      const aVal = getSortValue(a, sortKey);
+      const bVal = getSortValue(b, sortKey);
+      return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+    return list;
+  }, [entries, sortKey, sortDir]);
 
   return (
     <div className="space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-bold text-white uppercase tracking-wider">
-          Leaderboard
-        </h2>
+        <h2 className="text-sm font-bold text-white uppercase tracking-wider">Leaderboard</h2>
         <button
           onClick={onRun}
           disabled={isRunning}
@@ -75,7 +79,9 @@ export function Leaderboard({ entries, isRunning, progress, onRun }: Leaderboard
         <div className="bg-pocket-dark rounded-lg p-3">
           <div className="flex justify-between text-[10px] text-gray-400 mb-1">
             <span>{progress.currentStrategy}</span>
-            <span>{progress.completed}/{progress.total}</span>
+            <span>
+              {progress.completed}/{progress.total}
+            </span>
           </div>
           <div className="w-full bg-gray-700 rounded-full h-1.5">
             <div
@@ -92,13 +98,13 @@ export function Leaderboard({ entries, isRunning, progress, onRun }: Leaderboard
           <MiniStat label="Strategies" value={entries.length.toString()} />
           <MiniStat
             label="Best WR"
-            value={`${formatPercent(Math.max(...entries.map(e => e.winRate)))}%`}
+            value={`${formatPercent(Math.max(...entries.map((e) => e.winRate)))}%`}
             positive
           />
           <MiniStat
             label="Profitable"
-            value={entries.filter(e => e.winRate >= 52.1).length.toString()}
-            positive={entries.some(e => e.winRate >= 52.1)}
+            value={entries.filter((e) => e.winRate >= 52.1).length.toString()}
+            positive={entries.some((e) => e.winRate >= 52.1)}
           />
         </div>
       )}
@@ -106,7 +112,16 @@ export function Leaderboard({ entries, isRunning, progress, onRun }: Leaderboard
       {/* Sort Buttons */}
       {entries.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          {(['compositeScore', 'winRate', 'netProfit', 'tradesPerDay', 'maxDrawdownPercent', 'daysToVolumeTarget'] as LeaderboardSortKey[]).map(key => (
+          {(
+            [
+              'compositeScore',
+              'winRate',
+              'netProfit',
+              'tradesPerDay',
+              'maxDrawdownPercent',
+              'daysToVolumeTarget',
+            ] as LeaderboardSortKey[]
+          ).map((key) => (
             <button
               key={key}
               onClick={() => handleSort(key)}
@@ -134,20 +149,20 @@ export function Leaderboard({ entries, isRunning, progress, onRun }: Leaderboard
         </div>
       ) : (
         <div className="space-y-2">
-          {sorted.map(entry => (
+          {sorted.map((entry) => (
             <LeaderboardCard
               key={entry.strategyId}
               entry={entry}
               expanded={expandedId === entry.strategyId}
-              onToggle={() => setExpandedId(
-                expandedId === entry.strategyId ? null : entry.strategyId
-              )}
+              onToggle={() =>
+                setExpandedId(expandedId === entry.strategyId ? null : entry.strategyId)
+              }
             />
           ))}
         </div>
       )}
     </div>
-  )
+  );
 }
 
 // ============================================================
@@ -159,16 +174,17 @@ function LeaderboardCard({
   expanded,
   onToggle,
 }: {
-  entry: LeaderboardEntry
-  expanded: boolean
-  onToggle: () => void
+  entry: LeaderboardEntry;
+  expanded: boolean;
+  onToggle: () => void;
 }) {
-  const isProfitable = entry.winRate >= 52.1
-  const scoreColor = entry.compositeScore >= 70
-    ? 'text-pocket-green'
-    : entry.compositeScore >= 50
-    ? 'text-yellow-400'
-    : 'text-red-400'
+  const isProfitable = entry.winRate >= 52.1;
+  const scoreColor =
+    entry.compositeScore >= 70
+      ? 'text-pocket-green'
+      : entry.compositeScore >= 50
+        ? 'text-yellow-400'
+        : 'text-red-400';
 
   return (
     <div
@@ -177,17 +193,11 @@ function LeaderboardCard({
       }`}
     >
       {/* Main Row */}
-      <button
-        onClick={onToggle}
-        className="w-full p-3 text-left hover:bg-white/5 transition"
-      >
+      <button onClick={onToggle} className="w-full p-3 text-left hover:bg-white/5 transition">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-[10px] font-bold text-gray-500 w-5">
-            #{entry.rank}
-          </span>
-          <span className="text-xs font-bold text-white flex-1 truncate">
-            {entry.strategyName}
-          </span>
+          <span className="text-[10px] font-bold text-gray-500 w-5">#{entry.rank}</span>
+          <span className="text-xs font-bold text-white flex-1 truncate">{entry.strategyName}</span>
+          {entry.grade && <GradeBadge grade={entry.grade} />}
           <span className={`text-sm font-bold font-mono ${scoreColor}`}>
             {formatNumber(entry.compositeScore)}
           </span>
@@ -200,34 +210,17 @@ function LeaderboardCard({
             value={`${formatPercent(entry.winRate)}%`}
             highlight={isProfitable}
           />
-          <MetricCell
-            label="PF"
-            value={formatNumber(entry.profitFactor, 2)}
-          />
-          <MetricCell
-            label="MDD"
-            value={`${formatPercent(entry.maxDrawdownPercent)}%`}
-            negative
-          />
-          <MetricCell
-            label="MaxL"
-            value={`${entry.maxConsecutiveLosses}x`}
-            negative
-          />
-          <MetricCell
-            label="T/Day"
-            value={formatNumber(entry.tradesPerDay, 1)}
-          />
+          <MetricCell label="PF" value={formatNumber(entry.profitFactor, 2)} />
+          <MetricCell label="MDD" value={`${formatPercent(entry.maxDrawdownPercent)}%`} negative />
+          <MetricCell label="MaxL" value={`${entry.maxConsecutiveLosses}x`} negative />
+          <MetricCell label="T/Day" value={formatNumber(entry.tradesPerDay, 1)} />
           <MetricCell
             label="Net"
             value={`$${formatMoney(entry.netProfit)}`}
             highlight={entry.netProfit > 0}
             negative={entry.netProfit < 0}
           />
-          <MetricCell
-            label="D.Vol"
-            value={`$${formatNumber(entry.dailyVolume)}`}
-          />
+          <MetricCell label="D.Vol" value={`$${formatNumber(entry.dailyVolume)}`} />
           <MetricCell
             label="Vol"
             value={entry.daysToVolumeTarget !== null ? `${entry.daysToVolumeTarget}d` : 'N/A'}
@@ -244,6 +237,12 @@ function LeaderboardCard({
             <DetailRow label="Wins / Losses" value={`${entry.wins} / ${entry.losses}`} />
             <DetailRow label="Trading Days" value={entry.tradingDays.toString()} />
             <DetailRow label="Expectancy" value={`$${formatMoney(entry.expectancy)}`} />
+            {entry.absoluteScore !== undefined && (
+              <DetailRow
+                label="Abs. Score"
+                value={`${formatNumber(entry.absoluteScore, 1)} (${entry.grade})`}
+              />
+            )}
             <DetailRow label="Sharpe Ratio" value={formatNumber(entry.sharpeRatio, 2)} />
             <DetailRow label="Sortino Ratio" value={formatNumber(entry.sortinoRatio, 2)} />
             <DetailRow label="Recovery Factor" value={formatNumber(entry.recoveryFactor, 2)} />
@@ -271,7 +270,7 @@ function LeaderboardCard({
         </div>
       )}
     </div>
-  )
+  );
 }
 
 function MetricCell({
@@ -280,21 +279,39 @@ function MetricCell({
   highlight,
   negative,
 }: {
-  label: string
-  value: string
-  highlight?: boolean
-  negative?: boolean
+  label: string;
+  value: string;
+  highlight?: boolean;
+  negative?: boolean;
 }) {
-  let color = 'text-gray-300'
-  if (highlight) color = 'text-pocket-green'
-  if (negative) color = 'text-red-400'
+  let color = 'text-gray-300';
+  if (highlight) color = 'text-pocket-green';
+  if (negative) color = 'text-red-400';
 
   return (
     <div>
       <div className="text-gray-600">{label}</div>
       <div className={`font-mono font-medium ${color}`}>{value}</div>
     </div>
-  )
+  );
+}
+
+const GRADE_COLORS: Record<string, string> = {
+  A: 'bg-green-500/20 text-green-400 border-green-500/30',
+  B: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  C: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+  D: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+  F: 'bg-red-500/20 text-red-400 border-red-500/30',
+};
+
+function GradeBadge({ grade }: { grade: string }) {
+  return (
+    <span
+      className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${GRADE_COLORS[grade] ?? GRADE_COLORS.F}`}
+    >
+      {grade}
+    </span>
+  );
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
@@ -303,10 +320,18 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       <span className="text-gray-500">{label}</span>
       <span className="text-gray-300 font-mono">{value}</span>
     </div>
-  )
+  );
 }
 
-function MiniStat({ label, value, positive }: { label: string; value: string; positive?: boolean }) {
+function MiniStat({
+  label,
+  value,
+  positive,
+}: {
+  label: string;
+  value: string;
+  positive?: boolean;
+}) {
   return (
     <div className="bg-pocket-dark rounded-lg p-2 text-center">
       <div className="text-[9px] text-gray-500 uppercase">{label}</div>
@@ -314,7 +339,7 @@ function MiniStat({ label, value, positive }: { label: string; value: string; po
         {value}
       </div>
     </div>
-  )
+  );
 }
 
 // ============================================================
@@ -323,17 +348,29 @@ function MiniStat({ label, value, positive }: { label: string; value: string; po
 
 function getSortValue(entry: LeaderboardEntry, key: LeaderboardSortKey): number {
   switch (key) {
-    case 'compositeScore': return entry.compositeScore
-    case 'winRate': return entry.winRate
-    case 'netProfit': return entry.netProfit
-    case 'profitFactor': return isFinite(entry.profitFactor) ? entry.profitFactor : 999
-    case 'tradesPerDay': return entry.tradesPerDay
-    case 'maxDrawdownPercent': return entry.maxDrawdownPercent
-    case 'maxConsecutiveLosses': return entry.maxConsecutiveLosses
-    case 'dailyVolume': return entry.dailyVolume
-    case 'daysToVolumeTarget': return entry.daysToVolumeTarget ?? 9999
-    case 'sharpeRatio': return entry.sharpeRatio
-    case 'recoveryFactor': return isFinite(entry.recoveryFactor) ? entry.recoveryFactor : 999
-    case 'kellyFraction': return entry.kellyFraction
+    case 'compositeScore':
+      return entry.compositeScore;
+    case 'winRate':
+      return entry.winRate;
+    case 'netProfit':
+      return entry.netProfit;
+    case 'profitFactor':
+      return isFinite(entry.profitFactor) ? entry.profitFactor : 999;
+    case 'tradesPerDay':
+      return entry.tradesPerDay;
+    case 'maxDrawdownPercent':
+      return entry.maxDrawdownPercent;
+    case 'maxConsecutiveLosses':
+      return entry.maxConsecutiveLosses;
+    case 'dailyVolume':
+      return entry.dailyVolume;
+    case 'daysToVolumeTarget':
+      return entry.daysToVolumeTarget ?? 9999;
+    case 'sharpeRatio':
+      return entry.sharpeRatio;
+    case 'recoveryFactor':
+      return isFinite(entry.recoveryFactor) ? entry.recoveryFactor : 999;
+    case 'kellyFraction':
+      return entry.kellyFraction;
   }
 }
