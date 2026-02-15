@@ -206,6 +206,12 @@ async function handleMessage(
     case 'GET_TICK_BUFFER_STATS':
       return handleGetTickBufferStats()
 
+    case 'FLUSH_TICK_BUFFER':
+      return handleFlushTickBuffer()
+
+    case 'RUN_TICK_RETENTION':
+      return handleRunTickRetention()
+
     case 'GET_ERROR_STATS':
       return errorHandler.getStats()
 
@@ -347,6 +353,15 @@ async function handleGetTickBufferStats(): Promise<{
     TickRepository.getStats(),
   ])
   return { buffer: bufferStats, db: dbStats }
+}
+
+async function handleFlushTickBuffer(): Promise<{ flushed: number }> {
+  const flushed = await tickBuffer.flush()
+  return { flushed }
+}
+
+async function handleRunTickRetention(): Promise<{ ageDeleted: number; capDeleted: number }> {
+  return await tickBuffer.runRetention()
 }
 
 async function handleTradeExecuted(

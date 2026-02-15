@@ -240,7 +240,8 @@ describe('DataSender', () => {
 
       globalThis.fetch = vi.fn().mockRejectedValue(new Error('timeout'))
 
-      await DataSender.sendHistory(candles)
+      // Use maxRetries=0 to avoid retry delays in test
+      await DataSender.sendHistory(candles, 0)
       expect(DataSender.getStats().bulkFailCount).toBe(before + 1)
     })
 
@@ -272,6 +273,59 @@ describe('DataSender', () => {
 
       const body = JSON.parse((fetch as any).mock.calls[0][1].body)
       expect(body.candles[0].symbol).toBe('GOOG')
+    })
+
+    it('bulkSendCount는 유효한 캔들이 있을 때만 증가한다', async () => {
+      const before = DataSender.getStats().bulkSendCount
+
+      // All invalid candles → filtered out → no count increment
+      globalThis.fetch = vi.fn()
+      await DataSender.sendHistory([
+        { symbol: 'UNKNOWN', timestamp: NaN, open: NaN, high: NaN, low: NaN, close: NaN },
+      ])
+      expect(DataSender.getStats().bulkSendCount).toBe(before)
+
+      // Valid candles → count increments
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ count: 1 }),
+      })
+      await DataSender.sendHistory([
+        { symbol: 'AAPL', timestamp: 1700000000000, open: 175, high: 180, low: 170, close: 178 },
+      ])
+      expect(DataSender.getStats().bulkSendCount).toBe(before + 1)
+    })
+
+    it('네트워크 에러 시 재시도 후 최종 실패 시 bulkFailCount 증가', async () => {
+      const before = DataSender.getStats().bulkFailCount
+
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error('timeout'))
+
+      // maxRetries=0 means no retries (single attempt)
+      await DataSender.sendHistory(candles, 0)
+      expect(DataSender.getStats().bulkFailCount).toBe(before + 1)
+      expect(fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('재시도 성공 시 bulkSuccessCount 증가하고 bulkFailCount 불변', async () => {
+      const beforeFail = DataSender.getStats().bulkFailCount
+      const beforeSuccess = DataSender.getStats().bulkSuccessCount
+
+      let callCount = 0
+      globalThis.fetch = vi.fn().mockImplementation(() => {
+        callCount++
+        if (callCount === 1) return Promise.reject(new Error('first fail'))
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ count: 2 }),
+        })
+      })
+
+      // maxRetries=1, first attempt fails, second succeeds
+      await DataSender.sendHistory(candles, 1)
+      expect(DataSender.getStats().bulkSuccessCount).toBe(beforeSuccess + 1)
+      expect(DataSender.getStats().bulkFailCount).toBe(beforeFail) // no fail count
+      expect(fetch).toHaveBeenCalledTimes(2)
     })
   })
 

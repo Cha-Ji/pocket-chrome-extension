@@ -142,4 +142,69 @@ describe('TickRepository — enhanced API', () => {
       expect(typeof c).toBe('number')
     })
   })
+
+  // ============================================================
+  // TickBuffer flush → DB integration test
+  // ============================================================
+  describe('TickBuffer flush integration', () => {
+    it('should increase tick count after TickBuffer flush', async () => {
+      // Dynamic import to avoid circular dependency issues
+      const { TickBuffer } = await import('../../background/tick-buffer')
+
+      const buf = new TickBuffer({
+        sampleIntervalMs: 0,    // accept every tick
+        batchSize: 1000,        // don't auto-flush
+        flushIntervalMs: 99999, // don't timer-flush
+      })
+
+      const baseCount = await TickRepository.count()
+      expect(baseCount).toBe(0)
+
+      // Ingest 5 ticks with different timestamps
+      const now = Date.now()
+      for (let i = 0; i < 5; i++) {
+        buf.ingest({ ticker: 'EURUSD', timestamp: now + i * 1000, price: 1.08 + i * 0.001 })
+      }
+
+      // Before flush — DB should still be empty
+      expect(await TickRepository.count()).toBe(0)
+
+      // Flush
+      const flushed = await buf.flush()
+      expect(flushed).toBe(5)
+
+      // After flush — DB should have 5 ticks
+      expect(await TickRepository.count()).toBe(5)
+
+      await buf.stop()
+    })
+
+    it('should persist ticks correctly across multiple flushes', async () => {
+      const { TickBuffer } = await import('../../background/tick-buffer')
+
+      const buf = new TickBuffer({
+        sampleIntervalMs: 0,
+        batchSize: 1000,
+        flushIntervalMs: 99999,
+      })
+
+      const now = Date.now()
+
+      // First batch
+      for (let i = 0; i < 3; i++) {
+        buf.ingest({ ticker: 'GBPUSD', timestamp: now + i * 1000, price: 1.26 })
+      }
+      await buf.flush()
+      expect(await TickRepository.count()).toBe(3)
+
+      // Second batch
+      for (let i = 0; i < 4; i++) {
+        buf.ingest({ ticker: 'GBPUSD', timestamp: now + (10 + i) * 1000, price: 1.27 })
+      }
+      await buf.flush()
+      expect(await TickRepository.count()).toBe(7)
+
+      await buf.stop()
+    })
+  })
 })
