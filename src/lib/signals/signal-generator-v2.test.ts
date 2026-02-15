@@ -68,20 +68,20 @@ describe('SignalGeneratorV2', () => {
       expect(result).toBeNull()
     })
 
-    it('버퍼 크기가 100개로 제한된다', () => {
-      const candles = generateCandles(120)
+    it('버퍼 크기가 250개로 제한된다', () => {
+      const candles = generateCandles(300)
       for (const candle of candles) {
         generator.addCandle('BTCUSDT', candle)
       }
       const buffer = (generator as any).candleBuffer.get('BTCUSDT')
-      expect(buffer.length).toBeLessThanOrEqual(100)
+      expect(buffer.length).toBeLessThanOrEqual(250)
     })
 
     it('setHistory로 히스토리를 설정할 수 있다', () => {
-      const candles = generateCandles(150)
+      const candles = generateCandles(300)
       generator.setHistory('BTCUSDT', candles)
       const buffer = (generator as any).candleBuffer.get('BTCUSDT')
-      expect(buffer).toHaveLength(100) // 최대 100개만 유지
+      expect(buffer).toHaveLength(250) // 최대 250개만 유지 (SBB-120: 140 필요)
     })
 
     it('setHistory에 100개 이하 데이터도 정상 동작한다', () => {
@@ -145,6 +145,7 @@ describe('SignalGeneratorV2', () => {
         timestamp: Date.now() + i * 1000,
         symbol: 'BTCUSDT',
         direction: 'CALL' as const,
+        strategyId: 'RSI-BB',
         strategy: 'RSI+BB',
         regime: 'ranging' as MarketRegime,
         confidence: 0.7,
@@ -166,6 +167,7 @@ describe('SignalGeneratorV2', () => {
         timestamp: Date.now(),
         symbol: 'BTCUSDT',
         direction: 'CALL',
+        strategyId: 'RSI-BB',
         strategy: 'RSI+BB',
         regime: 'ranging',
         confidence: 0.7,
@@ -188,6 +190,7 @@ describe('SignalGeneratorV2', () => {
         timestamp: Date.now(),
         symbol: 'BTCUSDT',
         direction: 'CALL',
+        strategyId: 'RSI-BB',
         strategy: 'RSI+BB',
         regime: 'ranging',
         confidence: 0.7,
@@ -201,14 +204,55 @@ describe('SignalGeneratorV2', () => {
       generator.updateSignalResult('test-signal', 'win')
 
       const stats = generator.getStats()
-      expect(stats.byStrategy['RSI+BB']).toBeDefined()
-      expect(stats.byStrategy['RSI+BB'].wins).toBe(1)
+      expect(stats.byStrategy['RSI-BB']).toBeDefined()
+      expect(stats.byStrategy['RSI-BB'].wins).toBe(1)
     })
 
     it('updateSignalResult은 존재하지 않는 ID에 대해 아무 작업도 하지 않는다', () => {
       ;(generator as any).signals = []
       generator.updateSignalResult('nonexistent', 'loss')
       expect(generator.getSignals()).toHaveLength(0)
+    })
+
+    it('updateSignalResult은 tie를 올바르게 처리한다', () => {
+      const signal: Signal = {
+        id: 'tie-signal',
+        timestamp: Date.now(),
+        symbol: 'BTCUSDT',
+        direction: 'CALL',
+        strategyId: 'RSI-BB',
+        strategy: 'RSI+BB',
+        regime: 'ranging',
+        confidence: 0.7,
+        expiry: 60,
+        entryPrice: 50000,
+        indicators: {},
+        status: 'pending',
+      }
+      ;(generator as any).signals = [signal]
+
+      generator.updateSignalResult('tie-signal', 'tie')
+
+      const signals = generator.getSignals()
+      expect(signals[0].status).toBe('tie')
+    })
+
+    it('updateSignalResult은 tie를 전략별 통계에 별도 카운트한다', () => {
+      const signals: Signal[] = [
+        { id: 's1', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.7, expiry: 60, entryPrice: 50000, indicators: {}, status: 'pending' },
+        { id: 's2', timestamp: Date.now(), symbol: 'BTC', direction: 'PUT', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.7, expiry: 60, entryPrice: 50000, indicators: {}, status: 'pending' },
+        { id: 's3', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.7, expiry: 60, entryPrice: 50000, indicators: {}, status: 'pending' },
+      ]
+      ;(generator as any).signals = signals
+
+      generator.updateSignalResult('s1', 'win')
+      generator.updateSignalResult('s2', 'loss')
+      generator.updateSignalResult('s3', 'tie')
+
+      const stats = generator.getStats()
+      expect(stats.byStrategy['RSI-BB'].wins).toBe(1)
+      expect(stats.byStrategy['RSI-BB'].losses).toBe(1)
+      expect(stats.byStrategy['RSI-BB'].ties).toBe(1)
     })
   })
 
@@ -303,15 +347,16 @@ describe('SignalGeneratorV2', () => {
       expect(rsiBBBounceStrategy).toHaveBeenCalledWith(candles, expect.any(Object))
     })
 
-    it('ADX < 25인 non-ranging에서도 rsiBBBounceStrategy를 호출한다', async () => {
+    it('non-ranging regime에서는 ADX 값과 무관하게 null을 반환한다', async () => {
       const { rsiBBBounceStrategy } = await import('../backtest/strategies/high-winrate')
       ;(rsiBBBounceStrategy as ReturnType<typeof vi.fn>).mockClear()
 
       const selectStrategy = (generator as any).selectStrategy.bind(generator)
       const candles = generateCandles(60)
 
-      selectStrategy(candles, { regime: 'weak_uptrend', adx: 20, direction: 1 })
-      expect(rsiBBBounceStrategy).toHaveBeenCalled()
+      const result = selectStrategy(candles, { regime: 'weak_uptrend', adx: 20, direction: 1 })
+      expect(result).toBeNull()
+      expect(rsiBBBounceStrategy).not.toHaveBeenCalled()
     })
   })
 })
@@ -329,9 +374,9 @@ describe('generateLLMReport', () => {
 
   it('신호가 있으면 summary 객체를 반환한다', () => {
     const signals: Signal[] = [
-      { id: '1', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategy: 'RSI+BB: bounce', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'win' },
-      { id: '2', timestamp: Date.now(), symbol: 'BTC', direction: 'PUT', strategy: 'RSI+BB: bounce', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'loss' },
-      { id: '3', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategy: 'RSI+BB: bounce', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'pending' },
+      { id: '1', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB: bounce', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'win' },
+      { id: '2', timestamp: Date.now(), symbol: 'BTC', direction: 'PUT', strategyId: 'RSI-BB', strategy: 'RSI+BB: bounce', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'loss' },
+      { id: '3', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB: bounce', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'pending' },
     ]
 
     const report = generateLLMReport(signals) as any
@@ -343,24 +388,23 @@ describe('generateLLMReport', () => {
     expect(report.summary.winRate).toBe('50.0%')
   })
 
-  it('전략별 성과를 분류한다 (콜론으로 split)', () => {
+  it('전략별 성과를 strategyId 기준으로 분류한다', () => {
     const signals: Signal[] = [
-      { id: '1', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategy: 'RSI+BB: oversold bounce', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'win' },
-      { id: '2', timestamp: Date.now(), symbol: 'BTC', direction: 'PUT', strategy: 'RSI+BB: overbought bounce', regime: 'ranging', confidence: 0.7, expiry: 60, entryPrice: 50000, indicators: {}, status: 'loss' },
+      { id: '1', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB: oversold bounce', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'win' },
+      { id: '2', timestamp: Date.now(), symbol: 'BTC', direction: 'PUT', strategyId: 'RSI-BB', strategy: 'RSI+BB: overbought bounce', regime: 'ranging', confidence: 0.7, expiry: 60, entryPrice: 50000, indicators: {}, status: 'loss' },
     ]
 
     const report = generateLLMReport(signals) as any
-    // 'RSI+BB: oversold bounce' → split(':')[0].trim() → 'RSI+BB'
-    // 모두 같은 키로 묶임
+    // Both signals share strategyId 'RSI-BB' → grouped into one entry
     expect(report.performance.byStrategy).toHaveLength(1)
-    expect(report.performance.byStrategy[0].name).toBe('RSI+BB')
+    expect(report.performance.byStrategy[0].name).toBe('RSI-BB')
     expect(report.performance.byStrategy[0].signals).toBe(2)
   })
 
   it('시장 레짐별 성과를 분류한다', () => {
     const signals: Signal[] = [
-      { id: '1', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'win' },
-      { id: '2', timestamp: Date.now(), symbol: 'BTC', direction: 'PUT', strategy: 'RSI+BB', regime: 'weak_uptrend', confidence: 0.7, expiry: 60, entryPrice: 50000, indicators: {}, status: 'loss' },
+      { id: '1', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'win' },
+      { id: '2', timestamp: Date.now(), symbol: 'BTC', direction: 'PUT', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'weak_uptrend', confidence: 0.7, expiry: 60, entryPrice: 50000, indicators: {}, status: 'loss' },
     ]
 
     const report = generateLLMReport(signals) as any
@@ -376,6 +420,7 @@ describe('generateLLMReport', () => {
       timestamp: Date.now() + i,
       symbol: 'BTC',
       direction: 'CALL' as const,
+      strategyId: 'RSI-BB',
       strategy: 'RSI+BB',
       regime: 'ranging' as MarketRegime,
       confidence: 0.8,
@@ -389,12 +434,43 @@ describe('generateLLMReport', () => {
     expect(report.recentSignals).toHaveLength(5)
   })
 
+  it('tie가 포함된 신호에서 winRate를 Policy A로 계산한다 (ties 제외)', () => {
+    const signals: Signal[] = [
+      { id: '1', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'win' },
+      { id: '2', timestamp: Date.now(), symbol: 'BTC', direction: 'PUT', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'loss' },
+      { id: '3', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'tie' },
+      { id: '4', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'pending' },
+    ]
+
+    const report = generateLLMReport(signals) as any
+    // Policy A: winRate = wins / (wins + losses) = 1/2 = 50.0%
+    // NOT 1/3 (excluding pending) or 1/4 (including all)
+    expect(report.summary.winRate).toBe('50.0%')
+    expect(report.summary.wins).toBe(1)
+    expect(report.summary.losses).toBe(1)
+    expect(report.summary.ties).toBe(1)
+    expect(report.summary.pending).toBe(1)
+    expect(report.summary.completed).toBe(2) // only decided trades (win + loss)
+  })
+
+  it('tie만 있으면 winRate는 N/A이다', () => {
+    const signals: Signal[] = [
+      { id: '1', timestamp: Date.now(), symbol: 'BTC', direction: 'CALL', strategyId: 'RSI-BB', strategy: 'RSI+BB', regime: 'ranging', confidence: 0.8, expiry: 60, entryPrice: 50000, indicators: {}, status: 'tie' },
+    ]
+
+    const report = generateLLMReport(signals) as any
+    expect(report.summary.winRate).toBe('N/A%')
+    expect(report.summary.ties).toBe(1)
+    expect(report.summary.completed).toBe(0)
+  })
+
   it('승률 55% 이상이면 positive recommendation', () => {
     const signals: Signal[] = Array.from({ length: 10 }, (_, i) => ({
       id: `sig-${i}`,
       timestamp: Date.now() + i,
       symbol: 'BTC',
       direction: 'CALL' as const,
+      strategyId: 'RSI-BB',
       strategy: 'RSI+BB',
       regime: 'ranging' as MarketRegime,
       confidence: 0.8,

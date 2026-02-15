@@ -6,6 +6,7 @@
 // ============================================================
 
 import { CandleRepository } from '../lib/db'
+import { normalizeSymbol, normalizeTimestampMs } from '../lib/utils/normalize'
 
 export interface Candle {
   timestamp: number
@@ -60,7 +61,10 @@ export class CandleCollector {
   private _isCollecting = false
   private listeners: ((ticker: string, candle: Candle) => void)[] = []
   private tickHistory: TickData[] = []
+  /** Ticker-keyed tick buffer for O(1) lookup by ticker */
+  private ticksByTicker: Map<string, TickData[]> = new Map()
   private maxTickHistory = 10000
+  private maxTicksPerTicker = 2000
   private static readonly MAX_LISTENERS_WARNING = 10
 
   constructor(candleIntervalSeconds: number = 60, maxCandles: number = 500) {
@@ -133,6 +137,35 @@ export class CandleCollector {
    */
   getTickHistory(): TickData[] {
     return [...this.tickHistory]
+  }
+
+  /**
+   * Get latest tick price for a specific ticker.
+   * Uses the ticker-indexed map for O(1) lookup.
+   * Used for trade settlement (exit price at expiry).
+   */
+  getLatestTickPrice(ticker: string): number | null {
+    const ticks = this.ticksByTicker.get(ticker)
+    if (ticks && ticks.length > 0) return ticks[ticks.length - 1].price
+    return null
+  }
+
+  /**
+   * Get ticks for a specific ticker, optionally filtered to recent N milliseconds.
+   * O(1) lookup via ticker-indexed map. Avoids full-array filter.
+   */
+  getTicksByTicker(ticker: string, sinceMs?: number): TickData[] {
+    const ticks = this.ticksByTicker.get(ticker)
+    if (!ticks) return []
+    if (sinceMs == null) return [...ticks]
+    const cutoff = Date.now() - sinceMs
+    // Binary-ish scan from end (ticks are in chronological order)
+    let start = ticks.length
+    for (let i = ticks.length - 1; i >= 0; i--) {
+      if (ticks[i].timestamp < cutoff) break
+      start = i
+    }
+    return ticks.slice(start)
   }
 
   /**
@@ -216,8 +249,8 @@ export class CandleCollector {
   addTickFromWebSocket(symbol: string, price: number, timestamp: number): void {
     const tick: TickData = {
       price,
-      timestamp,
-      ticker: symbol.toUpperCase()
+      timestamp: normalizeTimestampMs(timestamp),
+      ticker: normalizeSymbol(symbol)
     }
     
     // 틱 기록
@@ -272,13 +305,13 @@ export class CandleCollector {
 
   /**
    * Scrape current ticker from DOM
+   * P2: normalizeSymbol()을 사용하여 WS/DOM/History 간 키 일치 보장
    */
   private scrapeTickerFromDOM(): string {
     const assetEl = document.querySelector(SELECTORS.assetName)
     if (assetEl) {
       const name = assetEl.textContent?.trim() || ''
-      // 공백 제거하고 정규화
-      return name.replace(/\s+/g, '-').toUpperCase() || 'UNKNOWN'
+      return name ? normalizeSymbol(name) : 'UNKNOWN'
     }
     return 'UNKNOWN'
   }
@@ -372,10 +405,21 @@ export class CandleCollector {
    */
   private recordTick(tick: TickData): void {
     this.tickHistory.push(tick)
-    
+
     // 히스토리 크기 제한
     if (this.tickHistory.length > this.maxTickHistory) {
       this.tickHistory = this.tickHistory.slice(-this.maxTickHistory)
+    }
+
+    // Ticker-indexed buffer
+    let tickerBuf = this.ticksByTicker.get(tick.ticker)
+    if (!tickerBuf) {
+      tickerBuf = []
+      this.ticksByTicker.set(tick.ticker, tickerBuf)
+    }
+    tickerBuf.push(tick)
+    if (tickerBuf.length > this.maxTicksPerTicker) {
+      this.ticksByTicker.set(tick.ticker, tickerBuf.slice(-this.maxTicksPerTicker))
     }
   }
 

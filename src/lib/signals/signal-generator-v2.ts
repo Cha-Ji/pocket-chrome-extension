@@ -59,6 +59,10 @@ const DEFAULT_CONFIG: SignalGeneratorV2Config = {
 // Signal Generator V2 Class
 // ============================================================
 
+// SBB-120 requires bbPeriod(20) + lookbackSqueeze(120) = 140 candles minimum.
+// Use 250 to allow headroom for all strategies.
+const MAX_CANDLE_BUFFER = 250
+
 export class SignalGeneratorV2 {
   private config: SignalGeneratorV2Config
   private candleBuffer: Map<string, Candle[]> = new Map()
@@ -67,7 +71,7 @@ export class SignalGeneratorV2 {
   private stats = {
     signalsGenerated: 0,
     signalsFiltered: 0,
-    byStrategy: new Map<string, { count: number; wins: number; losses: number }>()
+    byStrategy: new Map<string, { count: number; wins: number; losses: number; ties: number }>()
   }
 
   constructor(config?: Partial<SignalGeneratorV2Config>) {
@@ -89,8 +93,8 @@ export class SignalGeneratorV2 {
     const buffer = this.candleBuffer.get(symbol)!
     buffer.push(candle)
 
-    if (buffer.length > 100) {
-      buffer.shift()
+    if (buffer.length > MAX_CANDLE_BUFFER) {
+      buffer.splice(0, buffer.length - MAX_CANDLE_BUFFER)
     }
 
     if (buffer.length < 50) {
@@ -104,7 +108,7 @@ export class SignalGeneratorV2 {
    * Set candle history
    */
   setHistory(symbol: string, candles: Candle[]): void {
-    this.candleBuffer.set(symbol, candles.slice(-100))
+    this.candleBuffer.set(symbol, candles.slice(-MAX_CANDLE_BUFFER))
   }
 
   /**
@@ -146,16 +150,18 @@ export class SignalGeneratorV2 {
   /**
    * Update signal result
    */
-  updateSignalResult(signalId: string, result: 'win' | 'loss'): void {
+  updateSignalResult(signalId: string, result: 'win' | 'loss' | 'tie'): void {
     const signal = this.signals.find(s => s.id === signalId)
     if (signal) {
       signal.status = result
-      
+
       // Update stats
-      const stratStats = this.stats.byStrategy.get(signal.strategy) || { count: 0, wins: 0, losses: 0 }
+      const stratKey = signal.strategyId || 'UNKNOWN'
+      const stratStats = this.stats.byStrategy.get(stratKey) || { count: 0, wins: 0, losses: 0, ties: 0 }
       if (result === 'win') stratStats.wins++
-      else stratStats.losses++
-      this.stats.byStrategy.set(signal.strategy, stratStats)
+      else if (result === 'loss') stratStats.losses++
+      else stratStats.ties++
+      this.stats.byStrategy.set(stratKey, stratStats)
     }
   }
 
@@ -193,12 +199,13 @@ export class SignalGeneratorV2 {
     this.stats.signalsGenerated++
 
     // Update strategy stats
-    const stratStats = this.stats.byStrategy.get(signal.strategy) || { count: 0, wins: 0, losses: 0 }
+    const stratKey = signal.strategyId || 'UNKNOWN'
+    const stratStats = this.stats.byStrategy.get(stratKey) || { count: 0, wins: 0, losses: 0, ties: 0 }
     stratStats.count++
-    this.stats.byStrategy.set(signal.strategy, stratStats)
+    this.stats.byStrategy.set(stratKey, stratStats)
 
-    if (this.signals.length > 100) {
-      this.signals.shift()
+    if (this.signals.length > 200) {
+      this.signals.splice(0, this.signals.length - 200)
     }
 
     this.listeners.forEach(l => l(signal))
@@ -209,18 +216,16 @@ export class SignalGeneratorV2 {
     candles: Candle[],
     regimeInfo: { regime: MarketRegime; adx: number; direction: number }
   ): StrategyResult | null {
-    const { regime, adx } = regimeInfo
+    const { regime } = regimeInfo
 
     // 백테스트 결과 기반 전략 선택 (보수적 접근):
-    // - ranging: RSI+BB 54.0% ✅ + SBB-120 (squeeze breakout)
+    // - ranging (ADX < 25): RSI+BB 54.0% ✅ + SBB-120 (squeeze breakout)
     // - 다른 레짐: 신호 생성 안함 (성과 저조)
+    //
+    // 횡보장에서만 신호 생성. detectRegime()은 ADX < 25를 'ranging'으로 정의하므로
+    // regime 비교만으로 충분하다.
 
-    // 횡보장에서만 신호 생성 (ADX < 25)
-    // ADX 25-40: 약한 추세 → 신호 생성 안함
-    // ADX > 40: 강한 추세 → 신호 생성 안함
-
-    if (regime !== 'ranging' && adx >= 25) {
-      // 추세가 있으면 신호 생성 안함
+    if (regime !== 'ranging') {
       return null
     }
 
@@ -229,7 +234,7 @@ export class SignalGeneratorV2 {
     // 2차: RSI+BB + ZMR-60 consensus/best 모드
     const sbbResult = sbb120Strategy(candles)
     if (sbbResult.signal) {
-      return sbbResult
+      return { ...sbbResult, strategyId: 'SBB-120' }
     }
 
     // RSI+BB 전략 (기본)
@@ -239,7 +244,8 @@ export class SignalGeneratorV2 {
     // ZMR-60 통합 모드 체크
     const mergeMode = this.config.zmr60MergeMode
     if (mergeMode === 'off') {
-      return rsiBBResult ?? noSignal
+      const r = rsiBBResult ?? noSignal
+      return r.signal ? { ...r, strategyId: 'RSI-BB' } : r
     }
 
     // ZMR-60 전략 실행
@@ -260,6 +266,7 @@ export class SignalGeneratorV2 {
         const chosen = rsi.confidence >= zmr.confidence ? rsi : zmr
         return {
           ...chosen,
+          strategyId: 'RSI-BB+ZMR-60',
           reason: `[consensus] ${chosen.reason}`,
           indicators: {
             ...rsi.indicators,
@@ -276,11 +283,13 @@ export class SignalGeneratorV2 {
 
     // mergeMode === 'best': 높은 confidence 선택
     if (rsi.signal && zmr.signal) {
-      return rsi.confidence >= zmr.confidence ? rsi : zmr
+      const chosen = rsi.confidence >= zmr.confidence ? rsi : zmr
+      const id = rsi.confidence >= zmr.confidence ? 'RSI-BB' : 'ZMR-60'
+      return { ...chosen, strategyId: id }
     }
     // 하나만 신호가 있으면 그것을 반환
-    if (rsi.signal) return rsi
-    if (zmr.signal) return zmr
+    if (rsi.signal) return { ...rsi, strategyId: 'RSI-BB' }
+    if (zmr.signal) return { ...zmr, strategyId: 'ZMR-60' }
 
     return rsi // 둘 다 null → null 반환
   }
@@ -323,6 +332,7 @@ export class SignalGeneratorV2 {
       timestamp: Date.now(),
       symbol,
       direction: strategyResult.signal!,
+      strategyId: strategyResult.strategyId ?? 'UNKNOWN',
       strategy: strategyResult.reason,
       regime: regimeInfo.regime,
       confidence: strategyResult.confidence,
@@ -369,27 +379,31 @@ export function generateLLMReport(signals: Signal[]): object {
 
   const wins = signals.filter(s => s.status === 'win').length
   const losses = signals.filter(s => s.status === 'loss').length
+  const ties = signals.filter(s => s.status === 'tie').length
   const pending = signals.filter(s => s.status === 'pending').length
-  const total = wins + losses
-  const winRate = total > 0 ? (wins / total * 100).toFixed(1) : 'N/A'
+  // Policy A: winRate = wins / (wins + losses), ties excluded from denominator
+  const decided = wins + losses
+  const winRate = decided > 0 ? (wins / decided * 100).toFixed(1) : 'N/A'
 
-  // Strategy breakdown
-  const byStrategy: Record<string, { count: number; wins: number; losses: number }> = {}
+  // Strategy breakdown — aggregate by strategyId for stable keys
+  const byStrategy: Record<string, { count: number; wins: number; losses: number; ties: number }> = {}
   signals.forEach(s => {
-    const key = s.strategy.split(':')[0].trim()
-    if (!byStrategy[key]) byStrategy[key] = { count: 0, wins: 0, losses: 0 }
+    const key = s.strategyId || 'UNKNOWN'
+    if (!byStrategy[key]) byStrategy[key] = { count: 0, wins: 0, losses: 0, ties: 0 }
     byStrategy[key].count++
     if (s.status === 'win') byStrategy[key].wins++
     if (s.status === 'loss') byStrategy[key].losses++
+    if (s.status === 'tie') byStrategy[key].ties++
   })
 
   // Regime breakdown
-  const byRegime: Record<string, { count: number; wins: number; losses: number }> = {}
+  const byRegime: Record<string, { count: number; wins: number; losses: number; ties: number }> = {}
   signals.forEach(s => {
-    if (!byRegime[s.regime]) byRegime[s.regime] = { count: 0, wins: 0, losses: 0 }
+    if (!byRegime[s.regime]) byRegime[s.regime] = { count: 0, wins: 0, losses: 0, ties: 0 }
     byRegime[s.regime].count++
     if (s.status === 'win') byRegime[s.regime].wins++
     if (s.status === 'loss') byRegime[s.regime].losses++
+    if (s.status === 'tie') byRegime[s.regime].ties++
   })
 
   // Recent signals (last 5)
@@ -417,11 +431,13 @@ export function generateLLMReport(signals: Signal[]): object {
   return {
     summary: {
       totalSignals: signals.length,
-      completed: total,
+      completed: decided,
       pending,
       winRate: `${winRate}%`,
+      winRatePolicy: 'A: wins/(wins+losses), ties excluded from denominator',
       wins,
       losses,
+      ties,
     },
     performance: {
       byStrategy: Object.entries(byStrategy).map(([name, stats]) => ({

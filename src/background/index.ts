@@ -5,7 +5,7 @@
 
 import { ExtensionMessage, MessagePayloadMap, Tick, Trade, TradingStatus, TelegramConfig } from '../lib/types'
 import { TickRepository, TradeRepository } from '../lib/db'
-import { getTelegramService } from '../lib/notifications/telegram'
+import { getTelegramService, resetTelegramService } from '../lib/notifications/telegram'
 import {
   POError,
   ErrorCode,
@@ -16,6 +16,13 @@ import {
   ignoreError,
 } from '../lib/errors'
 import { PORT_CHANNEL, RELAY_MESSAGE_TYPES, THROTTLE_CONFIG } from '../lib/port-channel'
+import { TickBuffer } from './tick-buffer'
+import {
+  handleTradeExecuted as tradeHandlerExecuted,
+  handleFinalizeTrade as tradeHandlerFinalize,
+  handleGetTrades as tradeHandlerGetTrades,
+  type TradeHandlerDeps,
+} from './handlers/trade-handlers'
 
 // ============================================================
 // Error Handler Setup
@@ -48,6 +55,26 @@ let tradingStatus: TradingStatus = {
 // Storage Access Level (Content Script에서 session storage 접근 허용)
 // ============================================================
 chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' })
+
+// ============================================================
+// Auto-reset Telegram singleton on storage changes
+// ============================================================
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'local' && changes.appConfig) {
+    const oldTelegram = changes.appConfig.oldValue?.telegram
+    const newTelegram = changes.appConfig.newValue?.telegram
+    // telegram 섹션이 실제로 변경된 경우에만 리셋
+    if (JSON.stringify(oldTelegram) !== JSON.stringify(newTelegram)) {
+      console.log('[Background] Telegram config changed in storage.local — resetting singleton')
+      resetTelegramService()
+    }
+  }
+  if (areaName === 'session' && changes.telegramSecure) {
+    console.log('[Background] Telegram secure data changed in storage.session — resetting singleton')
+    resetTelegramService()
+  }
+})
 
 // ============================================================
 // Port-based Side Panel Communication
@@ -92,6 +119,22 @@ function relayToSidePanels(message: { type: string; payload?: unknown }): void {
     } catch {
       connectedPorts.delete(port)
     }
+  }
+}
+
+// ============================================================
+// Trade Handler Dependencies (DI bridge)
+// ============================================================
+
+function getTradeHandlerDeps(): TradeHandlerDeps {
+  return {
+    tradeRepo: TradeRepository,
+    tradingStatus,
+    broadcast: (message) => {
+      chrome.runtime.sendMessage(message).catch(() => {
+        // Side panel may not be open - this is expected
+      })
+    },
   }
 }
 
@@ -154,10 +197,10 @@ async function handleMessage(
       return handleTickData(message.payload)
 
     case 'TRADE_EXECUTED':
-      return handleTradeExecuted(message.payload)
+      return handleTradeExecutedWithErrorHandling(message.payload)
 
     case 'GET_TRADES':
-      return handleGetTrades(message.payload)
+      return handleGetTradesWithErrorHandling(message.payload)
 
     case 'GET_STATUS':
       return tradingStatus
@@ -174,6 +217,22 @@ async function handleMessage(
     case 'TRADE_LOGGED':
       // Broadcast-only message consumed by side panel; no-op in background
       return null
+
+    case 'FINALIZE_TRADE':
+      return handleFinalizeTradeWithErrorHandling(message.payload)
+
+    case 'TRADE_SETTLED':
+      // Broadcast-only message consumed by side panel; no-op in background
+      return null
+
+    case 'GET_TICK_BUFFER_STATS':
+      return handleGetTickBufferStats()
+
+    case 'FLUSH_TICK_BUFFER':
+      return handleFlushTickBuffer()
+
+    case 'RUN_TICK_RETENTION':
+      return handleRunTickRetention()
 
     case 'GET_ERROR_STATS':
       return errorHandler.getStats()
@@ -278,105 +337,84 @@ function updateStatus(updates: Partial<TradingStatus>): void {
 }
 
 // ============================================================
-// Data Handling
+// Data Handling — TickBuffer (batch + sampling + retention)
 // ============================================================
 
-// Tick 저장 실패 시 재시도를 위한 메모리 버퍼
-const failedTickBuffer: Tick[] = []
-const MAX_FAILED_TICK_BUFFER = 100
-let consecutiveTickFailures = 0
-
-async function handleTickData(tick: Tick): Promise<void> {
-  if (!tick) return
-
-  const ctx = { module: 'background' as const, function: 'handleTickData' }
-
-  // 이전에 실패한 tick이 있으면 함께 재시도
-  const ticksToSave = [...failedTickBuffer, tick]
-  failedTickBuffer.length = 0
-
-  const result = await tryCatchAsync(
-    async () => {
-      if (ticksToSave.length === 1) {
-        await TickRepository.add(ticksToSave[0])
-      } else {
-        await TickRepository.bulkAdd(ticksToSave)
-      }
-
-      // 저장 성공 시 연속 실패 카운터 리셋
-      consecutiveTickFailures = 0
-
-      // 현재 티커 업데이트
-      tradingStatus.currentTicker = tick.ticker
-
-      // 주기적으로 오래된 데이터 정리 (10000개 초과 시)
-      const count = (await TickRepository.count()) || 0
-      if (count > 10000) {
-        const cutoff = Date.now() - 24 * 60 * 60 * 1000 // 24시간
-        await TickRepository.deleteOlderThan(cutoff)
-      }
-    },
-    ctx,
-    ErrorCode.DB_WRITE_FAILED
-  )
-
-  if (!result.success) {
-    consecutiveTickFailures++
-
-    // 실패한 tick을 버퍼에 보관 (버퍼 크기 제한)
-    for (const t of ticksToSave) {
-      if (failedTickBuffer.length < MAX_FAILED_TICK_BUFFER) {
-        failedTickBuffer.push(t)
-      }
-    }
-
-    // 연속 5회 실패 시 경고 알림
-    if (consecutiveTickFailures === 5) {
+const tickBuffer = new TickBuffer(
+  // Policy can be tuned via TickStoragePolicy fields
+  {},
+  {
+    onFlushError(error, tickCount) {
       errorHandler.handle(
         new POError({
           code: ErrorCode.DB_WRITE_FAILED,
-          message: `Tick 데이터 연속 ${consecutiveTickFailures}회 저장 실패 (버퍼: ${failedTickBuffer.length}건)`,
+          message: `Tick batch flush 실패 (${tickCount}건): ${error}`,
           severity: ErrorSeverity.WARNING,
-          context: ctx,
+          context: { module: 'background', function: 'tickBuffer.flush' },
         })
       )
-    }
-  }
+    },
+  },
+)
+
+// Start the retention sweep timer
+tickBuffer.start()
+
+function handleTickData(tick: Tick): void {
+  if (!tick) return
+  tickBuffer.ingest(tick)
+  tradingStatus.currentTicker = tick.ticker
 }
 
-async function handleTradeExecuted(payload: MessagePayloadMap['TRADE_EXECUTED']): Promise<void> {
+async function handleGetTickBufferStats(): Promise<{
+  buffer: ReturnType<TickBuffer['getStats']>
+  db: { count: number; oldestTimestamp: number | null; newestTimestamp: number | null }
+}> {
+  const [bufferStats, dbStats] = await Promise.all([
+    Promise.resolve(tickBuffer.getStats()),
+    TickRepository.getStats(),
+  ])
+  return { buffer: bufferStats, db: dbStats }
+}
+
+async function handleFlushTickBuffer(): Promise<{ flushed: number }> {
+  const flushed = await tickBuffer.flush()
+  return { flushed }
+}
+
+async function handleRunTickRetention(): Promise<{ ageDeleted: number; capDeleted: number }> {
+  return await tickBuffer.runRetention()
+}
+
+// ============================================================
+// Trade Handlers (delegating to extracted pure handlers)
+// ============================================================
+
+async function handleTradeExecutedWithErrorHandling(
+  payload: MessagePayloadMap['TRADE_EXECUTED']
+): Promise<{ success: boolean; tradeId?: number; ignored?: boolean }> {
   const ctx = { module: 'background' as const, function: 'handleTradeExecuted' }
 
   console.log('[Background] Trade executed:', payload)
 
-  const result = await tryCatchAsync(
-    async () => {
-      const trade: Omit<Trade, 'id'> = {
-        sessionId: tradingStatus.sessionId ?? 0,
-        ticker: payload.ticker ?? tradingStatus.currentTicker ?? 'unknown',
-        direction: payload.direction ?? 'CALL',
-        entryTime: payload.timestamp,
-        entryPrice: payload.entryPrice ?? 0,
-        result: 'PENDING',
-        amount: payload.amount ?? 0,
-      }
-
-      const id = await TradeRepository.create(trade)
-
-      // Broadcast normalized Trade to UI (side panel)
-      const savedTrade: Trade = { ...trade, id }
-      chrome.runtime.sendMessage({
-        type: 'TRADE_LOGGED',
-        payload: savedTrade,
-      }).catch(() => {
-        // Side panel may not be open - this is expected
+  // P0: entryPrice가 없거나 0이면 경고 (데이터 오염 방지)
+  if (payload.result !== false && (!payload.entryPrice || payload.entryPrice <= 0)) {
+    errorHandler.handle(
+      new POError({
+        code: ErrorCode.TRADE_VALIDATION_FAILED,
+        message: `TRADE_EXECUTED with invalid entryPrice: ${payload.entryPrice}`,
+        severity: ErrorSeverity.WARNING,
+        context: ctx,
       })
-    },
+    )
+  }
+
+  const result = await tryCatchAsync(
+    () => tradeHandlerExecuted(payload, getTradeHandlerDeps()),
     ctx,
     ErrorCode.DB_WRITE_FAILED
   )
 
-  // 저장 실패 시 에러 핸들러를 통해 알림
   if (!result.success) {
     errorHandler.handle(
       new POError({
@@ -386,28 +424,56 @@ async function handleTradeExecuted(payload: MessagePayloadMap['TRADE_EXECUTED'])
         context: ctx,
       })
     )
+    return { success: false }
   }
+
+  return result.data
 }
 
-async function handleGetTrades(payload: {
+async function handleGetTradesWithErrorHandling(payload: {
   sessionId?: number
   limit?: number
 }): Promise<Trade[]> {
   const ctx = { module: 'background' as const, function: 'handleGetTrades' }
 
   const result = await tryCatchAsync(
-    async () => {
-      if (payload.sessionId !== undefined) {
-        return await TradeRepository.getBySession(payload.sessionId)
-      }
-      // Return recent trades across all sessions
-      return await TradeRepository.getRecent(payload.limit ?? 50)
-    },
+    () => tradeHandlerGetTrades(payload, getTradeHandlerDeps()),
     ctx,
     ErrorCode.DB_READ_FAILED
   )
 
   return result.success ? result.data : []
+}
+
+// ============================================================
+// Trade Settlement (P1: Expiry-based WIN/LOSS)
+// ============================================================
+
+async function handleFinalizeTradeWithErrorHandling(
+  payload: MessagePayloadMap['FINALIZE_TRADE']
+): Promise<{ success: boolean }> {
+  const ctx = { module: 'background' as const, function: 'handleFinalizeTrade' }
+
+  console.log('[Background] Finalizing trade:', payload)
+
+  const result = await tryCatchAsync(
+    () => tradeHandlerFinalize(payload, getTradeHandlerDeps()),
+    ctx,
+    ErrorCode.DB_WRITE_FAILED
+  )
+
+  if (!result.success) {
+    errorHandler.handle(
+      new POError({
+        code: ErrorCode.DB_WRITE_FAILED,
+        message: `거래 정산 DB 업데이트 실패 (tradeId=${payload.tradeId}): ${result.error}`,
+        severity: ErrorSeverity.ERROR,
+        context: ctx,
+      })
+    )
+  }
+
+  return { success: result.success }
 }
 
 // ============================================================
@@ -432,9 +498,10 @@ function notifyStatusChange(): void {
 async function handleReloadTelegramConfig(_config: TelegramConfig): Promise<{ success: boolean }> {
   const ctx = { module: 'background' as const, function: 'handleReloadTelegramConfig' }
 
-  // Re-initialize Telegram service with new config
-  // The getTelegramService() singleton will pick up the latest config from storage
-  // on next initialization, so we just need to force a refresh
+  // 싱글톤 무효화 → 다음 getTelegramService()가 storage에서 최신 설정 로드
+  resetTelegramService()
+  console.log('[Background] Telegram service singleton reset')
+
   await ignoreError(
     async () => {
       const telegram = await getTelegramService()
@@ -464,8 +531,10 @@ async function cleanupOldData(): Promise<void> {
 
   await tryCatchAsync(
     async () => {
-      const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000 // 7 days
-      await TickRepository.deleteOlderThan(cutoff)
+      // Flush any pending ticks before cleanup
+      await tickBuffer.flush()
+      // Run retention (age + count cap)
+      await tickBuffer.runRetention()
     },
     ctx,
     ErrorCode.DB_DELETE_FAILED

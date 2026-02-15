@@ -272,7 +272,11 @@ export function AutoTradePanel() {
                 </div>
                 <div className="text-right">
                   {exec.result ? (
-                    <span className={exec.result === 'WIN' ? 'text-green-400' : 'text-red-400'}>
+                    <span className={
+                      exec.result === 'WIN' ? 'text-green-400' :
+                      exec.result === 'TIE' ? 'text-gray-400' :
+                      'text-red-400'
+                    }>
                       {exec.result} ${formatMoney(exec.profit)}
                     </span>
                   ) : (

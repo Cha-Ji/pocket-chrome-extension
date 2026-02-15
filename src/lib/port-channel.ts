@@ -21,6 +21,8 @@ export const RELAY_MESSAGE_TYPES: Set<string> = new Set([
   'STATUS_UPDATE',
   'NEW_SIGNAL_V2',
   'TRADE_EXECUTED',
+  'TRADE_LOGGED',
+  'TRADE_SETTLED',
   'PAYOUT_UPDATE',
   'BEST_ASSET',
   'MINING_STATS',

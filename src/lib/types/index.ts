@@ -11,6 +11,26 @@ export interface Tick {
   serverTime?: number
 }
 
+/**
+ * Configuration for tick storage policy.
+ * Controls sampling, batching, and retention to prevent
+ * IndexedDB bloat under high-frequency tick ingestion.
+ */
+export interface TickStoragePolicy {
+  /** Minimum ms between stored ticks for the same ticker (sampling). Default 500. */
+  sampleIntervalMs: number
+  /** Max ticks to buffer before flushing to DB. Default 100. */
+  batchSize: number
+  /** Max ms to hold buffered ticks before flushing. Default 500. */
+  flushIntervalMs: number
+  /** Hard cap on total tick rows in DB. Default 5000. */
+  maxTicks: number
+  /** Max age in ms for ticks. Ticks older than this are deleted. Default 2h. */
+  maxAgeMs: number
+  /** How often (ms) to run the retention sweep. Default 30000. */
+  retentionIntervalMs: number
+}
+
 /** Trading direction */
 export type Direction = 'CALL' | 'PUT'
 
@@ -64,6 +84,7 @@ export interface Session {
   totalTrades: number
   wins: number
   losses: number
+  ties: number
 }
 
 /** Individual trade record */
@@ -107,6 +128,14 @@ export interface ErrorLog {
 
 import type { Signal } from '../signals/types'
 
+/** Strategy filter configuration */
+export interface StrategyFilter {
+  /** 'all' = no filter, 'allowlist' = only listed, 'denylist' = exclude listed */
+  mode: 'all' | 'allowlist' | 'denylist'
+  /** Strategy ID patterns to match (e.g. 'RSI-BB', 'TIF-60', 'SBB-120') */
+  patterns: string[]
+}
+
 /** V2 자동매매 설정 */
 export interface TradingConfigV2 {
   enabled: boolean
@@ -115,7 +144,14 @@ export interface TradingConfigV2 {
   tradeAmount: number
   maxDrawdown: number
   maxConsecutiveLosses: number
+  /**
+   * @deprecated Use strategyFilter instead.
+   * Kept for backward compatibility — if strategyFilter is undefined,
+   * onlyRSI=true is equivalent to { mode: 'allowlist', patterns: ['RSI'] }.
+   */
   onlyRSI: boolean
+  /** Strategy allowlist/denylist filter. Takes precedence over onlyRSI. */
+  strategyFilter?: StrategyFilter
 }
 
 /** 자산 페이아웃 정보 */
@@ -184,14 +220,30 @@ export interface MessagePayloadMap {
   TICK_DATA: Tick
   TRADE_EXECUTED: {
     signalId?: string
-    result?: boolean
+    result: boolean
     timestamp: number
     direction?: Direction
     amount?: number
     ticker?: string
     entryPrice?: number
+    error?: string
   }
   TRADE_LOGGED: Trade
+  FINALIZE_TRADE: {
+    tradeId: number
+    signalId?: string
+    exitPrice: number
+    result: TradeResult
+    profit: number
+  }
+  TRADE_SETTLED: {
+    tradeId: number
+    signalId?: string
+    result: TradeResult
+    exitPrice: number
+    profit: number
+    exitTime: number
+  }
   GET_TRADES: { sessionId?: number; limit?: number }
   STATUS_UPDATE: TradingStatus
   GET_STATUS: undefined
@@ -236,6 +288,9 @@ export interface MessagePayloadMap {
   }
   // DB Monitor
   GET_DB_MONITOR_STATUS: undefined
+  GET_TICK_BUFFER_STATS: undefined
+  FLUSH_TICK_BUFFER: undefined
+  RUN_TICK_RETENTION: undefined
   // Mining Status
   TOGGLE_MINING: { active: boolean }
   MINING_STATS: { collected: number }

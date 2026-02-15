@@ -23,7 +23,7 @@ export interface StoredCandle {
 // Candle Source Type
 // ============================================================
 
-export type CandleSource = 'websocket' | 'import' | 'api' | 'manual'
+export type CandleSource = 'websocket' | 'import' | 'api' | 'manual' | 'history'
 
 // ============================================================
 // Backtest Result Type (IndexedDB 저장용)
@@ -229,6 +229,16 @@ export const TickRepository = {
     await db.ticks.bulkAdd(ticks)
   },
 
+  /**
+   * Upsert-friendly bulk write using put (insert-or-replace).
+   * Duplicate [ticker+timestamp] entries are silently overwritten
+   * instead of causing a ConstraintError that fails the whole batch.
+   */
+  async bulkPut(ticks: Omit<Tick, 'id'>[]): Promise<void> {
+    if (ticks.length === 0) return
+    await db.ticks.bulkPut(ticks)
+  },
+
   async getByTicker(ticker: string, limit = 1000): Promise<Tick[]> {
     return await db.ticks
       .where('ticker')
@@ -249,8 +259,49 @@ export const TickRepository = {
     return await db.ticks.where('timestamp').below(timestamp).delete()
   },
 
-  async count(): Promise<number | undefined> {
+  /**
+   * Enforce a hard cap on total tick rows.
+   * If count > maxCount, deletes the oldest ticks (by timestamp)
+   * until count <= maxCount.
+   * Returns the number of rows deleted.
+   */
+  async deleteOldestToLimit(maxCount: number): Promise<number> {
+    const total = await db.ticks.count()
+    if (total <= maxCount) return 0
+
+    const excess = total - maxCount
+    const oldestKeys = await db.ticks
+      .orderBy('timestamp')
+      .limit(excess)
+      .primaryKeys()
+
+    await db.ticks.bulkDelete(oldestKeys)
+    return oldestKeys.length
+  },
+
+  async count(): Promise<number> {
     return await db.ticks.count()
+  },
+
+  /**
+   * Observability: returns tick table stats for monitoring dashboards.
+   */
+  async getStats(): Promise<{
+    count: number
+    oldestTimestamp: number | null
+    newestTimestamp: number | null
+  }> {
+    const count = await db.ticks.count()
+    if (count === 0) {
+      return { count: 0, oldestTimestamp: null, newestTimestamp: null }
+    }
+    const oldest = await db.ticks.orderBy('timestamp').first()
+    const newest = await db.ticks.orderBy('timestamp').last()
+    return {
+      count,
+      oldestTimestamp: oldest?.timestamp ?? null,
+      newestTimestamp: newest?.timestamp ?? null,
+    }
   },
 }
 
@@ -301,8 +352,10 @@ export const SessionRepository = {
     const session = await db.sessions.get(id)
     if (!session) return
 
-    const winRate = session.totalTrades > 0
-      ? (session.wins / session.totalTrades) * 100
+    // Policy A: winRate = wins / (wins + losses), ties excluded from denominator
+    const decided = session.wins + session.losses
+    const winRate = decided > 0
+      ? (session.wins / decided) * 100
       : 0
 
     await db.sessions.update(id, {
@@ -314,8 +367,10 @@ export const SessionRepository = {
 }
 
 export const TradeRepository = {
-  async create(trade: Omit<Trade, 'id'>): Promise<number | undefined> {
-    return await db.trades.add(trade)
+  async create(trade: Omit<Trade, 'id'>): Promise<number> {
+    const id = await db.trades.add(trade)
+    if (id === undefined) throw new Error('Failed to create trade: no id returned')
+    return id
   },
 
   async update(id: number, updates: Partial<Trade>): Promise<void> {
@@ -338,26 +393,45 @@ export const TradeRepository = {
     return await db.trades.where('result').equals('PENDING').toArray()
   },
 
-  async finalize(id: number, exitPrice: number, result: Trade['result'], profit: number): Promise<void> {
-    await db.trades.update(id, {
-      exitTime: Date.now(),
-      exitPrice,
-      result,
-      profit,
-    })
+  /**
+   * Idempotent trade finalization.
+   *
+   * If the trade is already settled (result !== 'PENDING'), returns
+   * `{ updated: false }` without touching the DB — preventing duplicate
+   * session stat increments.
+   *
+   * On success returns `{ updated: true, trade }` with the full updated Trade.
+   */
+  async finalize(
+    id: number,
+    exitPrice: number,
+    result: Trade['result'],
+    profit: number,
+  ): Promise<{ updated: boolean; trade?: Trade }> {
+    return await db.transaction('rw', [db.trades, db.sessions], async () => {
+      const trade = await db.trades.get(id)
+      if (!trade) return { updated: false }
 
-    // Update session stats
-    const trade = await db.trades.get(id)
-    if (trade) {
+      // Idempotency: already finalized → no-op
+      if (trade.result !== 'PENDING') return { updated: false }
+
+      const exitTime = Date.now()
+      await db.trades.update(id, { exitTime, exitPrice, result, profit })
+
+      // Update session stats (within the same transaction)
       const session = await db.sessions.get(trade.sessionId)
       if (session) {
         await db.sessions.update(trade.sessionId, {
           totalTrades: session.totalTrades + 1,
           wins: result === 'WIN' ? session.wins + 1 : session.wins,
           losses: result === 'LOSS' ? session.losses + 1 : session.losses,
+          ties: result === 'TIE' ? (session.ties ?? 0) + 1 : (session.ties ?? 0),
         })
       }
-    }
+
+      const updatedTrade: Trade = { ...trade, exitTime, exitPrice, result, profit }
+      return { updated: true, trade: updatedTrade }
+    })
   },
 }
 

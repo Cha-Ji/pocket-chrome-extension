@@ -78,26 +78,70 @@
 
 ---
 
-## Local Database (`src/lib/db/`)
+## 데이터 저장소 — 이중 구조
 
-> Dexie.js(IndexedDB 래퍼) 기반 로컬 데이터 저장소.
-> 틱, 캔들, 전략, 세션, 거래, 리더보드 데이터를 영구 저장.
+> 이 프로젝트는 두 개의 독립된 저장소를 사용한다. 혼동하지 말 것.
 
-- **DB 스키마 (v3)**:
+```mermaid
+flowchart LR
+    subgraph "브라우저 내부"
+        IDB["IndexedDB (Dexie.js)<br/>트레이딩 상태"]
+    end
+    subgraph "로컬 서버 (localhost:3001)"
+        SQL["SQLite (better-sqlite3)<br/>시장 데이터 아카이브"]
+    end
+
+    CS[Content Script] -->|직접 write| IDB
+    CS -->|DataSender HTTP| SQL
+    BG[Background] -->|read/write| IDB
+    BT[Backtest Engine] -->|"GET /api/candles_1m"| SQL
+    SP[Side Panel] -->|read| IDB
+```
+
+| 구분 | IndexedDB (Dexie.js) | Local Collector (SQLite) |
+|------|:--------------------:|:------------------------:|
+| **위치** | 브라우저 내부 | `data/market-data.db` (디스크) |
+| **소유 데이터** | 전략, 세션, 거래, 리더보드, 백테스트 결과 | 틱(전량), 캔들(전량), 1분봉 캐시 |
+| **공유 데이터** | 실시간 틱/캔들 (최근 버퍼) | 실시간 틱/캔들 (전량 보관) |
+| **접근** | 모든 Extension 컨텍스트 (동일 Origin) | HTTP API (`localhost:3001`) |
+| **생존 범위** | 브라우저/익스텐션 종속 | 독립 파일, 재설치 후에도 유지 |
+| **실행 필요** | 자동 (브라우저 내장) | `npm run collector` 수동 실행 |
+
+### IndexedDB (`src/lib/db/`)
+
+> **역할**: 실시간 트레이딩 세션에 필요한 상태 데이터를 브라우저 내부에 영구 저장.
+
+- **DB 스키마 (v6)**: 8 테이블
   - `ticks` — ticker, timestamp, price (복합 인덱스 `[ticker+timestamp]`)
-  - `candles` — ticker, interval, timestamp, OHLCV (복합 인덱스 `[ticker+interval+timestamp]`)
+  - `candles` — ticker, interval, timestamp, OHLCV (유니크 `[ticker+interval+timestamp]`)
   - `strategies` — name, config, description
   - `sessions` — type(backtest/forward/live), strategyId, startTime, endTime, winRate
   - `trades` — sessionId, ticker, direction, entryTime, result, profit
   - `leaderboardEntries` — strategyId, compositeScore, winRate, rank
-- **Repository 패턴**: TickRepository, CandleRepository, LeaderboardRepository 등 테이블별 CRUD 함수 제공
-- 관련 기능
-  - `docs/features/data-collector/`
-  - `docs/features/backtester-logger/`
-- 세부 작업
-  - `docs/architecture/local-database/schema/`
-  - `docs/architecture/local-database/retention/`
-  - `docs/architecture/local-database/export/`
+  - `backtestResults` — strategyId, symbol, totalTrades, wins, losses, netProfit, maxDrawdown
+  - `candleDatasets` — ticker, interval, source, startTime, endTime, candleCount
+- **Repository 패턴**: 테이블별 CRUD 함수 제공
+- **보관 정책**: Ticks 7일 후 자동 삭제, 나머지 무기한
+- 상세: [`docs/architecture/local-database/`](../architecture/local-database/README.md)
+
+### Local Collector (`scripts/data-collector-server.ts`)
+
+> **역할**: 대용량 시장 데이터를 디스크에 영구 보관하고, 백테스트용 리샘플 캔들을 제공.
+
+- **기술**: Express.js v5 + better-sqlite3 (WAL 모드)
+- **SQLite 스키마**: 3 테이블
+  - `ticks` — symbol, ts_ms, price, source (원본 고빈도 데이터)
+  - `candles` — symbol, interval, timestamp, OHLCV (레거시 호환)
+  - `candles_1m` — symbol, ts_ms, OHLCV (리샘플 캐시)
+- **주요 엔드포인트**: 수집(POST /api/candle, /api/candles/bulk), 조회(GET /api/candles_1m), 통계(GET /health)
+- **리샘플 엔진**: ticks → 60초 버킷 → OHLC 계산 → candles_1m 캐시
+- **클라이언트**: `src/lib/data-sender.ts` (Content Script에서 호출)
+- 상세: [`docs/architecture/local-collector/`](../architecture/local-collector/README.md)
+
+### 관련 기능
+- `docs/features/data-collector/`
+- `docs/features/backtester-logger/`
+- `docs/features/tick-candle-separation/`
 
 ---
 

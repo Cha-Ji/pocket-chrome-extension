@@ -1,6 +1,155 @@
 # Pocket Quant Trader - Progress
 
-**최종 업데이트:** 2026-02-13 KST
+**최종 업데이트:** 2026-02-15 KST
+
+## (2026-02-15) P0 버그 수정 + Background 핸들러 통합
+
+### 완료 항목
+- **[P0] entryPrice 검증 순서 수정**: `content-script/index.ts`의 `executeSignal()`
+  - 기존: DOM 클릭(거래 실행) 후 entryPrice 확인 → 실패 시 `return`으로 DB 미기록 (거래는 이미 실행됨)
+  - 수정: entryPrice를 거래 실행 전에 결정, 실행 후 최신 tick으로 갱신, entryPrice=0이어도 DB에 반드시 기록
+- **[P0] exitPrice=0 무조건 LOSS 판정 수정**: `content-script/index.ts`의 `settleTrade()`
+  - 기존: exitPrice 조회 1회 실패 시 즉시 LOSS → 팬텀 손실로 통계 왜곡
+  - 수정: `getExitPriceWithRetry()` 추가 (3회 재시도, 500ms 간격, 캔들 close fallback)
+  - exitPrice 최종 불가 시 TIE (중립) 판정으로 변경
+- **[P2] Background 핸들러 통합**: `background/index.ts` → `handlers/trade-handlers.ts` 위임
+  - 3개 inline 핸들러(handleTradeExecuted, handleFinalizeTrade, handleGetTrades)를 DI 기반 추출 함수로 교체
+  - `getTradeHandlerDeps()` 브릿지 함수로 `TradeRepository` + `tradingStatus` + `broadcast` 주입
+  - 에러 핸들링(POError/errorHandler)은 래퍼에서 유지, 핵심 로직은 순수 함수로 분리
+
+### 파일 변경 목록
+| 파일 | 변경 유형 |
+|------|----------|
+| `src/content-script/index.ts` | P0 entryPrice 순서 수정, exitPrice 재시도+TIE fallback |
+| `src/background/index.ts` | trade-handlers.ts 위임으로 전환, 인라인 핸들러 제거 |
+
+### 테스트 결과
+- 전체: 1181 tests passed (65 suites), 0 failures
+
+### 다음 행동
+- Side Panel에 strategyFilter UI 추가 (P3)
+- content-script/index.ts entry point 통합 테스트 (P2)
+- AutoTrader stats 비영속 문제 해결 (P1)
+
+---
+
+## (2026-02-15) 아키텍처 감사 — 전략 게이트/정산 신뢰성/Scoring 프로필/테스트 커버리지
+
+### 완료 항목
+- **[P0] 전략 실행 게이트 구조**: `onlyRSI: boolean` → `StrategyFilter { mode, patterns }` 도입
+  - `evaluateSignalGates()` 순수 함수로 5단계 게이트 로직 분리 (22 tests)
+  - content-script/index.ts의 `handleNewSignal()` 리팩토링: 모든 필터 로직을 gate에 위임
+  - `TradingConfigV2`에 `strategyFilter` 필드 추가 (하위 호환 유지)
+- **[P1] Pending trade 정산 신뢰성**: `chrome.storage.session` 기반 복구 메커니즘
+  - `pending-trade-store.ts` 모듈: persist/load/clear API
+  - `scheduleSettlement()`에 `settlementAt` 절대 타임스탬프 저장
+  - `restorePendingTrades()`: 초기화 시 복원 → 과거건 즉시 정산, 미래건 재스케줄
+- **[P2] Background 핸들러 분리**: `src/background/handlers/trade-handlers.ts`
+  - TRADE_EXECUTED, FINALIZE_TRADE, GET_TRADES 핸들러를 의존성 주입으로 분리 (8 tests)
+  - Chrome API 없이 unit test 가능
+- **[Scoring] 프로필 도입**: `stability` / `growth` 가중치 프로필 추가
+  - `getWeightsByProfile()` API
+  - `scoring.test.ts`에 프로필 테스트 4개 추가 (합계 1.0 검증, 비교 테스트)
+  - 리더보드 DEFAULT_WEIGHTS 조정 (winRate 0.35→0.30, recoveryFactor 0.10→0.15)
+
+### 파일 변경 목록
+| 파일 | 변경 유형 |
+|------|----------|
+| `src/lib/types/index.ts` | `StrategyFilter` 타입 추가, `TradingConfigV2` 확장 |
+| `src/lib/trading/signal-gate.ts` | **신규** — 순수 게이트 함수 |
+| `src/lib/trading/signal-gate.test.ts` | **신규** — 22 tests |
+| `src/content-script/index.ts` | handleNewSignal 리팩토링, pending trade 복구 |
+| `src/content-script/pending-trade-store.ts` | **신규** — 정산 영속화 |
+| `src/background/handlers/trade-handlers.ts` | **신규** — 추출된 핸들러 |
+| `src/background/handlers/trade-handlers.test.ts` | **신규** — 8 tests |
+| `src/lib/backtest/scoring.ts` | `STABILITY_WEIGHTS`, `GROWTH_WEIGHTS`, `getWeightsByProfile()` 추가 |
+| `src/lib/backtest/leaderboard-types.ts` | DEFAULT_WEIGHTS 조정, 주석 보강 |
+| `src/lib/backtest/__tests__/scoring.test.ts` | 프로필 테스트 4개 추가 |
+| `docs/head/findings.md` | 감사 결과 기록 |
+| `docs/head/progress.md` | 이 항목 |
+
+### 테스트 결과
+- 전체: 792 tests passed (40 suites)
+- 신규: 34 tests (signal-gate 22 + trade-handlers 8 + scoring profiles 4)
+
+### 식별된 이슈 (P0~P3 카테고리)
+아래 이슈는 이번 세션에서 발견되었으나, 구조 변경 범위 최소화를 위해 별도 이슈로 관리:
+- **P0-Bug**: Trade 실행 후 entryPrice 검증 (content-script/index.ts:419) — 이미 실행된 trade의 DB 미기록 가능
+- **P0-Bug**: exitPrice=0일 때 무조건 LOSS 판정 (content-script/index.ts:498) — return 없이 진행
+- **P1-Reliability**: Position sizing이 가용 잔고 초과 가능 (auto-trader.ts:312)
+- **P1-Reliability**: AutoTrader stats 비영속 (auto-trader.ts:482) — loadStats/saveStats 스텁
+- **P2-Structure**: background/index.ts에서 trade-handlers 호출로 전환 (현재 병렬 존재)
+- **P2-Test**: content-script/index.ts entry point 통합 테스트
+- **P3-Enhancement**: Side Panel에 gate 상태/skip reason 시각화
+
+### 다음 행동
+- 위 P0 버그를 우선 수정 (entryPrice 검증 순서, exitPrice fallback)
+- background/index.ts에서 trade-handlers.ts 호출로 통합
+- Side Panel에 strategyFilter UI 추가
+
+## (2026-02-15) 파이프라인 정합성/관측성 강화 + 백테스트 평점 시스템
+
+### 완료 항목
+- **[1A] TickRepository.bulkPut**: 기존 코드 확인 (이미 정상) + TickBuffer flush → DB count 증가 통합 테스트 추가
+- **[1B] DataSender.sendHistory**: bulkSendCount 증가 위치 수정 (유효 캔들 필터링 후로 이동), 재시도 로직(3회, 지수 backoff) 추가
+- **[2A] 히스토리 캔들 IndexedDB 저장**: `saveHistoryCandlesToDB()` 함수 추가 (1000개 청크 + requestIdleCallback), CandleDatasetRepository 메타 갱신
+- **[2B] 서버 장애 대비**: sendHistory에 최대 3회 재시도(1s/2s/4s backoff) 구현, HTTP 에러는 재시도 안 함
+- **[3A] TickBuffer UI 관측성**: DBMonitorDashboard에 tick buffer stats 섹션 추가 (bufferSize, accepted/dropped ratio, flushed, retentionDeleted, DB tick count)
+- **[3B] 진단 버튼**: "Flush Now" / "Run Retention" 버튼 추가, FLUSH_TICK_BUFFER/RUN_TICK_RETENTION 메시지 핸들러 추가
+- **[4A] 백테스트 Score 시스템**: `src/lib/backtest/scoring.ts` — 7가지 지표 가중치 기반 0-100 종합 점수 + A~F 등급
+- **[4B] 스냅샷 테스트**: 23개 테스트 (55%/52.1%/40%/65% WR 시나리오, 엣지케이스, 커스텀 가중치)
+- **[5A] 아키텍처 다이어그램**: `docs/architecture/data-flows.md` — tick/trade/storage/observability mermaid 4개 다이어그램
+- **[5B] 문서 규칙 갱신**: DOCUMENTATION_RULES.md에 Score 기준표, 전략 선택 절차, 변경 시 동반 업데이트 규칙 추가
+- **[6] 병렬 작업 소유권**: parallel-work.md에 Agent별 파일 소유권 테이블 + 공유 파일 coordination 규칙 추가
+
+### 테스트 결과
+- 신규/수정 테스트 58개 전체 통과
+- TypeScript 컴파일 에러 0건
+
+### 다음 행동
+- DBMonitorDashboard에서 실환경 tick/candle/서버 수집 상태 확인
+- Score 시스템을 리더보드 기존 `compositeScore`와 통합 검토
+- 실 데이터로 scoring 가중치 미세 조정
+
+## (2026-02-14) Content Script index.ts 모듈 분리 리팩토링
+
+- **목표**: `src/content-script/index.ts` (559줄)을 논리 모듈로 분해하여 병렬 작업 시 파일 충돌 위험을 낮춤
+- **새 디렉토리**: `src/content-script/app/`
+  - `context.ts` — 공유 상태 (`ContentScriptContext`) 정의 + `createContext()` 팩토리
+  - `bootstrap.ts` — `initialize`, `loadSelectors`, `waitForElement`, Telegram 스토리지 리스너
+  - `ws-handlers.ts` — WebSocket/candle/payout/indicator/signal 핸들러, TIF-60 통합
+  - `trade-lifecycle.ts` — `handleNewSignal`, `executeSignal`, `scheduleSettlement`, `settleTrade`
+  - `message-handler.ts` — `chrome.runtime.onMessage` 디스패치, `getSystemStatus`
+- **index.ts**: 30줄로 축소 — `createContext()` → `registerMessageListener()` → `start()` 호출만
+- **패턴**: 공유 컨텍스트 객체(`ctx`)를 모든 모듈 함수의 첫 인자로 전달 → 테스트 시 독립 주입 가능
+- **테스트**: 기존 268개 통과 + 신규 35개 추가 (context 6, trade-lifecycle 19, message-handler 10) = 총 303개
+- **TypeScript**: 컴파일 에러 0건
+- 다음 행동: 필요시 ws-handlers.ts도 추가 분리 (onPriceUpdate, onHistoryReceived 등)
+- 상세: `docs/architecture/content-script/README.md`
+
+## (2026-02-14) Tick DB 안정성 개선 — 배치 저장 + 샘플링 + 강제 retention
+
+- **TickRepository 강화**: `bulkPut` (upsert), `deleteOldestToLimit` (count cap), `getStats` (관측성) 추가
+- **TickStoragePolicy 타입**: `sampleIntervalMs`, `batchSize`, `flushIntervalMs`, `maxTicks`, `maxAgeMs` 정책 인터페이스
+- **TickBuffer 모듈**: `src/background/tick-buffer.ts` — 티커별 샘플링 + 배치 flush + 주기적 retention
+- **Background 통합**: `handleTickData` → `TickBuffer.ingest()`로 교체, `cleanupOldData` → `TickBuffer.runRetention()`
+- **관측성**: `GET_TICK_BUFFER_STATS` 메시지 타입 추가 (buffer + DB 통합 stats)
+- **테스트**: 26개 신규 (TickRepository 10 + TickBuffer 16), 전체 752개 통과
+- 다음 행동: 실환경 고빈도 tick 시 모니터링, DBMonitorDashboard에 tick stats UI 연동 검토
+- 상세: `docs/features/tick-db-stability/`
+
+## (2026-02-14) 이중 저장소 아키텍처 문서화 — IndexedDB vs Local Collector 분리
+
+- **목표**: "데이터가 어디에 저장되는지" 신규 개발자가 빠르게 이해할 수 있도록 문서 정비
+- **문제**: local-database 문서가 IndexedDB만 설명하고, 실제 주력 히스토리 저장소인 Local Collector(SQLite)가 미문서화
+- **수정 파일**:
+  - `docs/architecture/local-database/README.md` — IndexedDB 전용으로 재작성 (v6 스키마, 8테이블, ER 다이어그램, 보관 정책, 제약사항)
+  - `docs/architecture/local-collector/README.md` — 신규 생성 (Express+SQLite, 3테이블, 15개 API 엔드포인트, 리샘플 엔진, 데이터 흐름 시나리오)
+  - `docs/head/map.md` — "데이터 저장소 — 이중 구조" 섹션으로 개편 (비교표 + Mermaid 구조도 + 교차참조)
+  - `docs/head/findings.md` — 이중 저장소 결정사항 추가
+- **Mermaid 다이어그램**: ER 다이어그램(IndexedDB), 플로우차트(Collector 전체 구조), 시퀀스(리샘플 흐름)
+- 다음 행동: 필요 시 retention 자동화(SQLite 오래된 데이터 정리) 검토
+- 상세: `docs/architecture/local-database/`, `docs/architecture/local-collector/`
 
 ## (2026-02-13) Side Panel 아키텍처 리팩토링 — extensionClient 추출
 

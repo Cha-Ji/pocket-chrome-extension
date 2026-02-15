@@ -151,6 +151,7 @@ export class SignalGenerator {
       timestamp: Date.now(),
       symbol,
       direction,
+      strategyId: strategyName,
       strategy: strategyName,
       regime: regimeInfo.regime,
       confidence: Math.min(1, regimeInfo.adx / 50),

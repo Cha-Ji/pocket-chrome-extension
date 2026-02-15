@@ -11,6 +11,7 @@ export interface TradingSession {
   tradesCount: number;
   wins: number;
   losses: number;
+  ties: number;
 }
 
 export class TradingStateManager {
@@ -21,6 +22,7 @@ export class TradingStateManager {
     tradesCount: 0,
     wins: 0,
     losses: 0,
+    ties: 0,
   };
 
   getState(): TradingState {
@@ -65,16 +67,19 @@ export class TradingStateManager {
       tradesCount: 0,
       wins: 0,
       losses: 0,
+      ties: 0,
     };
     console.log('[State] Trading stopped');
   }
 
-  recordTrade(win: boolean): void {
+  recordTrade(result: 'win' | 'loss' | 'tie'): void {
     this.session.tradesCount++;
-    if (win) {
+    if (result === 'win') {
       this.session.wins++;
-    } else {
+    } else if (result === 'loss') {
       this.session.losses++;
+    } else {
+      this.session.ties++;
     }
   }
 
