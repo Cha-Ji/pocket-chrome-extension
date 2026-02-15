@@ -475,12 +475,14 @@ export const CandleRepository = {
 
     const items = Array.from(dedup.values());
 
-    // 단일 트랜잭션: count → bulkPut → count 차이 = 신규 건수
+    // P1-1 최적화: bulkGet으로 기존 키 존재 여부 확인 (O(batch) vs 기존 O(table))
+    const keys = items.map((c) => [c.ticker, c.interval, c.timestamp] as [string, number, number]);
+
     return await db.transaction('rw', db.candles, async () => {
-      const before = await db.candles.count();
+      const existing = await db.candles.bulkGet(keys);
+      const newCount = existing.filter((e) => e === undefined).length;
       await db.candles.bulkPut(items);
-      const after = await db.candles.count();
-      return after - before;
+      return newCount;
     });
   },
 

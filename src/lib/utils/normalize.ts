@@ -5,6 +5,8 @@
 // WebSocket / DOM / History 간 키 불일치를 방지한다.
 // ============================================================
 
+import { toEpochMs } from './time';
+
 /**
  * 원시 심볼 문자열을 프로젝트 표준 키로 정규화한다.
  *
@@ -49,11 +51,16 @@ export function normalizeSymbol(raw: string): string {
 /**
  * WebSocket timestamp를 밀리초 단위로 정규화한다.
  *
- * 규칙:
- *  - ts < 1e12 이면 초 단위로 간주하고 ts * 1000
- *  - 그 외에는 이미 밀리초로 간주하고 그대로 반환
+ * 내부적으로 toEpochMs()에 위임하여 소수 sec, 문자열 등도 처리한다.
+ * 잘못된 입력(NaN, Infinity 등)은 0을 반환하고 경고 로그를 출력한다.
+ *
+ * @see toEpochMs — 단일 정규화 로직의 원본
  */
-export function normalizeTimestampMs(ts: number): number {
-  if (ts < 1e12) return ts * 1000;
-  return ts;
+export function normalizeTimestampMs(ts: number | string): number {
+  try {
+    return toEpochMs(ts);
+  } catch {
+    console.warn(`[normalizeTimestampMs] invalid timestamp: ${ts}, returning 0`);
+    return 0;
+  }
 }

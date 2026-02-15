@@ -51,13 +51,32 @@ const SELECTORS = {
   serverTime: '.server-time, .time-block',
 };
 
+/** Configuration for adaptive observer/polling behavior */
+interface AdaptivePollingConfig {
+  /** Throttle interval for processPriceUpdate to prevent duplicate ticks (ms) */
+  throttleMs: number;
+  /** If observer has no update for this long, polling activates as fallback (ms) */
+  observerTimeoutMs: number;
+  /** Polling interval when observer is inactive (fallback mode) (ms) */
+  pollingFallbackMs: number;
+  /** Polling interval when observer is active (health-check only) (ms) */
+  pollingIdleMs: number;
+}
+
+const DEFAULT_ADAPTIVE_CONFIG: AdaptivePollingConfig = {
+  throttleMs: 200,
+  observerTimeoutMs: 3000,
+  pollingFallbackMs: 500,
+  pollingIdleMs: 5000,
+};
+
 export class CandleCollector {
   private candleInterval: number; // ms
   private maxCandles: number;
   private candles: Map<string, Candle[]> = new Map();
   private currentBuffer: Map<string, CandleBuffer> = new Map();
   private observer: MutationObserver | null = null;
-  private pricePollingInterval: ReturnType<typeof setInterval> | null = null;
+  private pricePollingInterval: ReturnType<typeof setTimeout> | null = null;
   private _isCollecting = false;
   private listeners: ((ticker: string, candle: Candle) => void)[] = [];
   private tickHistory: TickData[] = [];
@@ -67,9 +86,29 @@ export class CandleCollector {
   private maxTicksPerTicker = 2000;
   private static readonly MAX_LISTENERS_WARNING = 10;
 
-  constructor(candleIntervalSeconds: number = 60, maxCandles: number = 500) {
+  /** Adaptive observer/polling state */
+  private adaptiveConfig: AdaptivePollingConfig;
+  private _observerAttached = false;
+  private _lastObserverUpdateAt = 0;
+  private _lastProcessedAt = 0;
+  private _pollingMode: 'idle' | 'fallback' = 'idle';
+
+  /** Observability counters */
+  private _collectorStats = {
+    observerUpdates: 0,
+    pollingUpdates: 0,
+    throttledSkips: 0,
+    pollingModeChanges: 0,
+  };
+
+  constructor(
+    candleIntervalSeconds: number = 60,
+    maxCandles: number = 500,
+    adaptiveConfig?: Partial<AdaptivePollingConfig>,
+  ) {
     this.candleInterval = candleIntervalSeconds * 1000;
     this.maxCandles = maxCandles;
+    this.adaptiveConfig = { ...DEFAULT_ADAPTIVE_CONFIG, ...adaptiveConfig };
   }
 
   get isCollecting(): boolean {
@@ -81,7 +120,15 @@ export class CandleCollector {
   // ============================================================
 
   /**
-   * Start collecting candles from DOM
+   * Start collecting candles from DOM.
+   *
+   * Adaptive strategy:
+   *  - Tries MutationObserver first (primary source, low CPU).
+   *  - Polling runs at a slow "idle" rate when observer is healthy.
+   *  - If observer has no updates for `observerTimeoutMs`, polling switches
+   *    to "fallback" mode with faster interval.
+   *  - `processPriceUpdate()` is throttled to prevent duplicate ticks
+   *    from simultaneous observer + polling invocations.
    */
   start(): void {
     if (this._isCollecting) return;
@@ -89,11 +136,11 @@ export class CandleCollector {
     console.log('[PO] [CandleCollector] Starting candle collection...');
     this._isCollecting = true;
 
-    // 방법 1: MutationObserver로 가격 변화 감지
+    // Primary: MutationObserver for price changes
     this.setupPriceObserver();
 
-    // 방법 2: 폴링 백업 (500ms마다)
-    this.startPricePolling();
+    // Secondary: adaptive polling (idle check when observer works, fallback when it doesn't)
+    this.startAdaptivePolling();
 
     console.log('[PO] [CandleCollector] Collection started');
   }
@@ -108,9 +155,10 @@ export class CandleCollector {
 
     this.observer?.disconnect();
     this.observer = null;
+    this._observerAttached = false;
 
     if (this.pricePollingInterval) {
-      clearInterval(this.pricePollingInterval);
+      clearTimeout(this.pricePollingInterval);
       this.pricePollingInterval = null;
     }
 
@@ -351,12 +399,14 @@ export class CandleCollector {
 
     if (targets.length === 0) {
       console.warn('[CandleCollector] No price elements found. Using polling only.');
+      this._observerAttached = false;
       return;
     }
 
     this.observer = new MutationObserver((_mutations) => {
-      // 가격 변화 감지 시 즉시 처리
-      this.processPriceUpdate();
+      this._lastObserverUpdateAt = Date.now();
+      this._collectorStats.observerUpdates++;
+      this.processPriceUpdate('observer');
     });
 
     targets.forEach((target) => {
@@ -367,30 +417,81 @@ export class CandleCollector {
       });
     });
 
+    this._observerAttached = true;
+    this._lastObserverUpdateAt = Date.now();
     console.log(`[CandleCollector] Observing ${targets.length} price elements`);
   }
 
   /**
-   * Start price polling (backup method)
+   * Start adaptive polling.
+   *
+   * - When observer is active and recently updated: poll at slow `pollingIdleMs` rate
+   *   (acts as a health-check / heartbeat).
+   * - When observer is inactive or timed out: poll at fast `pollingFallbackMs` rate
+   *   (fallback data source).
    */
-  private startPricePolling(): void {
-    this.pricePollingInterval = setInterval(() => {
-      this.processPriceUpdate();
-    }, 500); // 500ms마다 폴링
+  private startAdaptivePolling(): void {
+    const scheduleNext = () => {
+      if (!this._isCollecting) return;
+
+      const now = Date.now();
+      const observerHealthy =
+        this._observerAttached &&
+        now - this._lastObserverUpdateAt < this.adaptiveConfig.observerTimeoutMs;
+
+      const newMode = observerHealthy ? 'idle' : 'fallback';
+      if (newMode !== this._pollingMode) {
+        this._pollingMode = newMode;
+        this._collectorStats.pollingModeChanges++;
+        console.log(
+          `[CandleCollector] Polling mode → ${newMode}` +
+            (newMode === 'fallback' ? ' (observer timeout)' : ' (observer healthy)'),
+        );
+      }
+
+      const interval =
+        this._pollingMode === 'fallback'
+          ? this.adaptiveConfig.pollingFallbackMs
+          : this.adaptiveConfig.pollingIdleMs;
+
+      this.pricePollingInterval = setTimeout(() => {
+        this._collectorStats.pollingUpdates++;
+        this.processPriceUpdate('polling');
+        scheduleNext();
+      }, interval);
+    };
+
+    scheduleNext();
   }
 
   /**
-   * Process price update
+   * Process price update with throttle to prevent duplicate ticks
+   * from simultaneous observer + polling invocations.
    */
-  private processPriceUpdate(): void {
+  private processPriceUpdate(source: 'observer' | 'polling'): void {
+    const now = Date.now();
+
+    // Throttle: skip if last processed tick is too recent
+    if (now - this._lastProcessedAt < this.adaptiveConfig.throttleMs) {
+      this._collectorStats.throttledSkips++;
+      return;
+    }
+
     const price = this.scrapePriceFromDOM();
     const ticker = this.scrapeTickerFromDOM();
 
     if (!price || ticker === 'UNKNOWN') return;
 
+    this._lastProcessedAt = now;
+
+    // If observer fires, mark it alive (even if price didn't change)
+    if (source === 'observer') {
+      this._lastObserverUpdateAt = now;
+    }
+
     const tick: TickData = {
       price,
-      timestamp: Date.now(),
+      timestamp: now,
       ticker,
     };
 
@@ -519,6 +620,18 @@ export class CandleCollector {
     merged.sort((a, b) => a.timestamp - b.timestamp);
 
     return merged.slice(-this.maxCandles);
+  }
+
+  /**
+   * Get collector observability stats
+   */
+  getCollectorStats() {
+    return {
+      observerAttached: this._observerAttached,
+      pollingMode: this._pollingMode,
+      lastObserverUpdateAt: this._lastObserverUpdateAt,
+      ...this._collectorStats,
+    };
   }
 
   /**

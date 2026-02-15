@@ -9,6 +9,8 @@
  *
  * All DB writes use bulkPut (upsert) so duplicate timestamps don't
  * cause ConstraintError failures.
+ *
+ * P1-2/P1-3: Enhanced observability — drop reasons, flush latency, overflow tracking.
  */
 
 import type { Tick, TickStoragePolicy } from '../lib/types';
@@ -31,12 +33,22 @@ export class TickBuffer {
   private policy: TickStoragePolicy;
   private onFlushError?: (error: unknown, tickCount: number) => void;
 
-  /** Counters for observability */
+  /** Counters for observability — granular drop reasons + flush timing */
   private _stats = {
     accepted: 0,
+    /** Total dropped (sum of sub-categories) */
     dropped: 0,
+    /** Drop sub-categories */
+    samplingDrop: 0,
+    invalidDrop: 0,
+    overflowDrop: 0,
+    /** Flush metrics */
     flushed: 0,
+    flushCount: 0,
     flushErrors: 0,
+    flushLatencyTotalMs: 0,
+    flushLatencyMaxMs: 0,
+    /** Retention metrics */
     retentionRuns: 0,
     retentionDeleted: 0,
   };
@@ -78,6 +90,7 @@ export class TickBuffer {
   ingest(tick: Omit<Tick, 'id'>): boolean {
     if (!tick || !tick.ticker || !tick.timestamp) {
       this._stats.dropped++;
+      this._stats.invalidDrop++;
       return false;
     }
 
@@ -85,6 +98,7 @@ export class TickBuffer {
     const lastTs = this.lastSavedAt.get(tick.ticker) ?? 0;
     if (tick.timestamp - lastTs < this.policy.sampleIntervalMs) {
       this._stats.dropped++;
+      this._stats.samplingDrop++;
       return false;
     }
 
@@ -113,9 +127,18 @@ export class TickBuffer {
     const batch = this.buffer.splice(0);
     if (batch.length === 0) return 0;
 
+    const startTs = Date.now();
     try {
       await TickRepository.bulkPut(batch);
+      const latency = Date.now() - startTs;
+
       this._stats.flushed += batch.length;
+      this._stats.flushCount++;
+      this._stats.flushLatencyTotalMs += latency;
+      if (latency > this._stats.flushLatencyMaxMs) {
+        this._stats.flushLatencyMaxMs = latency;
+      }
+
       return batch.length;
     } catch (error) {
       this._stats.flushErrors++;
@@ -123,6 +146,12 @@ export class TickBuffer {
       const spaceLeft = this.policy.batchSize - this.buffer.length;
       if (spaceLeft > 0) {
         this.buffer.unshift(...batch.slice(0, spaceLeft));
+      }
+      // Track overflow drops
+      const overflowed = batch.length - Math.max(spaceLeft, 0);
+      if (overflowed > 0) {
+        this._stats.overflowDrop += overflowed;
+        this._stats.dropped += overflowed;
       }
       this.onFlushError?.(error, batch.length);
       return 0;
@@ -153,9 +182,16 @@ export class TickBuffer {
 
   /** Get buffer and lifetime stats for observability. */
   getStats() {
+    const avgFlushLatency =
+      this._stats.flushCount > 0
+        ? Math.round(this._stats.flushLatencyTotalMs / this._stats.flushCount)
+        : 0;
+
     return {
       bufferSize: this.buffer.length,
       ...this._stats,
+      /** Derived: average flush latency in ms */
+      flushLatencyAvgMs: avgFlushLatency,
       policy: { ...this.policy },
     };
   }
