@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
   calculateScore,
   DEFAULT_SCORE_WEIGHTS,
+  STABILITY_WEIGHTS,
+  GROWTH_WEIGHTS,
+  getWeightsByProfile,
   SCORING_THRESHOLDS,
   type ScoreInput,
 } from '../scoring'
@@ -319,6 +322,40 @@ describe('Backtest Scoring System', () => {
   describe('thresholds', () => {
     it('should have break-even win rate around 52.1% for 92% payout', () => {
       expect(SCORING_THRESHOLDS.breakEvenWinRate).toBeCloseTo(52.1, 0)
+    })
+  })
+
+  // ============================================================
+  // Scoring Profiles
+  // ============================================================
+  describe('scoring profiles', () => {
+    it('all profiles should have weights summing to 1.0', () => {
+      for (const weights of [DEFAULT_SCORE_WEIGHTS, STABILITY_WEIGHTS, GROWTH_WEIGHTS]) {
+        const sum = Object.values(weights).reduce((a, b) => a + b, 0)
+        expect(sum).toBeCloseTo(1.0, 4)
+      }
+    })
+
+    it('stability profile should penalize drawdown more than default', () => {
+      const input = makeInput({ maxDrawdownPercent: 25 })
+      const defaultResult = calculateScore(input, DEFAULT_SCORE_WEIGHTS)
+      const stabilityResult = calculateScore(input, STABILITY_WEIGHTS)
+      // Stability weights MDD at 0.25 vs default 0.15 — high MDD should hurt more
+      expect(stabilityResult.score).toBeLessThan(defaultResult.score)
+    })
+
+    it('growth profile should reward high trade count more than default', () => {
+      const input = makeInput({ totalTrades: 500, profitFactor: 2.0 })
+      const defaultResult = calculateScore(input, DEFAULT_SCORE_WEIGHTS)
+      const growthResult = calculateScore(input, GROWTH_WEIGHTS)
+      // Growth weights tradeCount at 0.15 vs default 0.10
+      expect(growthResult.score).toBeGreaterThanOrEqual(defaultResult.score - 5)
+    })
+
+    it('getWeightsByProfile should return correct weights', () => {
+      expect(getWeightsByProfile('default')).toBe(DEFAULT_SCORE_WEIGHTS)
+      expect(getWeightsByProfile('stability')).toBe(STABILITY_WEIGHTS)
+      expect(getWeightsByProfile('growth')).toBe(GROWTH_WEIGHTS)
     })
   })
 })

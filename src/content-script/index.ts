@@ -20,6 +20,12 @@ import { DataSender } from '../lib/data-sender'
 import { CandleRepository, CandleDatasetRepository } from '../lib/db'
 import { tickImbalanceFadeStrategy, TIF60Config } from './tick-strategies'
 import { normalizeSymbol, normalizeTimestampMs } from '../lib/utils/normalize'
+import { evaluateSignalGates, type GateContext } from '../lib/trading/signal-gate'
+import {
+  persistPendingTrades,
+  loadPendingTrades,
+  type PendingTradeData,
+} from './pending-trade-store'
 
 let dataCollector: DataCollector | null = null
 let tradeExecutor: TradeExecutor | null = null
@@ -40,16 +46,7 @@ const TRADE_COOLDOWN_MS = 3000 // 최소 3초 간격
 // P1: Pending Trade Settlement (만기 후 WIN/LOSS 판정)
 // ============================================================
 
-interface PendingTrade {
-  tradeId: number
-  signalId?: string
-  ticker: string
-  direction: 'CALL' | 'PUT'
-  entryTime: number
-  entryPrice: number
-  expirySeconds: number
-  amount: number
-  payoutPercent: number
+interface PendingTrade extends PendingTradeData {
   timerId: ReturnType<typeof setTimeout>
 }
 
@@ -93,6 +90,8 @@ async function initialize(): Promise<void> {
     dataCollector.start(); candleCollector.start(); payoutMonitor.start(30000); indicatorReader.start(); wsInterceptor.start();
     console.log('[PO] [6] Background monitors started');
     AutoMiner.init(payoutMonitor);
+    // Restore pending trades from previous session (tab reload recovery)
+    await restorePendingTrades();
     isInitialized = true
     console.log('[PO] [SUCCESS] Initialized successfully');
     console.log('[PO] Build Version: 2026-02-04 19:20 (PO-16 Fix)');
@@ -377,37 +376,32 @@ async function saveHistoryCandlesToDB(
 }
 
 async function handleNewSignal(signal: Signal): Promise<void> {
-  if (!tradingConfig.enabled) return;
+  const payout = payoutMonitor?.getCurrentAssetPayout() ?? null
+  const gateCtx: GateContext = {
+    config: tradingConfig,
+    currentPayout: payout ? { payout: payout.payout, name: payout.name } : null,
+    strategyId: signal.strategyId || '',
+    strategyName: signal.strategy || '',
+    isExecuting: isExecutingTrade,
+    lastTradeAt: lastTradeExecutedAt,
+    cooldownMs: TRADE_COOLDOWN_MS,
+    now: Date.now(),
+  }
 
-  // minPayout gate: use current chart asset payout (not bestAsset)
-  const currentPayout = payoutMonitor?.getCurrentAssetPayout()
-  if (!currentPayout) {
-    console.warn('[PO] Cannot determine current asset payout — blocking trade (conservative)')
+  const gate = evaluateSignalGates(gateCtx)
+  if (!gate.allowed) {
+    console.log(`[PO] Signal blocked [${gate.gate}]: ${gate.reason}`)
     return
   }
-  if (currentPayout.payout < tradingConfig.minPayout) {
-    console.log(`[PO] Current asset payout ${currentPayout.payout}% < minPayout ${tradingConfig.minPayout}% — skipping`)
-    return
-  }
 
-  if (tradingConfig.onlyRSI && !(signal.strategyId || signal.strategy).includes('RSI')) return;
   await executeSignal(signal);
 }
 
 async function executeSignal(signal: Signal): Promise<void> {
   if (!tradeExecutor) return
 
-  // [#46] Race Condition Guard: 동시 거래 실행 방지
-  if (isExecutingTrade) {
-    console.warn(`[PO] ⚠️ Trade skipped (already executing): ${signal.direction} (${signal.strategy})`);
-    return
-  }
-  const timeSinceLastTrade = Date.now() - lastTradeExecutedAt
-  if (timeSinceLastTrade < TRADE_COOLDOWN_MS) {
-    console.warn(`[PO] ⚠️ Trade skipped (cooldown ${TRADE_COOLDOWN_MS - timeSinceLastTrade}ms remaining): ${signal.direction} (${signal.strategy})`);
-    return
-  }
-
+  // Race condition / cooldown already checked by evaluateSignalGates in handleNewSignal.
+  // Set guard flag here to prevent concurrent calls.
   isExecutingTrade = true
   console.log(`[PO] 🚀 Executing: ${signal.direction} (${signal.strategy})`);
   try {
@@ -478,21 +472,73 @@ async function executeSignal(signal: Signal): Promise<void> {
 // P1: Settlement Scheduling & Evaluation
 // ============================================================
 
-function scheduleSettlement(params: Omit<PendingTrade, 'timerId'>): void {
-  const delayMs = params.expirySeconds * 1000 + SETTLEMENT_GRACE_MS
+function scheduleSettlement(params: Omit<PendingTrade, 'timerId' | 'settlementAt'> & { settlementAt?: number }): void {
+  const now = Date.now()
+  const settlementAt = params.settlementAt ?? (now + params.expirySeconds * 1000 + SETTLEMENT_GRACE_MS)
+  const delayMs = Math.max(0, settlementAt - now)
   console.log(`[PO] ⏱️ Settlement scheduled for tradeId=${params.tradeId} in ${delayMs}ms`)
 
   const timerId = setTimeout(() => {
     settleTrade(params.tradeId)
   }, delayMs)
 
-  pendingTrades.set(params.tradeId, { ...params, timerId })
+  const entry: PendingTrade = { ...params, settlementAt, timerId }
+  pendingTrades.set(params.tradeId, entry)
+
+  // Persist to chrome.storage.session (non-blocking)
+  persistPendingTradesSnapshot()
+}
+
+/** Persist current pending trades snapshot (debounced-safe, fire-and-forget) */
+function persistPendingTradesSnapshot(): void {
+  const dataMap = new Map<number, PendingTradeData>()
+  for (const [id, trade] of pendingTrades) {
+    const { timerId: _timerId, ...data } = trade
+    dataMap.set(id, data)
+  }
+  persistPendingTrades(dataMap).catch(() => {})
+}
+
+/** Restore pending trades from chrome.storage.session on init */
+async function restorePendingTrades(): Promise<void> {
+  try {
+    const saved = await loadPendingTrades()
+    if (saved.length === 0) return
+
+    const now = Date.now()
+    let restored = 0
+    let lateSettled = 0
+
+    for (const data of saved) {
+      // Skip if already in memory (shouldn't happen, but defensive)
+      if (pendingTrades.has(data.tradeId)) continue
+
+      if (data.settlementAt <= now) {
+        // Past due: settle immediately
+        lateSettled++
+        // Re-add temporarily to settle
+        const timerId = setTimeout(() => settleTrade(data.tradeId), 0)
+        pendingTrades.set(data.tradeId, { ...data, timerId })
+      } else {
+        // Future: reschedule
+        restored++
+        scheduleSettlement(data)
+      }
+    }
+
+    if (restored > 0 || lateSettled > 0) {
+      console.log(`[PO] Restored ${restored} pending trades, ${lateSettled} late-settled from storage`)
+    }
+  } catch (e) {
+    console.warn('[PO] Failed to restore pending trades:', e)
+  }
 }
 
 async function settleTrade(tradeId: number): Promise<void> {
   const pending = pendingTrades.get(tradeId)
   if (!pending) return
   pendingTrades.delete(tradeId)
+  persistPendingTradesSnapshot()
 
   // 만기 시점의 최신 가격 조회
   const exitPrice = candleCollector?.getLatestTickPrice(pending.ticker) ?? 0

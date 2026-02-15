@@ -2,6 +2,60 @@
 
 **최종 업데이트:** 2026-02-15 KST
 
+## (2026-02-15) 아키텍처 감사 — 전략 게이트/정산 신뢰성/Scoring 프로필/테스트 커버리지
+
+### 완료 항목
+- **[P0] 전략 실행 게이트 구조**: `onlyRSI: boolean` → `StrategyFilter { mode, patterns }` 도입
+  - `evaluateSignalGates()` 순수 함수로 5단계 게이트 로직 분리 (22 tests)
+  - content-script/index.ts의 `handleNewSignal()` 리팩토링: 모든 필터 로직을 gate에 위임
+  - `TradingConfigV2`에 `strategyFilter` 필드 추가 (하위 호환 유지)
+- **[P1] Pending trade 정산 신뢰성**: `chrome.storage.session` 기반 복구 메커니즘
+  - `pending-trade-store.ts` 모듈: persist/load/clear API
+  - `scheduleSettlement()`에 `settlementAt` 절대 타임스탬프 저장
+  - `restorePendingTrades()`: 초기화 시 복원 → 과거건 즉시 정산, 미래건 재스케줄
+- **[P2] Background 핸들러 분리**: `src/background/handlers/trade-handlers.ts`
+  - TRADE_EXECUTED, FINALIZE_TRADE, GET_TRADES 핸들러를 의존성 주입으로 분리 (8 tests)
+  - Chrome API 없이 unit test 가능
+- **[Scoring] 프로필 도입**: `stability` / `growth` 가중치 프로필 추가
+  - `getWeightsByProfile()` API
+  - `scoring.test.ts`에 프로필 테스트 4개 추가 (합계 1.0 검증, 비교 테스트)
+  - 리더보드 DEFAULT_WEIGHTS 조정 (winRate 0.35→0.30, recoveryFactor 0.10→0.15)
+
+### 파일 변경 목록
+| 파일 | 변경 유형 |
+|------|----------|
+| `src/lib/types/index.ts` | `StrategyFilter` 타입 추가, `TradingConfigV2` 확장 |
+| `src/lib/trading/signal-gate.ts` | **신규** — 순수 게이트 함수 |
+| `src/lib/trading/signal-gate.test.ts` | **신규** — 22 tests |
+| `src/content-script/index.ts` | handleNewSignal 리팩토링, pending trade 복구 |
+| `src/content-script/pending-trade-store.ts` | **신규** — 정산 영속화 |
+| `src/background/handlers/trade-handlers.ts` | **신규** — 추출된 핸들러 |
+| `src/background/handlers/trade-handlers.test.ts` | **신규** — 8 tests |
+| `src/lib/backtest/scoring.ts` | `STABILITY_WEIGHTS`, `GROWTH_WEIGHTS`, `getWeightsByProfile()` 추가 |
+| `src/lib/backtest/leaderboard-types.ts` | DEFAULT_WEIGHTS 조정, 주석 보강 |
+| `src/lib/backtest/__tests__/scoring.test.ts` | 프로필 테스트 4개 추가 |
+| `docs/head/findings.md` | 감사 결과 기록 |
+| `docs/head/progress.md` | 이 항목 |
+
+### 테스트 결과
+- 전체: 792 tests passed (40 suites)
+- 신규: 34 tests (signal-gate 22 + trade-handlers 8 + scoring profiles 4)
+
+### 식별된 이슈 (P0~P3 카테고리)
+아래 이슈는 이번 세션에서 발견되었으나, 구조 변경 범위 최소화를 위해 별도 이슈로 관리:
+- **P0-Bug**: Trade 실행 후 entryPrice 검증 (content-script/index.ts:419) — 이미 실행된 trade의 DB 미기록 가능
+- **P0-Bug**: exitPrice=0일 때 무조건 LOSS 판정 (content-script/index.ts:498) — return 없이 진행
+- **P1-Reliability**: Position sizing이 가용 잔고 초과 가능 (auto-trader.ts:312)
+- **P1-Reliability**: AutoTrader stats 비영속 (auto-trader.ts:482) — loadStats/saveStats 스텁
+- **P2-Structure**: background/index.ts에서 trade-handlers 호출로 전환 (현재 병렬 존재)
+- **P2-Test**: content-script/index.ts entry point 통합 테스트
+- **P3-Enhancement**: Side Panel에 gate 상태/skip reason 시각화
+
+### 다음 행동
+- 위 P0 버그를 우선 수정 (entryPrice 검증 순서, exitPrice fallback)
+- background/index.ts에서 trade-handlers.ts 호출로 통합
+- Side Panel에 strategyFilter UI 추가
+
 ## (2026-02-15) 파이프라인 정합성/관측성 강화 + 백테스트 평점 시스템
 
 ### 완료 항목
