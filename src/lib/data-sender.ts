@@ -16,6 +16,57 @@ const SERVER_URL = 'http://localhost:3001';
  * - 로컬 서버가 꺼져있으면 네트워크 에러로만 처리되고 기능은 자동으로 degrade 된다.
  */
 
+// ============================================================
+// Retry Classification
+// ============================================================
+
+/** HTTP status codes that indicate a transient failure worth retrying */
+const RETRIABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+
+/** Error messages (substring match) from server that indicate transient issues */
+const RETRIABLE_ERROR_PATTERNS = ['database is locked', 'SQLITE_BUSY', 'ECONNRESET', 'ETIMEDOUT'];
+
+/**
+ * Determine whether an HTTP error response should be retried.
+ *
+ * - 408/429/5xx → retriable (server-side transient)
+ * - "database is locked" in body → retriable (SQLite contention)
+ * - 400/401/403/404 → non-retriable (client error)
+ */
+export function isRetriableStatus(status: number, responseBody?: string): boolean {
+  if (RETRIABLE_STATUS_CODES.has(status)) return true;
+  if (responseBody) {
+    const lower = responseBody.toLowerCase();
+    return RETRIABLE_ERROR_PATTERNS.some((p) => lower.includes(p.toLowerCase()));
+  }
+  return false;
+}
+
+/**
+ * Compute exponential backoff with jitter.
+ * Formula: baseMs * 2^attempt + random(0, baseMs/2)
+ */
+export function backoffWithJitter(attempt: number, baseMs = 1000): number {
+  const exponential = baseMs * Math.pow(2, attempt);
+  const jitter = Math.random() * (baseMs / 2);
+  return Math.floor(exponential + jitter);
+}
+
+// ============================================================
+// Failed Chunk Queue
+// ============================================================
+
+const MAX_RETRY_QUEUE_SIZE = 5;
+
+interface QueuedChunk {
+  bodyStr: string;
+  symbol: string;
+  candleCount: number;
+  queuedAt: number;
+}
+
+const retryQueue: QueuedChunk[] = [];
+
 /** DataSender 전송 통계 */
 export interface DataSenderStats {
   serverOnline: boolean;
@@ -23,24 +74,29 @@ export interface DataSenderStats {
   bulkSendCount: number;
   bulkSuccessCount: number;
   bulkFailCount: number;
+  bulkRetryCount: number;
   bulkTotalCandles: number;
   lastBulkSendAt: number;
   realtimeSendCount: number;
   realtimeSuccessCount: number;
   realtimeFailCount: number;
+  retryQueueSize: number;
+  retryQueueDropped: number;
 }
 
-const senderStats: DataSenderStats = {
+const senderStats = {
   serverOnline: false,
   lastHealthCheck: 0,
   bulkSendCount: 0,
   bulkSuccessCount: 0,
   bulkFailCount: 0,
+  bulkRetryCount: 0,
   bulkTotalCandles: 0,
   lastBulkSendAt: 0,
   realtimeSendCount: 0,
   realtimeSuccessCount: 0,
   realtimeFailCount: 0,
+  retryQueueDropped: 0,
 };
 
 /** Loose candle shape accepted by DataSender (symbol or ticker) */
@@ -112,7 +168,15 @@ export const DataSender = {
   },
 
   /**
-   * 과거 데이터 Bulk 전송 (with retry)
+   * 과거 데이터 Bulk 전송 (with retry for transient failures)
+   *
+   * Retry policy:
+   *  - Network errors (fetch throw): always retry
+   *  - HTTP 408/429/5xx: retry (server transient)
+   *  - "database is locked" in body: retry (SQLite contention)
+   *  - HTTP 400/401/403/404: non-retriable (client error, fail immediately)
+   *  - Backoff: exponential with jitter
+   *  - On final failure: queue chunk for later retry (bounded queue)
    */
   async sendHistory(candles: CandleLike[], maxRetries = 3): Promise<void> {
     if (candles.length === 0) return;
@@ -167,7 +231,24 @@ export const DataSender = {
       `Sending ${mapped.length} candles (${(bodyStr.length / 1024).toFixed(1)}KB) to ${SERVER_URL}/api/candles/bulk`,
     );
 
-    // Retry loop with exponential backoff
+    const sent = await this._sendWithRetry(bodyStr, mapped[0].symbol, mapped.length, maxRetries);
+
+    if (!sent) {
+      // Enqueue for later retry (bounded)
+      this._enqueueForRetry(bodyStr, mapped[0].symbol, mapped.length);
+    }
+  },
+
+  /**
+   * Internal: send with retry loop (handles both network and HTTP transient errors)
+   * Returns true if the send ultimately succeeded.
+   */
+  async _sendWithRetry(
+    bodyStr: string,
+    symbol: string,
+    _candleCount: number,
+    maxRetries: number,
+  ): Promise<boolean> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const response = await fetch(`${SERVER_URL}/api/candles/bulk`, {
@@ -181,34 +262,95 @@ export const DataSender = {
           senderStats.bulkSuccessCount++;
           senderStats.bulkTotalCandles += result.count;
           senderStats.lastBulkSendAt = Date.now();
-          log.success(`Bulk saved: ${result.count} candles (symbol: ${mapped[0].symbol})`);
-          return;
-        } else {
-          const errorText = await response.text();
-          log.fail(`Bulk send failed (HTTP ${response.status}): ${errorText}`);
-          // HTTP errors (4xx/5xx) are not retried — only network errors
-          senderStats.bulkFailCount++;
-          return;
+          if (attempt > 0) senderStats.bulkRetryCount += attempt;
+          log.success(`Bulk saved: ${result.count} candles (symbol: ${symbol})`);
+          return true;
         }
-      } catch (error: unknown) {
-        if (attempt < maxRetries) {
-          const backoffMs = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+
+        // HTTP error — check if retriable
+        const errorText = await response.text();
+
+        if (isRetriableStatus(response.status, errorText) && attempt < maxRetries) {
+          const waitMs = backoffWithJitter(attempt);
+          senderStats.bulkRetryCount++;
           log.data(
-            `Bulk send network error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${backoffMs}ms...`,
+            `Bulk send retriable HTTP ${response.status} (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${waitMs}ms...`,
           );
-          await new Promise((r) => setTimeout(r, backoffMs));
+          await new Promise((r) => setTimeout(r, waitMs));
+          continue;
+        }
+
+        // Non-retriable HTTP error or last attempt
+        log.fail(`Bulk send failed (HTTP ${response.status}): ${errorText}`);
+        senderStats.bulkFailCount++;
+        return false;
+      } catch (error: unknown) {
+        // Network error — always retriable
+        if (attempt < maxRetries) {
+          const waitMs = backoffWithJitter(attempt);
+          senderStats.bulkRetryCount++;
+          log.data(
+            `Bulk send network error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${waitMs}ms...`,
+          );
+          await new Promise((r) => setTimeout(r, waitMs));
         } else {
           senderStats.bulkFailCount++;
           log.fail(
             `Bulk send network error after ${maxRetries + 1} attempts: ${error instanceof Error ? error.message : String(error)}`,
           );
+          return false;
         }
       }
     }
+    return false;
+  },
+
+  /**
+   * Internal: enqueue a failed chunk for later retry.
+   * Bounded by MAX_RETRY_QUEUE_SIZE; oldest chunks are dropped.
+   */
+  _enqueueForRetry(bodyStr: string, symbol: string, candleCount: number): void {
+    if (retryQueue.length >= MAX_RETRY_QUEUE_SIZE) {
+      retryQueue.shift(); // drop oldest
+      senderStats.retryQueueDropped++;
+      log.data(`Retry queue full (max ${MAX_RETRY_QUEUE_SIZE}), dropped oldest chunk`);
+    }
+    retryQueue.push({ bodyStr, symbol, candleCount, queuedAt: Date.now() });
+  },
+
+  /**
+   * Drain the retry queue: attempt to re-send all queued chunks.
+   * Returns count of successfully sent chunks.
+   */
+  async drainRetryQueue(maxRetries = 2): Promise<number> {
+    if (retryQueue.length === 0) return 0;
+
+    let sent = 0;
+    const chunks = retryQueue.splice(0); // take all
+
+    for (const chunk of chunks) {
+      const ok = await this._sendWithRetry(
+        chunk.bodyStr,
+        chunk.symbol,
+        chunk.candleCount,
+        maxRetries,
+      );
+      if (ok) {
+        sent++;
+      } else {
+        // Re-enqueue failed chunk (if still within limits)
+        this._enqueueForRetry(chunk.bodyStr, chunk.symbol, chunk.candleCount);
+      }
+    }
+
+    return sent;
   },
 
   /** 전송 통계 스냅샷 반환 */
   getStats(): DataSenderStats {
-    return { ...senderStats };
+    return {
+      ...senderStats,
+      retryQueueSize: retryQueue.length,
+    };
   },
 };

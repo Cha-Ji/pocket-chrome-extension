@@ -75,4 +75,22 @@ describe('normalizeTimestampMs', () => {
     // 1e12 exactly → ms
     expect(normalizeTimestampMs(1e12)).toBe(1e12);
   });
+
+  // P0-2: normalizeTimestampMs now delegates to toEpochMs
+  it('handles float seconds (delegated to toEpochMs)', () => {
+    expect(normalizeTimestampMs(1700000000.5)).toBe(1700000000500);
+  });
+
+  it('handles string input (delegated to toEpochMs)', () => {
+    expect(normalizeTimestampMs('1700000000')).toBe(1700000000000);
+    expect(normalizeTimestampMs('1700000000000')).toBe(1700000000000);
+  });
+
+  it('returns 0 for NaN input instead of throwing', () => {
+    expect(normalizeTimestampMs(NaN)).toBe(0);
+  });
+
+  it('returns 0 for invalid string input instead of throwing', () => {
+    expect(normalizeTimestampMs('not-a-number')).toBe(0);
+  });
 });

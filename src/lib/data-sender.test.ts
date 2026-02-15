@@ -15,9 +15,70 @@ vi.mock('./logger', () => ({
   },
 }));
 
-import { DataSender } from './data-sender';
+import { DataSender, isRetriableStatus, backoffWithJitter } from './data-sender';
 import type { CandleLike } from './data-sender';
 
+// ============================================================
+// isRetriableStatus — retry classification
+// ============================================================
+describe('isRetriableStatus', () => {
+  it.each([408, 429, 500, 502, 503, 504])('returns true for status %d', (status) => {
+    expect(isRetriableStatus(status)).toBe(true);
+  });
+
+  it.each([400, 401, 403, 404, 405, 422])('returns false for status %d', (status) => {
+    expect(isRetriableStatus(status)).toBe(false);
+  });
+
+  it('returns true for "database is locked" in response body', () => {
+    expect(isRetriableStatus(500, 'SQLITE_ERROR: database is locked')).toBe(true);
+  });
+
+  it('returns true for SQLITE_BUSY in response body', () => {
+    expect(isRetriableStatus(500, 'Error: SQLITE_BUSY')).toBe(true);
+  });
+
+  it('returns true for ECONNRESET in response body even with non-retriable status', () => {
+    expect(isRetriableStatus(400, 'ECONNRESET')).toBe(true);
+  });
+
+  it('returns false for normal 400 error without retriable pattern', () => {
+    expect(isRetriableStatus(400, 'Bad Request: invalid JSON')).toBe(false);
+  });
+
+  it('handles undefined responseBody', () => {
+    expect(isRetriableStatus(404)).toBe(false);
+    expect(isRetriableStatus(503)).toBe(true);
+  });
+});
+
+// ============================================================
+// backoffWithJitter
+// ============================================================
+describe('backoffWithJitter', () => {
+  it('increases exponentially with attempt', () => {
+    // With deterministic seed-like check: attempt 0 base is 1000, attempt 2 is ~4000
+    const a0 = backoffWithJitter(0, 1000);
+    const a2 = backoffWithJitter(2, 1000);
+
+    // a0: 1000 + jitter(0..500) → [1000, 1500]
+    expect(a0).toBeGreaterThanOrEqual(1000);
+    expect(a0).toBeLessThanOrEqual(1500);
+
+    // a2: 4000 + jitter(0..500) → [4000, 4500]
+    expect(a2).toBeGreaterThanOrEqual(4000);
+    expect(a2).toBeLessThanOrEqual(4500);
+  });
+
+  it('returns integer', () => {
+    const result = backoffWithJitter(1, 1000);
+    expect(Number.isInteger(result)).toBe(true);
+  });
+});
+
+// ============================================================
+// DataSender
+// ============================================================
 describe('DataSender', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -245,78 +306,58 @@ describe('DataSender', () => {
       expect(fetch).not.toHaveBeenCalled();
     });
 
-    it('서버 에러 시 bulkFailCount를 증가시킨다', async () => {
+    it('non-retriable HTTP 에러 시 재시도 없이 실패', async () => {
       const before = DataSender.getStats().bulkFailCount;
 
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: false,
-        status: 500,
-        text: vi.fn().mockResolvedValue('Error'),
+        status: 400,
+        text: vi.fn().mockResolvedValue('Bad Request'),
       });
 
-      await DataSender.sendHistory(candles);
+      await DataSender.sendHistory(candles, 3);
       expect(DataSender.getStats().bulkFailCount).toBe(before + 1);
+      // Only 1 fetch attempt for non-retriable
+      expect(fetch).toHaveBeenCalledTimes(1);
     });
 
-    it('네트워크 에러 시 bulkFailCount를 증가시킨다', async () => {
+    it('retriable HTTP 503 에러 시 재시도 후 최종 실패', async () => {
       const before = DataSender.getStats().bulkFailCount;
 
-      globalThis.fetch = vi.fn().mockRejectedValue(new Error('timeout'));
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        text: vi.fn().mockResolvedValue('Service Unavailable'),
+      });
 
-      // Use maxRetries=0 to avoid retry delays in test
-      await DataSender.sendHistory(candles, 0);
+      // maxRetries=1 → 2 attempts total
+      await DataSender.sendHistory(candles, 1);
       expect(DataSender.getStats().bulkFailCount).toBe(before + 1);
+      expect(fetch).toHaveBeenCalledTimes(2);
     });
 
-    it('성공 시 bulkSuccessCount와 bulkTotalCandles를 업데이트한다', async () => {
-      const before = DataSender.getStats();
+    it('retriable HTTP error then success', async () => {
+      const beforeSuccess = DataSender.getStats().bulkSuccessCount;
 
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ count: 2 }),
+      let callCount = 0;
+      globalThis.fetch = vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({
+            ok: false,
+            status: 503,
+            text: () => Promise.resolve('Service Unavailable'),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ count: 2 }),
+        });
       });
 
-      await DataSender.sendHistory(candles);
-
-      const after = DataSender.getStats();
-      expect(after.bulkSuccessCount).toBe(before.bulkSuccessCount + 1);
-      expect(after.bulkTotalCandles).toBe(before.bulkTotalCandles + 2);
-      expect(after.lastBulkSendAt).toBeGreaterThan(0);
-    });
-
-    it('ticker 필드를 symbol로 사용한다', async () => {
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ count: 1 }),
-      });
-
-      await DataSender.sendHistory([
-        { ticker: 'GOOG', timestamp: 1700000000000, open: 140, high: 145, low: 138, close: 142 },
-      ]);
-
-      const body = JSON.parse((fetch as any).mock.calls[0][1].body);
-      expect(body.candles[0].symbol).toBe('GOOG');
-    });
-
-    it('bulkSendCount는 유효한 캔들이 있을 때만 증가한다', async () => {
-      const before = DataSender.getStats().bulkSendCount;
-
-      // All invalid candles → filtered out → no count increment
-      globalThis.fetch = vi.fn();
-      await DataSender.sendHistory([
-        { symbol: 'UNKNOWN', timestamp: NaN, open: NaN, high: NaN, low: NaN, close: NaN },
-      ]);
-      expect(DataSender.getStats().bulkSendCount).toBe(before);
-
-      // Valid candles → count increments
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ count: 1 }),
-      });
-      await DataSender.sendHistory([
-        { symbol: 'AAPL', timestamp: 1700000000000, open: 175, high: 180, low: 170, close: 178 },
-      ]);
-      expect(DataSender.getStats().bulkSendCount).toBe(before + 1);
+      await DataSender.sendHistory(candles, 1);
+      expect(DataSender.getStats().bulkSuccessCount).toBe(beforeSuccess + 1);
+      expect(fetch).toHaveBeenCalledTimes(2);
     });
 
     it('네트워크 에러 시 재시도 후 최종 실패 시 bulkFailCount 증가', async () => {
@@ -350,6 +391,41 @@ describe('DataSender', () => {
       expect(DataSender.getStats().bulkFailCount).toBe(beforeFail); // no fail count
       expect(fetch).toHaveBeenCalledTimes(2);
     });
+
+    it('bulkSendCount는 유효한 캔들이 있을 때만 증가한다', async () => {
+      const before = DataSender.getStats().bulkSendCount;
+
+      // All invalid candles → filtered out → no count increment
+      globalThis.fetch = vi.fn();
+      await DataSender.sendHistory([
+        { symbol: 'UNKNOWN', timestamp: NaN, open: NaN, high: NaN, low: NaN, close: NaN },
+      ]);
+      expect(DataSender.getStats().bulkSendCount).toBe(before);
+
+      // Valid candles → count increments
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ count: 1 }),
+      });
+      await DataSender.sendHistory([
+        { symbol: 'AAPL', timestamp: 1700000000000, open: 175, high: 180, low: 170, close: 178 },
+      ]);
+      expect(DataSender.getStats().bulkSendCount).toBe(before + 1);
+    });
+
+    it('ticker 필드를 symbol로 사용한다', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ count: 1 }),
+      });
+
+      await DataSender.sendHistory([
+        { ticker: 'GOOG', timestamp: 1700000000000, open: 140, high: 145, low: 138, close: 142 },
+      ]);
+
+      const body = JSON.parse((fetch as any).mock.calls[0][1].body);
+      expect(body.candles[0].symbol).toBe('GOOG');
+    });
   });
 
   // ============================================================
@@ -361,6 +437,13 @@ describe('DataSender', () => {
       const stats2 = DataSender.getStats();
       expect(stats1).not.toBe(stats2); // 다른 참조
       expect(stats1).toEqual(stats2); // 같은 값
+    });
+
+    it('includes retryQueueSize and retryQueueDropped', () => {
+      const stats = DataSender.getStats();
+      expect(stats).toHaveProperty('retryQueueSize');
+      expect(stats).toHaveProperty('retryQueueDropped');
+      expect(stats).toHaveProperty('bulkRetryCount');
     });
   });
 });

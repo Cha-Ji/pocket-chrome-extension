@@ -230,6 +230,46 @@ describe('TickBuffer', () => {
       expect(stats.flushErrors).toBe(0);
       expect(stats.bufferSize).toBe(0);
     });
+
+    it('should track granular drop reasons (P1-3)', async () => {
+      buffer = new TickBuffer({
+        sampleIntervalMs: 500,
+        batchSize: 1000,
+        flushIntervalMs: 99999,
+      });
+
+      // Invalid drops
+      buffer.ingest({ ticker: '', timestamp: 1000, price: 1 }); // invalidDrop
+      buffer.ingest({ ticker: 'A', timestamp: 0, price: 1 }); // invalidDrop
+
+      // Sampling drop
+      buffer.ingest({ ticker: 'A', timestamp: 1000, price: 1 }); // accepted
+      buffer.ingest({ ticker: 'A', timestamp: 1100, price: 2 }); // samplingDrop
+
+      const stats = buffer.getStats();
+      expect(stats.invalidDrop).toBe(2);
+      expect(stats.samplingDrop).toBe(1);
+      expect(stats.accepted).toBe(1);
+      expect(stats.dropped).toBe(3);
+    });
+
+    it('should track flush latency metrics (P1-3)', async () => {
+      buffer = new TickBuffer({
+        sampleIntervalMs: 0,
+        batchSize: 1000,
+        flushIntervalMs: 99999,
+      });
+
+      buffer.ingest({ ticker: 'A', timestamp: 100, price: 1 });
+      buffer.ingest({ ticker: 'A', timestamp: 200, price: 2 });
+
+      await buffer.flush();
+
+      const stats = buffer.getStats();
+      expect(stats.flushCount).toBe(1);
+      expect(stats.flushLatencyMaxMs).toBeGreaterThanOrEqual(0);
+      expect(stats.flushLatencyAvgMs).toBeGreaterThanOrEqual(0);
+    });
   });
 
   // ============================================================
