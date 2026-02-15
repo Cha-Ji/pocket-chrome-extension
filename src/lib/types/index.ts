@@ -274,6 +274,8 @@ export interface MessagePayloadMap {
   // DB Monitor
   GET_DB_MONITOR_STATUS: undefined
   GET_TICK_BUFFER_STATS: undefined
+  FLUSH_TICK_BUFFER: undefined
+  RUN_TICK_RETENTION: undefined
   // Mining Status
   TOGGLE_MINING: { active: boolean }
   MINING_STATS: { collected: number }

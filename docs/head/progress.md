@@ -1,6 +1,30 @@
 # Pocket Quant Trader - Progress
 
-**최종 업데이트:** 2026-02-14 KST
+**최종 업데이트:** 2026-02-15 KST
+
+## (2026-02-15) 파이프라인 정합성/관측성 강화 + 백테스트 평점 시스템
+
+### 완료 항목
+- **[1A] TickRepository.bulkPut**: 기존 코드 확인 (이미 정상) + TickBuffer flush → DB count 증가 통합 테스트 추가
+- **[1B] DataSender.sendHistory**: bulkSendCount 증가 위치 수정 (유효 캔들 필터링 후로 이동), 재시도 로직(3회, 지수 backoff) 추가
+- **[2A] 히스토리 캔들 IndexedDB 저장**: `saveHistoryCandlesToDB()` 함수 추가 (1000개 청크 + requestIdleCallback), CandleDatasetRepository 메타 갱신
+- **[2B] 서버 장애 대비**: sendHistory에 최대 3회 재시도(1s/2s/4s backoff) 구현, HTTP 에러는 재시도 안 함
+- **[3A] TickBuffer UI 관측성**: DBMonitorDashboard에 tick buffer stats 섹션 추가 (bufferSize, accepted/dropped ratio, flushed, retentionDeleted, DB tick count)
+- **[3B] 진단 버튼**: "Flush Now" / "Run Retention" 버튼 추가, FLUSH_TICK_BUFFER/RUN_TICK_RETENTION 메시지 핸들러 추가
+- **[4A] 백테스트 Score 시스템**: `src/lib/backtest/scoring.ts` — 7가지 지표 가중치 기반 0-100 종합 점수 + A~F 등급
+- **[4B] 스냅샷 테스트**: 23개 테스트 (55%/52.1%/40%/65% WR 시나리오, 엣지케이스, 커스텀 가중치)
+- **[5A] 아키텍처 다이어그램**: `docs/architecture/data-flows.md` — tick/trade/storage/observability mermaid 4개 다이어그램
+- **[5B] 문서 규칙 갱신**: DOCUMENTATION_RULES.md에 Score 기준표, 전략 선택 절차, 변경 시 동반 업데이트 규칙 추가
+- **[6] 병렬 작업 소유권**: parallel-work.md에 Agent별 파일 소유권 테이블 + 공유 파일 coordination 규칙 추가
+
+### 테스트 결과
+- 신규/수정 테스트 58개 전체 통과
+- TypeScript 컴파일 에러 0건
+
+### 다음 행동
+- DBMonitorDashboard에서 실환경 tick/candle/서버 수집 상태 확인
+- Score 시스템을 리더보드 기존 `compositeScore`와 통합 검토
+- 실 데이터로 scoring 가중치 미세 조정
 
 ## (2026-02-14) Tick DB 안정성 개선 — 배치 저장 + 샘플링 + 강제 retention
 
