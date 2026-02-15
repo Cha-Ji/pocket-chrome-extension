@@ -149,6 +149,27 @@
 - `src/background/handlers/trade-handlers.ts`: TRADE_EXECUTED, FINALIZE_TRADE, GET_TRADES 핸들러 추출
 - 의존성 주입 패턴(`TradeHandlerDeps`) 사용으로 Chrome API 없이 테스트 가능
 - 8개 unit test 추가 (idempotent finalize, fallback 값, broadcast 검증)
+- **(2026-02-15 추가)** `background/index.ts`의 인라인 핸들러를 추출 함수로 교체 완료
+  - `getTradeHandlerDeps()` 브릿지로 `TradeRepository`, `tradingStatus`, `broadcast` 주입
+  - 에러 핸들링(POError/errorHandler)은 `*WithErrorHandling` 래퍼에서 유지
+
+## P0 버그 수정 (2026-02-15)
+
+### entryPrice 검증 순서 (content-script/index.ts executeSignal)
+- **문제**: `tradeExecutor.executeTrade()` (DOM 클릭, 비가역)이 entryPrice 검증보다 먼저 실행됨
+  - entryPrice=0이면 `return`으로 빠져나가 DB에 미기록 → 거래는 실행되었지만 추적 불가
+- **수정**: entryPrice를 거래 실행 전에 결정 (candleCollector → signal.entryPrice → 0 fallback)
+  - 실행 후에도 최신 tick으로 entryPrice 갱신 시도
+  - entryPrice=0이어도 DB에 반드시 기록 (추적 > 정확도)
+
+### exitPrice=0 무조건 LOSS 판정 (content-script/index.ts settleTrade)
+- **문제**: 정산 시 exitPrice를 1회만 조회, 실패 시 즉시 LOSS 판정
+  - WebSocket 지연이나 심볼 불일치로 팬텀 LOSS 발생 → 통계 왜곡
+- **수정**: `getExitPriceWithRetry(ticker, 3, 500ms)` 도입
+  - 3회 재시도, 500ms 간격
+  - tick 데이터 없으면 최신 캔들 close를 fallback으로 사용
+  - 최종 불가 시 TIE (중립, profit=0) 판정 → LOSS보다 보수적이면서도 공정
+- **결정 이유**: LOSS는 실제 결과를 왜곡하고 전략 평가에 부정적 영향. TIE는 중립적이며 통계에 미치는 영향 최소화
 
 ## 관련 참조
 

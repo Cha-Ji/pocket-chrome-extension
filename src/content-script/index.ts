@@ -403,28 +403,32 @@ async function executeSignal(signal: Signal): Promise<void> {
   // Race condition / cooldown already checked by evaluateSignalGates in handleNewSignal.
   // Set guard flag here to prevent concurrent calls.
   isExecutingTrade = true
+  const ticker = normalizeSymbol(signal.symbol)
+
+  // P0 Fix: Determine entryPrice BEFORE trade execution
+  // If the trade succeeds, we must always record it — never abort after DOM click.
+  let entryPrice = candleCollector?.getLatestTickPrice(ticker) ?? 0
+  if (!entryPrice || entryPrice <= 0) entryPrice = signal.entryPrice
+  if (!entryPrice || entryPrice <= 0) {
+    console.warn(`[PO] ⚠️ Cannot determine entryPrice for ${ticker} before execution — will record with price=0`)
+  }
+
+  // Capture payout at entry time for accurate PnL calculation
+  const currentPayout = payoutMonitor?.getCurrentAssetPayout()
+  const payoutPercent = currentPayout?.payout ?? 0
+  if (payoutPercent <= 0) {
+    console.warn(`[PO] ⚠️ Cannot determine payout for ${ticker} — PnL will default to 0 on WIN`)
+  }
+
   console.log(`[PO] 🚀 Executing: ${signal.direction} (${signal.strategy})`);
   try {
     const result = await tradeExecutor.executeTrade(signal.direction, tradingConfig.tradeAmount);
     lastTradeExecutedAt = Date.now()
 
     if (result.success) {
-      // P0: entryPrice 결정 — candleCollector의 최신 tick > signal.entryPrice > 거부(0)
-      const ticker = normalizeSymbol(signal.symbol)
-      let entryPrice = candleCollector?.getLatestTickPrice(ticker) ?? 0
-      if (!entryPrice || entryPrice <= 0) entryPrice = signal.entryPrice
-      if (!entryPrice || entryPrice <= 0) {
-        console.error(`[PO] ❌ Cannot determine entryPrice for ${ticker} — aborting trade record`)
-        isExecutingTrade = false
-        return
-      }
-
-      // Capture payout at entry time for accurate PnL calculation
-      const currentPayout = payoutMonitor?.getCurrentAssetPayout()
-      const payoutPercent = currentPayout?.payout ?? 0
-      if (payoutPercent <= 0) {
-        console.warn(`[PO] ⚠️ Cannot determine payout for ${ticker} — PnL will default to 0 on WIN`)
-      }
+      // Post-execution: try to refine entryPrice with the very latest tick
+      const postExecPrice = candleCollector?.getLatestTickPrice(ticker) ?? 0
+      if (postExecPrice > 0) entryPrice = postExecPrice
 
       telegramService?.sendMessage(`🚀 [PO] <b>Trade Executed</b>\n${signal.direction} on ${signal.symbol} @ ${entryPrice} (payout: ${payoutPercent}%)`);
       const expirySeconds = signal.expiry || 60
@@ -534,22 +538,47 @@ async function restorePendingTrades(): Promise<void> {
   }
 }
 
+/**
+ * Attempt to get the exit price with retries.
+ * Falls back to latest candle close if tick data unavailable.
+ */
+async function getExitPriceWithRetry(ticker: string, maxRetries: number, delayMs: number): Promise<number> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // Try tick-based price first
+    const tickPrice = candleCollector?.getLatestTickPrice(ticker) ?? 0
+    if (tickPrice > 0) return tickPrice
+
+    // Fallback: latest candle close
+    const candles = candleCollector?.getCandles(ticker)
+    if (candles && candles.length > 0) {
+      const lastCandle = candles[candles.length - 1]
+      if (lastCandle.close > 0) return lastCandle.close
+    }
+
+    // Wait before retry (skip wait on last attempt)
+    if (attempt < maxRetries) {
+      await new Promise(resolve => setTimeout(resolve, delayMs))
+    }
+  }
+  return 0
+}
+
 async function settleTrade(tradeId: number): Promise<void> {
   const pending = pendingTrades.get(tradeId)
   if (!pending) return
   pendingTrades.delete(tradeId)
   persistPendingTradesSnapshot()
 
-  // 만기 시점의 최신 가격 조회
-  const exitPrice = candleCollector?.getLatestTickPrice(pending.ticker) ?? 0
-  if (!exitPrice || exitPrice <= 0) {
-    console.warn(`[PO] ⚠️ Cannot get exit price for ${pending.ticker} — marking as LOSS (conservative)`)
-  }
+  // P0 Fix: Retry logic for exit price retrieval
+  let exitPrice = await getExitPriceWithRetry(pending.ticker, 3, 500)
 
   // WIN/LOSS 판정
   let result: 'WIN' | 'LOSS' | 'TIE'
   if (exitPrice <= 0) {
-    result = 'LOSS' // 가격을 알 수 없으면 보수적으로 LOSS
+    // P0 Fix: Unknown exit price → TIE (neutral) instead of LOSS
+    // Marking as LOSS would create phantom losses that distort statistics.
+    console.warn(`[PO] ⚠️ Cannot get exit price for ${pending.ticker} after retries — marking as TIE (unknown)`)
+    result = 'TIE'
   } else if (pending.direction === 'CALL') {
     result = exitPrice > pending.entryPrice ? 'WIN' : exitPrice < pending.entryPrice ? 'LOSS' : 'TIE'
   } else {

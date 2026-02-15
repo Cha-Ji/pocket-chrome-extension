@@ -2,6 +2,37 @@
 
 **최종 업데이트:** 2026-02-15 KST
 
+## (2026-02-15) P0 버그 수정 + Background 핸들러 통합
+
+### 완료 항목
+- **[P0] entryPrice 검증 순서 수정**: `content-script/index.ts`의 `executeSignal()`
+  - 기존: DOM 클릭(거래 실행) 후 entryPrice 확인 → 실패 시 `return`으로 DB 미기록 (거래는 이미 실행됨)
+  - 수정: entryPrice를 거래 실행 전에 결정, 실행 후 최신 tick으로 갱신, entryPrice=0이어도 DB에 반드시 기록
+- **[P0] exitPrice=0 무조건 LOSS 판정 수정**: `content-script/index.ts`의 `settleTrade()`
+  - 기존: exitPrice 조회 1회 실패 시 즉시 LOSS → 팬텀 손실로 통계 왜곡
+  - 수정: `getExitPriceWithRetry()` 추가 (3회 재시도, 500ms 간격, 캔들 close fallback)
+  - exitPrice 최종 불가 시 TIE (중립) 판정으로 변경
+- **[P2] Background 핸들러 통합**: `background/index.ts` → `handlers/trade-handlers.ts` 위임
+  - 3개 inline 핸들러(handleTradeExecuted, handleFinalizeTrade, handleGetTrades)를 DI 기반 추출 함수로 교체
+  - `getTradeHandlerDeps()` 브릿지 함수로 `TradeRepository` + `tradingStatus` + `broadcast` 주입
+  - 에러 핸들링(POError/errorHandler)은 래퍼에서 유지, 핵심 로직은 순수 함수로 분리
+
+### 파일 변경 목록
+| 파일 | 변경 유형 |
+|------|----------|
+| `src/content-script/index.ts` | P0 entryPrice 순서 수정, exitPrice 재시도+TIE fallback |
+| `src/background/index.ts` | trade-handlers.ts 위임으로 전환, 인라인 핸들러 제거 |
+
+### 테스트 결과
+- 전체: 1181 tests passed (65 suites), 0 failures
+
+### 다음 행동
+- Side Panel에 strategyFilter UI 추가 (P3)
+- content-script/index.ts entry point 통합 테스트 (P2)
+- AutoTrader stats 비영속 문제 해결 (P1)
+
+---
+
 ## (2026-02-15) 아키텍처 감사 — 전략 게이트/정산 신뢰성/Scoring 프로필/테스트 커버리지
 
 ### 완료 항목
