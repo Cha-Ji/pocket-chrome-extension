@@ -429,6 +429,153 @@ describe('DataSender', () => {
   });
 
   // ============================================================
+  // bulkRetryCount accuracy (A-1)
+  // ============================================================
+  describe('bulkRetryCount accuracy', () => {
+    beforeEach(() => {
+      DataSender._resetForTesting();
+    });
+
+    it('0 retries on immediate success → bulkRetryCount = 0', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ count: 2 }),
+      });
+
+      await DataSender.sendHistory(
+        [
+          { symbol: 'AAPL', timestamp: 1700000000000, open: 175, high: 180, low: 170, close: 178 },
+          { symbol: 'AAPL', timestamp: 1700000060000, open: 178, high: 182, low: 176, close: 180 },
+        ],
+        3,
+      );
+
+      const stats = DataSender.getStats();
+      expect(stats.bulkRetryCount).toBe(0);
+      expect(stats.bulkSuccessCount).toBe(1);
+      expect(stats.bulkFailCount).toBe(0);
+    });
+
+    it('2 retries then success → bulkRetryCount = 2', async () => {
+      let callCount = 0;
+      globalThis.fetch = vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount <= 2) {
+          return Promise.reject(new Error('network error'));
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ count: 1 }),
+        });
+      });
+
+      await DataSender.sendHistory(
+        [{ symbol: 'AAPL', timestamp: 1700000000000, open: 175, high: 180, low: 170, close: 178 }],
+        3,
+      );
+
+      const stats = DataSender.getStats();
+      expect(stats.bulkRetryCount).toBe(2);
+      expect(stats.bulkSuccessCount).toBe(1);
+      expect(stats.bulkFailCount).toBe(0);
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('all retries exhausted → bulkRetryCount = maxRetries', async () => {
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error('network error'));
+
+      await DataSender.sendHistory(
+        [{ symbol: 'AAPL', timestamp: 1700000000000, open: 175, high: 180, low: 170, close: 178 }],
+        2,
+      );
+
+      const stats = DataSender.getStats();
+      expect(stats.bulkRetryCount).toBe(2);
+      expect(stats.bulkSuccessCount).toBe(0);
+      expect(stats.bulkFailCount).toBe(1);
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('1 retriable HTTP error then success → bulkRetryCount = 1', async () => {
+      let callCount = 0;
+      globalThis.fetch = vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({
+            ok: false,
+            status: 503,
+            text: () => Promise.resolve('Service Unavailable'),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ count: 1 }),
+        });
+      });
+
+      await DataSender.sendHistory(
+        [{ symbol: 'AAPL', timestamp: 1700000000000, open: 175, high: 180, low: 170, close: 178 }],
+        2,
+      );
+
+      const stats = DataSender.getStats();
+      expect(stats.bulkRetryCount).toBe(1);
+      expect(stats.bulkSuccessCount).toBe(1);
+    });
+  });
+
+  // ============================================================
+  // drainRetryQueue
+  // ============================================================
+  describe('drainRetryQueue', () => {
+    beforeEach(() => {
+      DataSender._resetForTesting();
+    });
+
+    it('returns 0 when queue is empty', async () => {
+      const sent = await DataSender.drainRetryQueue();
+      expect(sent).toBe(0);
+    });
+
+    it('drains queued chunks on retry', async () => {
+      // First, fail to enqueue something
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error('offline'));
+
+      await DataSender.sendHistory(
+        [{ symbol: 'AAPL', timestamp: 1700000000000, open: 175, high: 180, low: 170, close: 178 }],
+        0, // no retries → immediate fail → enqueue
+      );
+
+      expect(DataSender.getStats().retryQueueSize).toBe(1);
+
+      // Now make server available and drain
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ count: 1 }),
+      });
+
+      const sent = await DataSender.drainRetryQueue(0);
+      expect(sent).toBe(1);
+      expect(DataSender.getStats().retryQueueSize).toBe(0);
+    });
+  });
+
+  // ============================================================
+  // _resetForTesting
+  // ============================================================
+  describe('_resetForTesting', () => {
+    it('resets all stats to zero', () => {
+      DataSender._resetForTesting();
+      const stats = DataSender.getStats();
+      expect(stats.bulkSendCount).toBe(0);
+      expect(stats.bulkSuccessCount).toBe(0);
+      expect(stats.bulkFailCount).toBe(0);
+      expect(stats.bulkRetryCount).toBe(0);
+      expect(stats.retryQueueSize).toBe(0);
+    });
+  });
+
+  // ============================================================
   // getStats
   // ============================================================
   describe('getStats', () => {

@@ -124,20 +124,39 @@ describe('CandleCollector', () => {
   });
 
   // ============================================================
-  // Tick history limits
+  // Tick history limits (per-ticker cap)
   // ============================================================
 
   describe('tick history limits', () => {
-    it('limits tick history to maxTickHistory', () => {
+    it('limits per-ticker ticks to maxTicksPerTicker (2000)', () => {
       const baseTs = 1700000000000;
 
-      // Add more than maxTickHistory (10000) ticks
-      for (let i = 0; i < 11000; i++) {
+      // Add more than maxTicksPerTicker (2000) ticks for one ticker
+      for (let i = 0; i < 2500; i++) {
         collector.addTickFromWebSocket('EURUSD', 1.1 + i * 0.0001, baseTs + i * 100);
       }
 
+      const ticks = collector.getTicksByTicker('EURUSD');
+      expect(ticks.length).toBeLessThanOrEqual(2000);
+
+      // getTickHistory should also reflect the cap
+      const allTicks = collector.getTickHistory();
+      expect(allTicks.length).toBeLessThanOrEqual(2000);
+    });
+
+    it('getTickHistory merges multiple tickers sorted by timestamp', () => {
+      const baseTs = 1700000000000;
+
+      collector.addTickFromWebSocket('EURUSD', 1.1, baseTs);
+      collector.addTickFromWebSocket('GBPUSD', 1.3, baseTs + 500);
+      collector.addTickFromWebSocket('EURUSD', 1.2, baseTs + 1000);
+
       const ticks = collector.getTickHistory();
-      expect(ticks.length).toBeLessThanOrEqual(10000);
+      expect(ticks).toHaveLength(3);
+      // Sorted by timestamp
+      expect(ticks[0].ticker).toBe('EURUSD');
+      expect(ticks[1].ticker).toBe('GBPUSD');
+      expect(ticks[2].ticker).toBe('EURUSD');
     });
   });
 
@@ -207,6 +226,60 @@ describe('CandleCollector', () => {
       collector.addTickFromWebSocket('EURUSD', 1.2, baseTs + 60000);
 
       expect(cb).not.toHaveBeenCalled();
+    });
+  });
+
+  // ============================================================
+  // Notify throttle (C-1)
+  // ============================================================
+
+  describe('notifyBackground throttle', () => {
+    it('throttles background notifications per ticker', () => {
+      const sendMessage = vi.mocked(chrome.runtime.sendMessage);
+      sendMessage.mockClear();
+
+      const baseTs = 1700000000000;
+
+      // Send 5 rapid ticks within 500ms (default notifyThrottleMs)
+      for (let i = 0; i < 5; i++) {
+        collector.addTickFromWebSocket('EURUSD', 1.1 + i * 0.0001, baseTs + i * 10);
+      }
+
+      // Only 1 should have gotten through (the first one; rest are throttled)
+      const stats = collector.getCollectorStats();
+      expect(stats.notifySent).toBe(1);
+      expect(stats.notifyThrottled).toBe(4);
+    });
+
+    it('allows notifications after throttle window passes', () => {
+      const sendMessage = vi.mocked(chrome.runtime.sendMessage);
+      sendMessage.mockClear();
+
+      const baseTs = 1700000000000;
+
+      collector.addTickFromWebSocket('EURUSD', 1.1, baseTs);
+
+      // Advance time past notifyThrottleMs (500ms default, but we set 100ms in test config)
+      vi.advanceTimersByTime(600);
+
+      collector.addTickFromWebSocket('EURUSD', 1.2, baseTs + 600);
+
+      const stats = collector.getCollectorStats();
+      expect(stats.notifySent).toBe(2);
+    });
+  });
+
+  // ============================================================
+  // Stale ticker cleanup (C-3)
+  // ============================================================
+
+  describe('stale ticker cleanup', () => {
+    it('reports activeTickers in stats', () => {
+      collector.addTickFromWebSocket('EURUSD', 1.1, 1700000000000);
+      collector.addTickFromWebSocket('GBPUSD', 1.3, 1700000000000);
+
+      const stats = collector.getCollectorStats();
+      expect(stats.activeTickers).toBe(2);
     });
   });
 

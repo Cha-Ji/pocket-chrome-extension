@@ -242,6 +242,9 @@ export const DataSender = {
   /**
    * Internal: send with retry loop (handles both network and HTTP transient errors)
    * Returns true if the send ultimately succeeded.
+   *
+   * bulkRetryCount semantics: incremented exactly once per retry attempt
+   * (i.e., for each attempt > 0). No double-counting on success path.
    */
   async _sendWithRetry(
     bodyStr: string,
@@ -250,6 +253,11 @@ export const DataSender = {
     maxRetries: number,
   ): Promise<boolean> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      // Count each retry attempt exactly once (attempt 0 is the initial try)
+      if (attempt > 0) {
+        senderStats.bulkRetryCount++;
+      }
+
       try {
         const response = await fetch(`${SERVER_URL}/api/candles/bulk`, {
           method: 'POST',
@@ -262,7 +270,6 @@ export const DataSender = {
           senderStats.bulkSuccessCount++;
           senderStats.bulkTotalCandles += result.count;
           senderStats.lastBulkSendAt = Date.now();
-          if (attempt > 0) senderStats.bulkRetryCount += attempt;
           log.success(`Bulk saved: ${result.count} candles (symbol: ${symbol})`);
           return true;
         }
@@ -272,7 +279,6 @@ export const DataSender = {
 
         if (isRetriableStatus(response.status, errorText) && attempt < maxRetries) {
           const waitMs = backoffWithJitter(attempt);
-          senderStats.bulkRetryCount++;
           log.data(
             `Bulk send retriable HTTP ${response.status} (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${waitMs}ms...`,
           );
@@ -288,7 +294,6 @@ export const DataSender = {
         // Network error — always retriable
         if (attempt < maxRetries) {
           const waitMs = backoffWithJitter(attempt);
-          senderStats.bulkRetryCount++;
           log.data(
             `Bulk send network error (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${waitMs}ms...`,
           );
@@ -352,5 +357,22 @@ export const DataSender = {
       ...senderStats,
       retryQueueSize: retryQueue.length,
     };
+  },
+
+  /** Reset stats and retry queue (for testing only) */
+  _resetForTesting(): void {
+    senderStats.serverOnline = false;
+    senderStats.lastHealthCheck = 0;
+    senderStats.bulkSendCount = 0;
+    senderStats.bulkSuccessCount = 0;
+    senderStats.bulkFailCount = 0;
+    senderStats.bulkRetryCount = 0;
+    senderStats.bulkTotalCandles = 0;
+    senderStats.lastBulkSendAt = 0;
+    senderStats.realtimeSendCount = 0;
+    senderStats.realtimeSuccessCount = 0;
+    senderStats.realtimeFailCount = 0;
+    senderStats.retryQueueDropped = 0;
+    retryQueue.length = 0;
   },
 };

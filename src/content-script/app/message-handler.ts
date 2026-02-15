@@ -134,6 +134,11 @@ export async function handleMessage(
         sender: DataSender.getStats(),
         candleDatasets: await CandleDatasetRepository.getAll(),
       };
+    case 'DRAIN_SENDER_RETRY_QUEUE': {
+      const maxRetries = message.payload?.maxRetries ?? 2;
+      const sent = await DataSender.drainRetryQueue(maxRetries);
+      return { sent, stats: DataSender.getStats() };
+    }
     case 'SET_MINER_CONFIG':
       AutoMiner.updateConfig(message.payload);
       return { success: true, config: AutoMiner.getConfig() };

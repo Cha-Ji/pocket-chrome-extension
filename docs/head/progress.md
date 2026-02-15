@@ -2,6 +2,31 @@
 
 **최종 업데이트:** 2026-02-15 KST
 
+## (2026-02-15) 데이터 파이프라인 안정화 — 통계 정확도 + 메모리 최적화 + 운영 UX
+
+### 완료 항목
+- **[WS-A] bulkRetryCount 이중 카운팅 수정**: `_sendWithRetry` retry 시 정확히 1회만 카운트
+- **[WS-A] Drain Queue 운영 UX**: `DRAIN_SENDER_RETRY_QUEUE` 메시지 + DBMonitorDashboard 버튼
+- **[WS-B] CandleDataset 업서트 키 정책 확정**: Option 2 (source=informational), Dexie v10
+- **[WS-C] tickHistory 중복 메모리 제거**: `ticksByTicker`에서 합성, ~50% 메모리 절감
+- **[WS-C] notify throttle**: `notifyBackground()` 퍼-티커 500ms throttle
+- **[WS-C] 비활성 ticker 정리**: 5분 비활성 → 버퍼 자동 삭제
+- **[WS-D] CI format:check 추가**: Prettier 체크를 CI에 포함
+
+### 테스트 결과
+- 전체: 907 tests passed (46 suites), 0 failures
+- Backtest smoke: 56 passed (4 suites)
+- TypeScript: 0 errors
+- Build: success
+
+### 상세: `docs/features/stabilize-data-pipeline/`
+
+### 다음 행동
+- (선택) retryQueue IndexedDB 영속화
+- (선택) Playwright basic CI 추가
+
+---
+
 ## (2026-02-15) P2 구조 개선 완료 — Observability + Scoring 통합 + CI 강화
 
 ### 완료 항목

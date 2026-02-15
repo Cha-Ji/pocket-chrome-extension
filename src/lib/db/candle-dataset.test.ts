@@ -112,6 +112,43 @@ describe('CandleDatasetRepository — candleCount total (P1-1)', () => {
     expect(ds!.endTime).toBe(2000000 + 3 * 60000); // merged max
   });
 
+  it('upsert with different source keeps single record per ticker+interval (Option 2)', async () => {
+    const symbol = 'USDJPY_OTC';
+    const interval = 60;
+
+    // First upsert with 'history' source
+    await CandleDatasetRepository.upsert({
+      ticker: symbol,
+      interval,
+      startTime: 1000,
+      endTime: 5000,
+      candleCount: 10,
+      source: 'history',
+      lastUpdated: Date.now(),
+    });
+
+    // Second upsert with 'websocket' source — same ticker+interval
+    await CandleDatasetRepository.upsert({
+      ticker: symbol,
+      interval,
+      startTime: 4000,
+      endTime: 8000,
+      candleCount: 15,
+      source: 'websocket',
+      lastUpdated: Date.now(),
+    });
+
+    // Should have exactly 1 record (not 2)
+    const all = await CandleDatasetRepository.getByTicker(symbol);
+    expect(all).toHaveLength(1);
+
+    const ds = all[0];
+    expect(ds.source).toBe('websocket'); // last source wins
+    expect(ds.startTime).toBe(1000); // merged min
+    expect(ds.endTime).toBe(8000); // merged max
+    expect(ds.candleCount).toBe(15); // latest total
+  });
+
   it('should merge startTime/endTime across multiple inserts', async () => {
     const symbol = 'AAPL_OTC';
     const interval = 60;

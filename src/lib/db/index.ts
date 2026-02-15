@@ -68,6 +68,15 @@ export interface StoredBacktestResult {
 // Candle Dataset Meta Type
 // ============================================================
 
+/**
+ * CandleDataset — metadata about a candle collection for a given ticker+interval.
+ *
+ * **Upsert key policy (Option 2)**:
+ *   Logical key = `[ticker, interval]`. One record per ticker+interval pair.
+ *   The `source` field is informational only — it records the source of the
+ *   *most recent* upsert (e.g. 'history', 'websocket'). It does NOT create
+ *   separate records per source. Queries always use `[ticker+interval]`.
+ */
 export interface CandleDataset {
   id?: number;
   ticker: string;
@@ -75,6 +84,7 @@ export interface CandleDataset {
   startTime: number;
   endTime: number;
   candleCount: number;
+  /** Source of the most recent update. Informational only — not part of the upsert key. */
   source: CandleSource;
   lastUpdated: number;
 }
@@ -220,6 +230,13 @@ export class PocketDB extends Dexie {
     // Version 9: 임시 백업 테이블 제거
     this.version(9).stores({
       _candleBackup: null,
+    });
+
+    // Version 10: candleDatasets — remove unused `source` index.
+    // The `source` field is informational (lastSource semantic), not part of the logical key.
+    // Logical key remains [ticker+interval]. See CandleDataset JSDoc.
+    this.version(10).stores({
+      candleDatasets: '++id, ticker, interval, [ticker+interval], lastUpdated',
     });
   }
 }
