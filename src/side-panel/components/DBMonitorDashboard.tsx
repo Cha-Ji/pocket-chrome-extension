@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { CandleRepository } from '../../lib/db'
+import type { CandleDataset } from '../../lib/db'
 import type { DataSenderStats } from '../../lib/data-sender'
 import { sendTabMessageCallback, sendRuntimeMessage } from '../infrastructure/extension-client'
 
@@ -92,16 +93,20 @@ export function DBMonitorDashboard() {
   // 소스 4: TickBuffer 통계 (Background 경유)
   const [tickBufferStats, setTickBufferStats] = useState<TickBufferStats | null>(null)
 
+  // 소스 5: CandleDataset 메타 (Content Script GET_DB_MONITOR_STATUS 경유)
+  const [candleDatasets, setCandleDatasets] = useState<CandleDataset[]>([])
+
   // 접기 상태 저장
   useEffect(() => {
     try { localStorage.setItem('dbmonitor-collapsed', String(collapsed)) } catch {}
   }, [collapsed])
 
-  // 소스 1: DataSender 통계 폴링 (5초)
+  // 소스 1: DataSender 통계 + CandleDataset 메타 폴링 (5초)
   const fetchSenderStats = useCallback(() => {
     sendTabMessageCallback('GET_DB_MONITOR_STATUS', (res) => {
-      const typed = res as { sender?: DataSenderStats } | null
+      const typed = res as { sender?: DataSenderStats; candleDatasets?: CandleDataset[] } | null
       if (typed?.sender) setSenderStats(typed.sender)
+      if (typed?.candleDatasets) setCandleDatasets(typed.candleDatasets)
     })
   }, [])
 
@@ -385,7 +390,34 @@ export function DBMonitorDashboard() {
             )}
           </div>
 
-          {/* 섹션 5: Tick Buffer 통계 */}
+          {/* 섹션 5: Candle Datasets 메타 */}
+          {candleDatasets.length > 0 && (
+            <div className="bg-gray-900 rounded-md p-3">
+              <div className="text-xs text-gray-500 mb-2 font-semibold uppercase">
+                Candle Datasets — {candleDatasets.length} entries
+              </div>
+              <div className="flex text-[10px] text-gray-600 mb-1 px-1">
+                <span className="flex-1">티커</span>
+                <span className="w-16 text-right">캔들수</span>
+                <span className="w-20 text-right">기간</span>
+                <span className="w-16 text-right">갱신</span>
+              </div>
+              <div className="space-y-0.5 max-h-32 overflow-y-auto">
+                {candleDatasets.map(ds => (
+                  <div key={`${ds.ticker}-${ds.interval}`} className="flex text-xs px-1 py-0.5 hover:bg-gray-800 rounded">
+                    <span className="flex-1 text-gray-300 truncate">{ds.ticker}</span>
+                    <span className="w-16 text-right text-cyan-400 font-mono">{formatNumber(ds.candleCount)}</span>
+                    <span className="w-20 text-right text-gray-400">
+                      {timestampToDate(ds.startTime)}~{timestampToDate(ds.endTime)}
+                    </span>
+                    <span className="w-16 text-right text-gray-500">{timeAgo(ds.lastUpdated)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 섹션 6: Tick Buffer 통계 */}
           <div className="bg-gray-900 rounded-md p-3 space-y-2">
             <div className="text-xs text-gray-500 mb-1 font-semibold uppercase">Tick Buffer / DB Ticks</div>
             {tickBufferStats ? (

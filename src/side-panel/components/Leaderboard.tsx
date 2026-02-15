@@ -188,6 +188,9 @@ function LeaderboardCard({
           <span className="text-xs font-bold text-white flex-1 truncate">
             {entry.strategyName}
           </span>
+          {entry.grade && (
+            <GradeBadge grade={entry.grade} />
+          )}
           <span className={`text-sm font-bold font-mono ${scoreColor}`}>
             {formatNumber(entry.compositeScore)}
           </span>
@@ -244,6 +247,9 @@ function LeaderboardCard({
             <DetailRow label="Wins / Losses" value={`${entry.wins} / ${entry.losses}`} />
             <DetailRow label="Trading Days" value={entry.tradingDays.toString()} />
             <DetailRow label="Expectancy" value={`$${formatMoney(entry.expectancy)}`} />
+            {entry.absoluteScore !== undefined && (
+              <DetailRow label="Abs. Score" value={`${formatNumber(entry.absoluteScore, 1)} (${entry.grade})`} />
+            )}
             <DetailRow label="Sharpe Ratio" value={formatNumber(entry.sharpeRatio, 2)} />
             <DetailRow label="Sortino Ratio" value={formatNumber(entry.sortinoRatio, 2)} />
             <DetailRow label="Recovery Factor" value={formatNumber(entry.recoveryFactor, 2)} />
@@ -294,6 +300,22 @@ function MetricCell({
       <div className="text-gray-600">{label}</div>
       <div className={`font-mono font-medium ${color}`}>{value}</div>
     </div>
+  )
+}
+
+const GRADE_COLORS: Record<string, string> = {
+  A: 'bg-green-500/20 text-green-400 border-green-500/30',
+  B: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  C: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+  D: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+  F: 'bg-red-500/20 text-red-400 border-red-500/30',
+}
+
+function GradeBadge({ grade }: { grade: string }) {
+  return (
+    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${GRADE_COLORS[grade] ?? GRADE_COLORS.F}`}>
+      {grade}
+    </span>
   )
 }
 

@@ -7,6 +7,7 @@
 import { Candle, BacktestConfig, BacktestResult, Strategy } from './types'
 import { getBacktestEngine } from './engine'
 import { calculateDetailedStatistics } from './statistics'
+import { calculateScore } from './scoring'
 import {
   LeaderboardEntry,
   LeaderboardConfig,
@@ -200,6 +201,22 @@ function buildLeaderboardEntry(
     compositeScore: 0, // 이후 scoreAndRankEntries에서 계산
     rank: 0,
 
+    // P2-2: 절대 점수 (scoring.ts calculateScore)
+    ...(() => {
+      const scoreResult = calculateScore({
+        wins: result.wins,
+        losses: result.losses,
+        ties: result.ties,
+        payoutPercent: config.payout,
+        totalTrades: result.totalTrades,
+        maxDrawdownPercent: stats.maxDrawdownPercent,
+        maxLosingStreak: stats.maxConsecutiveLosses,
+        profitFactor: stats.profitFactor,
+        winRateStdDev,
+      })
+      return { absoluteScore: scoreResult.score, grade: scoreResult.grade }
+    })(),
+
     dataRange: { start: result.startTime, end: result.endTime },
     candleCount: result.trades.length > 0
       ? Math.round((result.endTime - result.startTime) / (config.expirySeconds * 1000))
@@ -359,9 +376,10 @@ export function formatLeaderboardReport(result: LeaderboardResult): string {
       ? `${entry.daysToVolumeTarget}d`
       : 'N/A'
 
+    const gradeStr = entry.grade ? ` [${entry.grade}]` : ''
     lines.push(
-      `#${entry.rank} [${profitable}] ${entry.strategyName}`,
-      `   Score: ${entry.compositeScore.toFixed(1)} | WR: ${entry.winRate.toFixed(1)}% | PF: ${entry.profitFactor.toFixed(2)} | Net: $${entry.netProfit.toFixed(2)}`,
+      `#${entry.rank} [${profitable}] ${entry.strategyName}${gradeStr}`,
+      `   Score: ${entry.compositeScore.toFixed(1)} (abs: ${entry.absoluteScore?.toFixed(1) ?? '-'}) | WR: ${entry.winRate.toFixed(1)}% | PF: ${entry.profitFactor.toFixed(2)} | Net: $${entry.netProfit.toFixed(2)}`,
       `   MDD: ${entry.maxDrawdownPercent.toFixed(1)}% | MaxLoss: ${entry.maxConsecutiveLosses}x | Trades/Day: ${entry.tradesPerDay.toFixed(1)}`,
       `   Daily Vol: $${entry.dailyVolume.toFixed(0)} | Vol Target: ${volumeDays} | Kelly: ${entry.kellyFraction.toFixed(1)}%`,
       `   Min Balance: $${entry.minRequiredBalance.toFixed(0)} | Stability: ±${entry.winRateStdDev.toFixed(1)}%`,

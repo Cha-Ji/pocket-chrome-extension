@@ -4,6 +4,8 @@
 // 전략 간 비교/랭킹을 위한 리더보드 타입 정의
 // ============================================================
 
+import type { ScoreGrade } from './scoring'
+
 /** 리더보드 엔트리: 전략 하나의 백테스트 결과 요약 */
 export interface LeaderboardEntry {
   id?: number
@@ -48,8 +50,10 @@ export interface LeaderboardEntry {
   minRequiredBalance: number // MDD 기반 최소 필요 자금
 
   // 종합 점수
-  compositeScore: number     // 0-100 종합 점수
+  compositeScore: number     // 0-100 종합 점수 (상대 비교)
   rank: number               // 순위
+  absoluteScore?: number     // 0-100 절대 점수 (scoring.ts)
+  grade?: ScoreGrade         // A-F 등급 (scoring.ts)
 
   // 백테스트 메타
   dataRange: { start: number; end: number }

@@ -28,6 +28,19 @@
   - [x] 잘못된 값은 strip, valid 값만 적용
   - [x] 테스트 9개 추가
 
+## P2: 구조 개선
+
+- [x] P2-1: GET_DB_MONITOR_STATUS에 candleDatasets 메타 추가
+  - [x] message-handler.ts에 CandleDatasetRepository.getAll() 추가
+  - [x] DBMonitorDashboard.tsx에 Candle Datasets 섹션 추가
+- [x] P2-2: Scoring/Leaderboard 연동 — 절대 점수(Grade) 통합
+  - [x] LeaderboardEntry에 absoluteScore/grade 필드 추가
+  - [x] buildLeaderboardEntry()에서 calculateScore() 호출
+  - [x] Leaderboard.tsx에 GradeBadge 컴포넌트 추가
+  - [x] formatLeaderboardReport()에 grade 표시 추가
+- [x] P2-3: CI format:check 추가
+  - [x] ci.yml에 `npm run format:check` 스텝 추가 (lint 전)
+
 ## 테스트 결과
 
 - 전체: 855 tests passed (45 suites), 0 failures

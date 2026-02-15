@@ -2,33 +2,31 @@
 
 **최종 업데이트:** 2026-02-15 KST
 
+## (2026-02-15) P2 구조 개선 완료 — Observability + Scoring 통합 + CI 강화
+
+### 완료 항목
+- **[P2-1] GET_DB_MONITOR_STATUS 확장**: candleDatasets 메타 추가, Dashboard UI에 Candle Datasets 섹션
+- **[P2-2] Scoring/Leaderboard 통합**: `calculateScore()` → `absoluteScore`/`grade` 필드를 LeaderboardEntry에 추가, GradeBadge UI
+- **[P2-3] CI format:check**: `npm run format:check` 스텝을 ci.yml에 추가
+
+### 테스트 결과
+- 전체: 855 tests passed (45 suites), 0 failures
+- TypeScript: 0 errors
+
+### 상세: `docs/issues/PO-P0-pipeline-fix/`
+
+---
+
 ## (2026-02-15) P0 데이터 파이프라인 버그 수정 + P1 안정화
 
 ### 완료 항목
 - **[P0-2] handleNewSignal() onlyRSI 필터 교체**: `evaluateSignalGates()` 순수 함수 사용
-  - 기존: 인라인 `onlyRSI` 체크가 `StrategyFilter` 무시, `signal-gate.ts` 미사용
-  - 수정: 5단계 게이트 함수(enabled→payout→strategy→executing→cooldown) 위임
-  - StrategyFilter(allowlist/denylist) + 레거시 onlyRSI 호환
 - **[P0-3] pendingTrades 누수 제거**: `settleTrade()` 시작에 `clearTimeout(pending.timerId)` 추가
-  - 이전: timer 미정리로 불필요한 재호출 가능
-  - idempotent: 두 번째 호출은 no-op
 - **[P0-4] WS_PRICE_UPDATE ERROR 스팸 해결**: `RELAY_MESSAGE_TYPES`에 WS 타입 등록 + 500ms throttle
-  - 이전: `MSG_INVALID_TYPE` 에러가 매 tick마다 기록됨
-  - `WS_PRICE_UPDATE`, `WS_MESSAGE`, `WS_CONNECTION` 추가
 - **[P1-1] candleCount 메타데이터 수정**: 델타 → 총량으로 변경
-  - `CandleRepository.count(symbol, interval)`로 실제 DB 총량 조회
 - **[P1-2] sendResponse 누락 방지**: background + content-script에 `.catch` 추가
 - **[P1-3] SET_CONFIG_V2 검증**: `validateConfigUpdate()` 순수 함수, 범위 밖 값 strip
-
-### 테스트 결과
-- 전체: 855 tests passed (45 suites), 0 failures
 - 신규: 27 tests 추가
-- TypeScript: 0 errors
-
-### 다음 행동
-- P2-1: DBMonitorDashboard observability 강화
-- P2-2: Scoring/Leaderboard 연동 점검
-- P2-3: CI prettier check + backtest smoke
 - 상세: `docs/issues/PO-P0-pipeline-fix/`
 
 ---

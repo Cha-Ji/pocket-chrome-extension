@@ -6,6 +6,7 @@ import { ExtensionMessage, TradingConfigV2 } from '../../lib/types'
 import { generateLLMReport } from '../../lib/signals/signal-generator-v2'
 import { AutoMiner } from '../auto-miner'
 import { DataSender } from '../../lib/data-sender'
+import { CandleDatasetRepository } from '../../lib/db'
 import { ContentScriptContext } from './context'
 
 // ============================================================
@@ -105,7 +106,7 @@ export async function handleMessage(ctx: ContentScriptContext, message: Extensio
     case 'START_AUTO_MINER': AutoMiner.start(); return { success: true, message: 'Auto Miner Started' }
     case 'STOP_AUTO_MINER': AutoMiner.stop(); return { success: true, message: 'Auto Miner Stopped' }
     case 'GET_MINER_STATUS': return AutoMiner.getStatus()
-    case 'GET_DB_MONITOR_STATUS': return { sender: DataSender.getStats() }
+    case 'GET_DB_MONITOR_STATUS': return { sender: DataSender.getStats(), candleDatasets: await CandleDatasetRepository.getAll() }
     case 'SET_MINER_CONFIG': AutoMiner.updateConfig(message.payload); return { success: true, config: AutoMiner.getConfig() }
     case 'GET_STATUS_V2': return getSystemStatus(ctx)
     case 'GET_LLM_REPORT': return getLLMReport(ctx)

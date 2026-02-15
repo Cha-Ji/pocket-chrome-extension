@@ -62,3 +62,25 @@ async bulkPut(ticks: Omit<Tick, 'id'>[]): Promise<void> {
 - maxConsecutiveLosses: [1, 100]
 
 잘못된 필드는 sanitized에서 제거, 유효한 필드만 적용. 응답에 validationErrors 배열 포함.
+
+### P2-1: GET_DB_MONITOR_STATUS 확장
+
+**변경**: `{ sender }` → `{ sender, candleDatasets }` 반환
+**이유**: Side Panel의 DBMonitorDashboard에서 candle dataset 메타(티커별 수량/기간/갱신시각)를 표시하여 데이터 수집 상태를 한눈에 파악.
+
+### P2-2: Scoring ↔ Leaderboard 통합
+
+**발견**: `scoring.ts`의 `calculateScore()` (절대 점수 A-F)와 `leaderboard.ts`의 `scoreAndRankEntries()` (상대 비교 min-max)가 완전히 분리되어 있었음.
+
+**결정**: 두 시스템을 병행 유지하되, `buildLeaderboardEntry()`에서 `calculateScore()`도 호출하여 `absoluteScore`/`grade` 필드를 LeaderboardEntry에 추가.
+- compositeScore: 상대 비교용 (동일 리더보드 내 순위)
+- absoluteScore + grade: 절대 평가용 (전략 단독 품질)
+
+**LeaderboardEntry 추가 필드**:
+- `absoluteScore?: number` — 0-100 절대 점수
+- `grade?: ScoreGrade` — A/B/C/D/F 등급
+
+### P2-3: CI format:check
+
+**변경**: `.github/workflows/ci.yml`에 `npm run format:check` 스텝 추가 (lint 전).
+**이유**: prettier 포맷팅 불일치를 CI에서 조기 감지.
