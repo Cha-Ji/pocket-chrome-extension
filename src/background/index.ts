@@ -17,6 +17,12 @@ import {
 } from '../lib/errors'
 import { PORT_CHANNEL, RELAY_MESSAGE_TYPES, THROTTLE_CONFIG } from '../lib/port-channel'
 import { TickBuffer } from './tick-buffer'
+import {
+  handleTradeExecuted as tradeHandlerExecuted,
+  handleFinalizeTrade as tradeHandlerFinalize,
+  handleGetTrades as tradeHandlerGetTrades,
+  type TradeHandlerDeps,
+} from './handlers/trade-handlers'
 
 // ============================================================
 // Error Handler Setup
@@ -117,6 +123,22 @@ function relayToSidePanels(message: { type: string; payload?: unknown }): void {
 }
 
 // ============================================================
+// Trade Handler Dependencies (DI bridge)
+// ============================================================
+
+function getTradeHandlerDeps(): TradeHandlerDeps {
+  return {
+    tradeRepo: TradeRepository,
+    tradingStatus,
+    broadcast: (message) => {
+      chrome.runtime.sendMessage(message).catch(() => {
+        // Side panel may not be open - this is expected
+      })
+    },
+  }
+}
+
+// ============================================================
 // Extension Lifecycle
 // ============================================================
 
@@ -175,10 +197,10 @@ async function handleMessage(
       return handleTickData(message.payload)
 
     case 'TRADE_EXECUTED':
-      return handleTradeExecuted(message.payload)
+      return handleTradeExecutedWithErrorHandling(message.payload)
 
     case 'GET_TRADES':
-      return handleGetTrades(message.payload)
+      return handleGetTradesWithErrorHandling(message.payload)
 
     case 'GET_STATUS':
       return tradingStatus
@@ -197,7 +219,7 @@ async function handleMessage(
       return null
 
     case 'FINALIZE_TRADE':
-      return handleFinalizeTrade(message.payload)
+      return handleFinalizeTradeWithErrorHandling(message.payload)
 
     case 'TRADE_SETTLED':
       // Broadcast-only message consumed by side panel; no-op in background
@@ -364,21 +386,19 @@ async function handleRunTickRetention(): Promise<{ ageDeleted: number; capDelete
   return await tickBuffer.runRetention()
 }
 
-async function handleTradeExecuted(
+// ============================================================
+// Trade Handlers (delegating to extracted pure handlers)
+// ============================================================
+
+async function handleTradeExecutedWithErrorHandling(
   payload: MessagePayloadMap['TRADE_EXECUTED']
 ): Promise<{ success: boolean; tradeId?: number; ignored?: boolean }> {
   const ctx = { module: 'background' as const, function: 'handleTradeExecuted' }
 
   console.log('[Background] Trade executed:', payload)
 
-  // P0: 실행 실패(result === false)인 경우 DB에 기록하지 않음
-  if (payload.result === false) {
-    console.warn('[Background] Trade execution failed — skipping DB write', payload.error)
-    return { success: false, ignored: true }
-  }
-
   // P0: entryPrice가 없거나 0이면 경고 (데이터 오염 방지)
-  if (!payload.entryPrice || payload.entryPrice <= 0) {
+  if (payload.result !== false && (!payload.entryPrice || payload.entryPrice <= 0)) {
     errorHandler.handle(
       new POError({
         code: ErrorCode.TRADE_VALIDATION_FAILED,
@@ -390,30 +410,7 @@ async function handleTradeExecuted(
   }
 
   const result = await tryCatchAsync(
-    async () => {
-      const trade: Omit<Trade, 'id'> = {
-        sessionId: tradingStatus.sessionId ?? 0,
-        ticker: payload.ticker ?? tradingStatus.currentTicker ?? 'unknown',
-        direction: payload.direction ?? 'CALL',
-        entryTime: payload.timestamp,
-        entryPrice: payload.entryPrice ?? 0,
-        result: 'PENDING',
-        amount: payload.amount ?? 0,
-      }
-
-      const id = await TradeRepository.create(trade)
-
-      // Broadcast normalized Trade to UI (side panel)
-      const savedTrade: Trade = { ...trade, id }
-      chrome.runtime.sendMessage({
-        type: 'TRADE_LOGGED',
-        payload: savedTrade,
-      }).catch(() => {
-        // Side panel may not be open - this is expected
-      })
-
-      return id
-    },
+    () => tradeHandlerExecuted(payload, getTradeHandlerDeps()),
     ctx,
     ErrorCode.DB_WRITE_FAILED
   )
@@ -430,23 +427,17 @@ async function handleTradeExecuted(
     return { success: false }
   }
 
-  return { success: true, tradeId: result.data }
+  return result.data
 }
 
-async function handleGetTrades(payload: {
+async function handleGetTradesWithErrorHandling(payload: {
   sessionId?: number
   limit?: number
 }): Promise<Trade[]> {
   const ctx = { module: 'background' as const, function: 'handleGetTrades' }
 
   const result = await tryCatchAsync(
-    async () => {
-      if (payload.sessionId !== undefined) {
-        return await TradeRepository.getBySession(payload.sessionId)
-      }
-      // Return recent trades across all sessions
-      return await TradeRepository.getRecent(payload.limit ?? 50)
-    },
+    () => tradeHandlerGetTrades(payload, getTradeHandlerDeps()),
     ctx,
     ErrorCode.DB_READ_FAILED
   )
@@ -458,7 +449,7 @@ async function handleGetTrades(payload: {
 // Trade Settlement (P1: Expiry-based WIN/LOSS)
 // ============================================================
 
-async function handleFinalizeTrade(
+async function handleFinalizeTradeWithErrorHandling(
   payload: MessagePayloadMap['FINALIZE_TRADE']
 ): Promise<{ success: boolean }> {
   const ctx = { module: 'background' as const, function: 'handleFinalizeTrade' }
@@ -466,36 +457,7 @@ async function handleFinalizeTrade(
   console.log('[Background] Finalizing trade:', payload)
 
   const result = await tryCatchAsync(
-    async () => {
-      const finalizeResult = await TradeRepository.finalize(
-        payload.tradeId,
-        payload.exitPrice,
-        payload.result,
-        payload.profit
-      )
-
-      // Idempotency: if trade was already finalized, skip broadcast
-      if (!finalizeResult.updated) {
-        console.log(`[Background] Trade ${payload.tradeId} already finalized — skipping broadcast`)
-        return
-      }
-
-      // Broadcast settlement result to UI (side panel) with exitTime
-      const exitTime = finalizeResult.trade?.exitTime ?? Date.now()
-      chrome.runtime.sendMessage({
-        type: 'TRADE_SETTLED',
-        payload: {
-          tradeId: payload.tradeId,
-          signalId: payload.signalId,
-          result: payload.result,
-          exitPrice: payload.exitPrice,
-          profit: payload.profit,
-          exitTime,
-        },
-      }).catch(() => {
-        // Side panel may not be open - this is expected
-      })
-    },
+    () => tradeHandlerFinalize(payload, getTradeHandlerDeps()),
     ctx,
     ErrorCode.DB_WRITE_FAILED
   )

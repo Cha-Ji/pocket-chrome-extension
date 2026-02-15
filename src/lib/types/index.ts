@@ -128,6 +128,14 @@ export interface ErrorLog {
 
 import type { Signal } from '../signals/types'
 
+/** Strategy filter configuration */
+export interface StrategyFilter {
+  /** 'all' = no filter, 'allowlist' = only listed, 'denylist' = exclude listed */
+  mode: 'all' | 'allowlist' | 'denylist'
+  /** Strategy ID patterns to match (e.g. 'RSI-BB', 'TIF-60', 'SBB-120') */
+  patterns: string[]
+}
+
 /** V2 자동매매 설정 */
 export interface TradingConfigV2 {
   enabled: boolean
@@ -136,7 +144,14 @@ export interface TradingConfigV2 {
   tradeAmount: number
   maxDrawdown: number
   maxConsecutiveLosses: number
+  /**
+   * @deprecated Use strategyFilter instead.
+   * Kept for backward compatibility — if strategyFilter is undefined,
+   * onlyRSI=true is equivalent to { mode: 'allowlist', patterns: ['RSI'] }.
+   */
   onlyRSI: boolean
+  /** Strategy allowlist/denylist filter. Takes precedence over onlyRSI. */
+  strategyFilter?: StrategyFilter
 }
 
 /** 자산 페이아웃 정보 */

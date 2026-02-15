@@ -20,6 +20,46 @@ export const DEFAULT_SCORE_WEIGHTS: ScoreWeights = {
   consistency: 0.05,       // 안정성 (주별 승률 변동)
 }
 
+/**
+ * 안정형 프로필: 드로다운/연속손실/안정성 중심.
+ * 작은 계좌 또는 리스크 민감한 트레이더에 적합.
+ */
+export const STABILITY_WEIGHTS: ScoreWeights = {
+  winRate: 0.20,
+  expectedValue: 0.15,
+  maxDrawdown: 0.25,        // ↑ 드로다운 비중 상승
+  maxLosingStreak: 0.15,    // ↑ 연속손실 비중 상승
+  profitFactor: 0.10,
+  tradeCount: 0.05,
+  consistency: 0.10,        // ↑ 안정성 비중 상승
+}
+
+/**
+ * 성장형 프로필: EV/이익팩터/거래횟수 중심.
+ * 충분한 자금이 있고 거래량 목표를 빠르게 달성하려는 트레이더에 적합.
+ */
+export const GROWTH_WEIGHTS: ScoreWeights = {
+  winRate: 0.25,
+  expectedValue: 0.25,      // ↑ EV 비중 상승
+  maxDrawdown: 0.10,
+  maxLosingStreak: 0.05,
+  profitFactor: 0.15,       // ↑ 이익팩터 비중 상승
+  tradeCount: 0.15,         // ↑ 거래횟수 비중 상승
+  consistency: 0.05,
+}
+
+/** Named scoring profiles */
+export type ScoringProfile = 'default' | 'stability' | 'growth'
+
+/** Get weights by profile name */
+export function getWeightsByProfile(profile: ScoringProfile): ScoreWeights {
+  switch (profile) {
+    case 'stability': return STABILITY_WEIGHTS
+    case 'growth': return GROWTH_WEIGHTS
+    default: return DEFAULT_SCORE_WEIGHTS
+  }
+}
+
 /** 바이너리 옵션 기준 임계값 */
 export const SCORING_THRESHOLDS = {
   /** 52.1%: 92% 페이아웃에서 손익분기 승률 */

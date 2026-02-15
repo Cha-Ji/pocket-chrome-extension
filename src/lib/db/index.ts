@@ -331,8 +331,10 @@ export const SessionRepository = {
 }
 
 export const TradeRepository = {
-  async create(trade: Omit<Trade, 'id'>): Promise<number | undefined> {
-    return await db.trades.add(trade)
+  async create(trade: Omit<Trade, 'id'>): Promise<number> {
+    const id = await db.trades.add(trade)
+    if (id === undefined) throw new Error('Failed to create trade: no id returned')
+    return id
   },
 
   async update(id: number, updates: Partial<Trade>): Promise<void> {

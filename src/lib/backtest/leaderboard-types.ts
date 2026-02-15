@@ -83,14 +83,21 @@ export interface LeaderboardConfig {
   minWinRate?: number        // 최소 승률 필터 (기본 0)
 }
 
-/** 종합 점수 가중치 */
+/**
+ * 종합 점수 가중치 (상대 비교 방식).
+ *
+ * NOTE: 이 가중치는 리더보드의 **상대 비교**(min-max normalization)에 사용된다.
+ * 절대 평가용 scoring.ts의 ScoreWeights(7-factor: winRate, EV, MDD, losingStreak,
+ * profitFactor, tradeCount, consistency)와는 별도의 시스템이다.
+ * 절대 점수(Grade A-F)는 scoring.ts의 calculateScore()를 사용하라.
+ */
 export interface LeaderboardWeights {
-  winRate: number            // 승률 (기본 0.35)
+  winRate: number            // 승률 (기본 0.30)
   profitFactor: number       // 이익팩터 (기본 0.20)
   maxDrawdown: number        // MDD 역점수 (기본 0.15)
   maxConsecutiveLosses: number // 연속손실 역점수 (기본 0.10)
   tradesPerDay: number       // 일거래횟수 (기본 0.10)
-  recoveryFactor: number     // 회복팩터 (기본 0.10)
+  recoveryFactor: number     // 회복팩터 (기본 0.15)
 }
 
 /** 리더보드 실행 진행 상황 */
@@ -128,10 +135,10 @@ export type LeaderboardSortKey =
   | 'kellyFraction'
 
 export const DEFAULT_WEIGHTS: LeaderboardWeights = {
-  winRate: 0.35,
+  winRate: 0.30,
   profitFactor: 0.20,
   maxDrawdown: 0.15,
   maxConsecutiveLosses: 0.10,
   tradesPerDay: 0.10,
-  recoveryFactor: 0.10,
+  recoveryFactor: 0.15,
 }

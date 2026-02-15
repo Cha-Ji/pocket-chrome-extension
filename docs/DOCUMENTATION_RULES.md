@@ -165,9 +165,19 @@ docs/
 | D | 20-39 | 불량 — 재설계 필요 |
 | F | 0-19 | 부적합 — 사용 금지 |
 
+### Scoring 프로필
+
+| 프로필 | 용도 | 주요 차이 |
+|--------|------|----------|
+| `default` | 기본 평가 | 위 가중치 테이블 그대로 |
+| `stability` | 소액/보수적 | MDD 0.25, 연속손실 0.15, 안정성 0.10 |
+| `growth` | 대액/적극적 | EV 0.25, 이익팩터 0.15, 거래횟수 0.15 |
+
+사용법: `calculateScore(input, getWeightsByProfile('stability'))`
+
 ### 전략 선택 절차
 
-1. 백테스트 실행 → `calculateScore()` 호출
+1. 백테스트 실행 → `calculateScore()` 호출 (프로필 선택 가능)
 2. Score ≥ 60 (Grade B+)인 전략만 후보에 포함
 3. 후보 중 `compositeScore` 상위 3개를 리더보드에 등록
 4. 실전 적용 전 최소 200거래 이상의 표본에서 재검증
