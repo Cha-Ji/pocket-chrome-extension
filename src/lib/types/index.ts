@@ -291,6 +291,7 @@ export interface MessagePayloadMap {
   GET_TICK_BUFFER_STATS: undefined;
   FLUSH_TICK_BUFFER: undefined;
   RUN_TICK_RETENTION: undefined;
+  DRAIN_SENDER_RETRY_QUEUE: { maxRetries?: number };
   // Mining Status
   TOGGLE_MINING: { active: boolean };
   MINING_STATS: { collected: number };
