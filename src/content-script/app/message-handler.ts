@@ -6,7 +6,6 @@ import { ExtensionMessage, TradingConfigV2 } from '../../lib/types';
 import { generateLLMReport } from '../../lib/signals/signal-generator-v2';
 import { AutoMiner } from '../auto-miner';
 import { DataSender } from '../../lib/data-sender';
-import { CandleDatasetRepository } from '../../lib/db';
 import { ContentScriptContext } from './context';
 
 // ============================================================
@@ -132,7 +131,6 @@ export async function handleMessage(
     case 'GET_DB_MONITOR_STATUS':
       return {
         sender: DataSender.getStats(),
-        candleDatasets: await CandleDatasetRepository.getAll(),
       };
     case 'DRAIN_SENDER_RETRY_QUEUE': {
       const maxRetries = message.payload?.maxRetries ?? 2;
