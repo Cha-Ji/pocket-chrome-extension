@@ -136,7 +136,7 @@ describe('calcEVPerTrade', () => {
     // At 100% payout, break-even is 50%, so 55% WR should be profitable
     // EV = 0.55 * 1.0 - 0.45 = 0.10
     const ev = calcEVPerTrade(55, 45, 100);
-    expect(ev).toBeCloseTo(0.10, 3);
+    expect(ev).toBeCloseTo(0.1, 3);
   });
 
   it('should handle all wins', () => {

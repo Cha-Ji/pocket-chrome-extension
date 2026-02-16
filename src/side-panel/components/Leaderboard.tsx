@@ -69,10 +69,7 @@ export function Leaderboard({ entries, isRunning, progress, onRun }: Leaderboard
     return list;
   }, [entries, sortKey, sortDir]);
 
-  const profitableCount = useMemo(
-    () => entries.filter((e) => e.evPerTrade > 0).length,
-    [entries],
-  );
+  const profitableCount = useMemo(() => entries.filter((e) => e.evPerTrade > 0).length, [entries]);
 
   return (
     <div className="space-y-3">
@@ -191,7 +188,12 @@ function LeaderboardCard({
   const isProfitable = entry.evPerTrade > 0;
   const delta = entry.wrBeDelta;
   const deltaColor = delta > 0 ? 'text-pocket-green' : delta < 0 ? 'text-red-400' : 'text-gray-400';
-  const evColor = entry.evPerTrade > 0 ? 'text-pocket-green' : entry.evPerTrade < 0 ? 'text-red-400' : 'text-gray-400';
+  const evColor =
+    entry.evPerTrade > 0
+      ? 'text-pocket-green'
+      : entry.evPerTrade < 0
+        ? 'text-red-400'
+        : 'text-gray-400';
 
   return (
     <div
@@ -269,63 +271,36 @@ function LeaderboardCard({
           {/* Tier-2 Metrics */}
           <div className="text-[9px] text-gray-500 uppercase mb-1">Advanced Metrics</div>
           <div className="grid grid-cols-2 gap-2 text-[10px]">
-            <DetailRow
-              label="Profit Factor"
-              value={formatNumber(entry.profitFactor, 2)}
-            />
-            <DetailRow
-              label="Trades/Day"
-              value={formatNumber(entry.tradesPerDay, 1)}
-            />
+            <DetailRow label="Profit Factor" value={formatNumber(entry.profitFactor, 2)} />
+            <DetailRow label="Trades/Day" value={formatNumber(entry.tradesPerDay, 1)} />
             <DetailRow
               label="WR Stability"
               value={`\u00B1${formatPercent(entry.winRateStdDev)}%`}
             />
-            <DetailRow
-              label="Kelly %"
-              value={`${formatPercent(entry.kellyFraction)}%`}
-            />
+            <DetailRow label="Kelly %" value={`${formatPercent(entry.kellyFraction)}%`} />
             <DetailRow
               label="Vol Days"
               value={entry.daysToVolumeTarget !== null ? `${entry.daysToVolumeTarget}d` : 'N/A'}
             />
-            <DetailRow
-              label="Min Balance"
-              value={`$${formatNumber(entry.minRequiredBalance)}`}
-            />
+            <DetailRow label="Min Balance" value={`$${formatNumber(entry.minRequiredBalance)}`} />
             <DetailRow
               label="Net Profit"
               value={`$${formatMoney(entry.netProfit)}`}
-              valueColor={entry.netProfit > 0 ? 'text-pocket-green' : entry.netProfit < 0 ? 'text-red-400' : undefined}
+              valueColor={
+                entry.netProfit > 0
+                  ? 'text-pocket-green'
+                  : entry.netProfit < 0
+                    ? 'text-red-400'
+                    : undefined
+              }
             />
-            <DetailRow
-              label="Expectancy"
-              value={`$${formatMoney(entry.expectancy)}`}
-            />
-            <DetailRow
-              label="Sharpe"
-              value={formatNumber(entry.sharpeRatio, 2)}
-            />
-            <DetailRow
-              label="Sortino"
-              value={formatNumber(entry.sortinoRatio, 2)}
-            />
-            <DetailRow
-              label="Recovery"
-              value={formatNumber(entry.recoveryFactor, 2)}
-            />
-            <DetailRow
-              label="Max Win Streak"
-              value={`${entry.maxConsecutiveWins}x`}
-            />
-            <DetailRow
-              label="Relative Score"
-              value={formatNumber(entry.compositeScore, 1)}
-            />
-            <DetailRow
-              label="Tie Rate"
-              value={`${formatPercent(entry.tieRate)}%`}
-            />
+            <DetailRow label="Expectancy" value={`$${formatMoney(entry.expectancy)}`} />
+            <DetailRow label="Sharpe" value={formatNumber(entry.sharpeRatio, 2)} />
+            <DetailRow label="Sortino" value={formatNumber(entry.sortinoRatio, 2)} />
+            <DetailRow label="Recovery" value={formatNumber(entry.recoveryFactor, 2)} />
+            <DetailRow label="Max Win Streak" value={`${entry.maxConsecutiveWins}x`} />
+            <DetailRow label="Relative Score" value={formatNumber(entry.compositeScore, 1)} />
+            <DetailRow label="Tie Rate" value={`${formatPercent(entry.tieRate)}%`} />
           </div>
 
           {/* Data Quality */}
@@ -378,7 +353,9 @@ function MetricCell({
     <div title={tooltip}>
       <div className="text-gray-600">{label}</div>
       <div className={`font-mono font-medium ${color} leading-tight`}>{value}</div>
-      {subValue && <div className="font-mono text-[8px] text-gray-500 leading-tight">{subValue}</div>}
+      {subValue && (
+        <div className="font-mono text-[8px] text-gray-500 leading-tight">{subValue}</div>
+      )}
     </div>
   );
 }
