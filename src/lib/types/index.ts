@@ -286,6 +286,35 @@ export interface MessagePayloadMap {
     maxDaysBack?: number;
     requestDelayMs?: number;
   };
+  // Candle DB (Content Script → Background)
+  CANDLE_FINALIZED: {
+    ticker: string;
+    interval: number;
+    timestamp: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume?: number;
+    source?: string;
+  };
+  CANDLE_HISTORY_CHUNK: {
+    symbol: string;
+    interval: number;
+    candles: Array<{
+      timestamp: number;
+      open: number;
+      high: number;
+      low: number;
+      close: number;
+      volume?: number;
+    }>;
+    source?: string;
+    /** If true, this is the last chunk for the current history request */
+    isFinal?: boolean;
+  };
+  // Candle DB Stats (Side Panel → Background)
+  GET_CANDLE_DB_STATS: undefined;
   // DB Monitor
   GET_DB_MONITOR_STATUS: undefined;
   GET_TICK_BUFFER_STATS: undefined;

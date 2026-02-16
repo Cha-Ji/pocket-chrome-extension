@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { CandleRepository } from '../../lib/db';
 import type { CandleDataset } from '../../lib/db';
 import type { DataSenderStats } from '../../lib/data-sender';
 import {
@@ -12,7 +11,7 @@ import {
 const SERVER_URL = 'http://localhost:3001';
 const POLL_SENDER_MS = 5000;
 const POLL_SERVER_MS = 10000;
-const POLL_INDEXEDDB_MS = 10000;
+const POLL_CANDLE_DB_MS = 10000;
 
 interface ServerAssetStats {
   symbol: string;
@@ -54,6 +53,12 @@ interface TickBufferStats {
   };
 }
 
+/** Response from Background's GET_CANDLE_DB_STATS */
+interface CandleDBStatsResponse {
+  candles: IndexedDBStats;
+  datasets: CandleDataset[];
+}
+
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
@@ -77,6 +82,43 @@ function timestampToDate(ts: number): string {
   return new Date(ms).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' });
 }
 
+/**
+ * Detect inconsistency between candle DB actual counts and dataset metadata.
+ * Returns a list of ticker+interval pairs where the count differs by >5%.
+ */
+function detectInconsistencies(
+  candleStats: IndexedDBStats | null,
+  datasets: CandleDataset[],
+): Array<{ ticker: string; interval: number; dbCount: number; datasetCount: number }> {
+  if (!candleStats || datasets.length === 0) return [];
+
+  const mismatches: Array<{
+    ticker: string;
+    interval: number;
+    dbCount: number;
+    datasetCount: number;
+  }> = [];
+
+  for (const ds of datasets) {
+    const dbEntry = candleStats.tickers.find(
+      (t) => t.ticker === ds.ticker && t.interval === ds.interval,
+    );
+    const dbCount = dbEntry?.count ?? 0;
+    const diff = Math.abs(dbCount - ds.candleCount);
+    const threshold = Math.max(dbCount, ds.candleCount) * 0.05;
+    if (diff > threshold && diff > 0) {
+      mismatches.push({
+        ticker: ds.ticker,
+        interval: ds.interval,
+        dbCount,
+        datasetCount: ds.candleCount,
+      });
+    }
+  }
+
+  return mismatches;
+}
+
 export function DBMonitorDashboard() {
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -95,13 +137,13 @@ export function DBMonitorDashboard() {
   const [serverAssets, setServerAssets] = useState<ServerAssetStats[]>([]);
   const [lastServerCheck, setLastServerCheck] = useState(0);
 
-  // 소스 3: IndexedDB 통계 (Dexie 직접 접근)
+  // 소스 3: Candle DB 통계 (Background 경유 — 단일 DB 오너)
   const [indexedDBStats, setIndexedDBStats] = useState<IndexedDBStats | null>(null);
 
   // 소스 4: TickBuffer 통계 (Background 경유)
   const [tickBufferStats, setTickBufferStats] = useState<TickBufferStats | null>(null);
 
-  // 소스 5: CandleDataset 메타 (Content Script GET_DB_MONITOR_STATUS 경유)
+  // 소스 5: CandleDataset 메타 (Background 경유)
   const [candleDatasets, setCandleDatasets] = useState<CandleDataset[]>([]);
 
   // 접기 상태 저장
@@ -111,12 +153,11 @@ export function DBMonitorDashboard() {
     } catch {}
   }, [collapsed]);
 
-  // 소스 1: DataSender 통계 + CandleDataset 메타 폴링 (5초)
+  // 소스 1: DataSender 통계 폴링 (5초)
   const fetchSenderStats = useCallback(() => {
     sendTabMessageCallback('GET_DB_MONITOR_STATUS', (res) => {
-      const typed = res as { sender?: DataSenderStats; candleDatasets?: CandleDataset[] } | null;
+      const typed = res as { sender?: DataSenderStats } | null;
       if (typed?.sender) setSenderStats(typed.sender);
-      if (typed?.candleDatasets) setCandleDatasets(typed.candleDatasets);
     });
   }, []);
 
@@ -162,11 +203,13 @@ export function DBMonitorDashboard() {
     } catch {}
   }, [fetchWithTimeout]);
 
-  // 소스 3: IndexedDB 통계 폴링 (10초)
-  const fetchIndexedDBStats = useCallback(async () => {
+  // 소스 3+5: Candle DB 통계 + Datasets (Background 경유, 10초)
+  const fetchCandleDBStats = useCallback(async () => {
     try {
-      const stats = await CandleRepository.getStats();
-      setIndexedDBStats(stats);
+      const res = await sendRuntimeMessage('GET_CANDLE_DB_STATS');
+      const typed = res as CandleDBStatsResponse | null;
+      if (typed?.candles) setIndexedDBStats(typed.candles);
+      if (typed?.datasets) setCandleDatasets(typed.datasets);
     } catch {}
   }, []);
 
@@ -189,7 +232,7 @@ export function DBMonitorDashboard() {
     // 즉시 한번 실행
     fetchSenderStats();
     fetchServerStats();
-    fetchIndexedDBStats();
+    fetchCandleDBStats();
     fetchTickBufferStats();
 
     const senderInterval = setInterval(() => {
@@ -199,8 +242,8 @@ export function DBMonitorDashboard() {
       if (isVisible()) fetchServerStats();
     }, POLL_SERVER_MS);
     const dbInterval = setInterval(() => {
-      if (isVisible()) fetchIndexedDBStats();
-    }, POLL_INDEXEDDB_MS);
+      if (isVisible()) fetchCandleDBStats();
+    }, POLL_CANDLE_DB_MS);
     const tickInterval = setInterval(() => {
       if (isVisible()) fetchTickBufferStats();
     }, POLL_SENDER_MS);
@@ -210,7 +253,7 @@ export function DBMonitorDashboard() {
       if (document.visibilityState === 'visible') {
         fetchSenderStats();
         fetchServerStats();
-        fetchIndexedDBStats();
+        fetchCandleDBStats();
         fetchTickBufferStats();
       }
     };
@@ -223,12 +266,12 @@ export function DBMonitorDashboard() {
       clearInterval(tickInterval);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [collapsed, fetchSenderStats, fetchServerStats, fetchIndexedDBStats, fetchTickBufferStats]);
+  }, [collapsed, fetchSenderStats, fetchServerStats, fetchCandleDBStats, fetchTickBufferStats]);
 
   const handleRefresh = () => {
     fetchSenderStats();
     fetchServerStats();
-    fetchIndexedDBStats();
+    fetchCandleDBStats();
     fetchTickBufferStats();
   };
 
@@ -265,6 +308,9 @@ export function DBMonitorDashboard() {
     }
   };
 
+  // Detect inconsistencies between Candle DB and Dataset metadata
+  const inconsistencies = detectInconsistencies(indexedDBStats, candleDatasets);
+
   return (
     <div className="p-4 bg-gray-800 rounded-lg border border-cyan-500">
       {/* 헤더 */}
@@ -296,6 +342,30 @@ export function DBMonitorDashboard() {
 
       {!collapsed && (
         <div className="mt-3 space-y-3">
+          {/* Inconsistency warning */}
+          {inconsistencies.length > 0 && (
+            <div className="bg-yellow-900/30 border border-yellow-600 rounded-md p-3">
+              <div className="text-xs text-yellow-400 font-semibold mb-1">
+                ⚠ Candle DB / Dataset Mismatch
+              </div>
+              <div className="text-xs text-yellow-300 mb-2">
+                DB actual count differs from dataset metadata. This may indicate stale metadata or
+                incomplete writes. Try refreshing or re-mining history.
+              </div>
+              {inconsistencies.map((m) => (
+                <div
+                  key={`${m.ticker}-${m.interval}`}
+                  className="flex justify-between text-xs text-yellow-400"
+                >
+                  <span>{m.ticker}</span>
+                  <span>
+                    DB: {formatNumber(m.dbCount)} vs Meta: {formatNumber(m.datasetCount)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* 섹션 1: 서버 연결 상태 */}
           <div className="bg-gray-900 rounded-md p-3 space-y-2">
             <div className="text-xs text-gray-500 mb-1 font-semibold uppercase">
@@ -425,10 +495,10 @@ export function DBMonitorDashboard() {
             )}
           </div>
 
-          {/* 섹션 4: 로컬 IndexedDB 현황 */}
+          {/* 섹션 4: Candle DB 현황 (Background 경유) */}
           <div className="bg-gray-900 rounded-md p-3 space-y-2">
             <div className="text-xs text-gray-500 mb-1 font-semibold uppercase">
-              Local DB (IndexedDB)
+              Candle DB (IndexedDB via Background)
             </div>
             {indexedDBStats ? (
               <>
@@ -468,7 +538,7 @@ export function DBMonitorDashboard() {
                 )}
               </>
             ) : (
-              <div className="text-xs text-gray-500">로딩 중...</div>
+              <div className="text-xs text-gray-500">Background 미연결</div>
             )}
           </div>
 

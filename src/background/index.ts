@@ -11,7 +11,12 @@ import {
   TradingStatus,
   TelegramConfig,
 } from '../lib/types';
-import { TickRepository, TradeRepository } from '../lib/db';
+import {
+  TickRepository,
+  TradeRepository,
+  CandleRepository,
+  CandleDatasetRepository,
+} from '../lib/db';
 import { getTelegramService, resetTelegramService } from '../lib/notifications/telegram';
 import {
   POError,
@@ -30,6 +35,12 @@ import {
   handleGetTrades as tradeHandlerGetTrades,
   type TradeHandlerDeps,
 } from './handlers/trade-handlers';
+import {
+  handleCandleFinalized,
+  handleCandleHistoryChunk,
+  handleGetCandleDBStats,
+  type CandleHandlerDeps,
+} from './handlers/candle-handlers';
 
 // ============================================================
 // Error Handler Setup
@@ -148,6 +159,17 @@ function getTradeHandlerDeps(): TradeHandlerDeps {
 }
 
 // ============================================================
+// Candle Handler Dependencies (DI bridge)
+// ============================================================
+
+function getCandleHandlerDeps(): CandleHandlerDeps {
+  return {
+    candleRepo: CandleRepository,
+    datasetRepo: CandleDatasetRepository,
+  };
+}
+
+// ============================================================
 // Extension Lifecycle
 // ============================================================
 
@@ -244,6 +266,15 @@ async function handleMessage(
     case 'TRADE_SETTLED':
       // Broadcast-only message consumed by side panel; no-op in background
       return null;
+
+    case 'CANDLE_FINALIZED':
+      return handleCandleFinalizedWithErrorHandling(message.payload);
+
+    case 'CANDLE_HISTORY_CHUNK':
+      return handleCandleHistoryChunkWithErrorHandling(message.payload);
+
+    case 'GET_CANDLE_DB_STATS':
+      return handleGetCandleDBStatsWithErrorHandling();
 
     case 'GET_TICK_BUFFER_STATS':
       return handleGetTickBufferStats();
@@ -401,6 +432,78 @@ async function handleFlushTickBuffer(): Promise<{ flushed: number }> {
 
 async function handleRunTickRetention(): Promise<{ ageDeleted: number; capDeleted: number }> {
   return await tickBuffer.runRetention();
+}
+
+// ============================================================
+// Candle Handlers (single DB owner — all writes go through Background)
+// ============================================================
+
+async function handleCandleFinalizedWithErrorHandling(
+  payload: MessagePayloadMap['CANDLE_FINALIZED'],
+): Promise<{ success: boolean }> {
+  const ctx = { module: 'background' as const, function: 'handleCandleFinalized' };
+
+  const result = await tryCatchAsync(
+    () => handleCandleFinalized(payload, getCandleHandlerDeps()),
+    ctx,
+    ErrorCode.DB_WRITE_FAILED,
+  );
+
+  if (!result.success) {
+    errorHandler.handle(
+      new POError({
+        code: ErrorCode.DB_WRITE_FAILED,
+        message: `Candle DB 저장 실패: ${result.error}`,
+        severity: ErrorSeverity.WARNING,
+        context: ctx,
+      }),
+    );
+  }
+
+  return { success: result.success };
+}
+
+async function handleCandleHistoryChunkWithErrorHandling(
+  payload: MessagePayloadMap['CANDLE_HISTORY_CHUNK'],
+): Promise<{ success: boolean; added?: number }> {
+  const ctx = { module: 'background' as const, function: 'handleCandleHistoryChunk' };
+
+  const result = await tryCatchAsync(
+    () => handleCandleHistoryChunk(payload, getCandleHandlerDeps()),
+    ctx,
+    ErrorCode.DB_WRITE_FAILED,
+  );
+
+  if (!result.success) {
+    errorHandler.handle(
+      new POError({
+        code: ErrorCode.DB_WRITE_FAILED,
+        message: `Candle history chunk DB 저장 실패 (${payload.symbol}): ${result.error}`,
+        severity: ErrorSeverity.WARNING,
+        context: ctx,
+      }),
+    );
+    return { success: false };
+  }
+
+  return result.data;
+}
+
+async function handleGetCandleDBStatsWithErrorHandling(): Promise<unknown> {
+  const ctx = { module: 'background' as const, function: 'handleGetCandleDBStats' };
+
+  const result = await tryCatchAsync(
+    () => handleGetCandleDBStats(getCandleHandlerDeps()),
+    ctx,
+    ErrorCode.DB_READ_FAILED,
+  );
+
+  return result.success
+    ? result.data
+    : {
+        candles: { totalCandles: 0, tickers: [], oldestTimestamp: null, newestTimestamp: null },
+        datasets: [],
+      };
 }
 
 // ============================================================

@@ -9,7 +9,6 @@ import { PriceUpdate, WebSocketMessage, WebSocketConnection } from '../websocket
 import { CandleData } from '../websocket-parser';
 import { Signal } from '../../lib/signals/types';
 import { DataSender } from '../../lib/data-sender';
-import { CandleRepository, CandleDatasetRepository } from '../../lib/db';
 import { AutoMiner } from '../auto-miner';
 import { tickImbalanceFadeStrategy, TIF60Config } from '../tick-strategies';
 import { normalizeSymbol, normalizeTimestampMs } from '../../lib/utils/normalize';
@@ -269,7 +268,12 @@ function notifyBestAsset(asset: AssetPayout): void {
 }
 
 // ============================================================
-// [2A] History candles → IndexedDB (chunked + idle-aware)
+// [2A] History candles → Background (chunked message passing)
+// ============================================================
+// Candle DB ownership is centralized in Background Service Worker.
+// Content Script sends CANDLE_HISTORY_CHUNK messages instead of
+// writing directly to IndexedDB. This eliminates origin/ownership
+// ambiguity and ensures a single writer for candle data.
 // ============================================================
 
 const HISTORY_CHUNK_SIZE = 1000;
@@ -293,27 +297,32 @@ async function saveHistoryCandlesToDB(
   let totalAdded = 0;
   const startTs = Date.now();
 
-  // Chunk processing to avoid blocking the main thread
+  // Chunk processing — send each chunk as a message to Background
   for (let i = 0; i < validCandles.length; i += HISTORY_CHUNK_SIZE) {
     const chunk = validCandles.slice(i, i + HISTORY_CHUNK_SIZE);
+    const isLastChunk = i + HISTORY_CHUNK_SIZE >= validCandles.length;
 
-    const storedChunk = chunk.map((c) => ({
-      ticker: symbol,
-      interval: 60, // 1-minute candles
-      timestamp: c.timestamp,
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-      volume: c.volume ?? 0,
-      source: 'history' as const,
-    }));
+    try {
+      const result = (await chrome.runtime.sendMessage({
+        type: 'CANDLE_HISTORY_CHUNK',
+        payload: {
+          symbol,
+          interval: 60,
+          candles: chunk,
+          source: 'history',
+          isFinal: isLastChunk,
+        },
+      })) as { success?: boolean; added?: number } | null;
 
-    const added = await CandleRepository.bulkAdd(storedChunk, 'history');
-    totalAdded += added;
+      if (result?.added) {
+        totalAdded += result.added;
+      }
+    } catch (e) {
+      console.warn(`[PO] CANDLE_HISTORY_CHUNK send failed (chunk ${i}):`, e);
+    }
 
-    // Yield to UI between chunks using requestIdleCallback or setTimeout(0)
-    if (i + HISTORY_CHUNK_SIZE < validCandles.length) {
+    // Yield to UI between chunks
+    if (!isLastChunk) {
       await new Promise<void>((resolve) => {
         if (typeof requestIdleCallback === 'function') {
           requestIdleCallback(() => resolve());
@@ -324,23 +333,7 @@ async function saveHistoryCandlesToDB(
     }
   }
 
-  // Update dataset metadata — candleCount must be total, not delta (P1-1)
-  const timestamps = validCandles.map((c) => c.timestamp);
-  const minTs = Math.min(...timestamps);
-  const maxTs = Math.max(...timestamps);
-
-  const actualTotal = await CandleRepository.count(symbol, 60);
-  await CandleDatasetRepository.upsert({
-    ticker: symbol,
-    interval: 60,
-    startTime: minTs,
-    endTime: maxTs,
-    candleCount: actualTotal,
-    source: 'history',
-    lastUpdated: Date.now(),
-  });
-
   console.log(
-    `[PO] 💾 Saved ${totalAdded}/${validCandles.length} history candles to IndexedDB for ${symbol} (${Date.now() - startTs}ms)`,
+    `[PO] 💾 Sent ${totalAdded}/${validCandles.length} history candles to Background for ${symbol} (${Date.now() - startTs}ms)`,
   );
 }
