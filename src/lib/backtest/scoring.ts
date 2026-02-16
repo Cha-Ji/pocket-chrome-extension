@@ -326,3 +326,60 @@ function buildSummary(
   ];
   return parts.join(' | ');
 }
+
+// ============================================================
+// Derived Metric Helpers (exported for UI and tests)
+// ============================================================
+
+/**
+ * Break-even win rate for a given payout percentage.
+ * Formula: BE = 100 / (100 + payoutPercent) * 100
+ * e.g., 92% payout → BE ≈ 52.08%
+ */
+export function calcBreakEven(payoutPercent: number): number {
+  if (payoutPercent <= 0) return 100;
+  return (100 / (100 + payoutPercent)) * 100;
+}
+
+/**
+ * Win rate based on decided trades only (ties excluded).
+ * Returns 0 when no decided trades exist.
+ */
+export function calcWinRateDecided(wins: number, losses: number): number {
+  const decided = wins + losses;
+  if (decided <= 0) return 0;
+  return (wins / decided) * 100;
+}
+
+/**
+ * Tie rate as a percentage of total trades.
+ */
+export function calcTieRate(ties: number, totalTrades: number): number {
+  if (totalTrades <= 0) return 0;
+  return (ties / totalTrades) * 100;
+}
+
+/**
+ * Expected Value per trade as a percentage.
+ * EV = winRateDecided/100 * payoutPercent/100 - lossRateDecided/100
+ * Positive EV means the strategy is profitable on average.
+ * Returns 0 when no decided trades exist.
+ */
+export function calcEVPerTrade(wins: number, losses: number, payoutPercent: number): number {
+  const decided = wins + losses;
+  if (decided <= 0) return 0;
+  const p = wins / decided;
+  const q = 1 - p;
+  const b = payoutPercent / 100;
+  return p * b - q;
+}
+
+/**
+ * Delta between win rate (decided) and break-even win rate in percentage points.
+ * Positive = profitable, negative = unprofitable.
+ */
+export function calcWrBeDelta(wins: number, losses: number, payoutPercent: number): number {
+  const wr = calcWinRateDecided(wins, losses);
+  const be = calcBreakEven(payoutPercent);
+  return wr - be;
+}

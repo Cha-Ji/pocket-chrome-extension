@@ -7,7 +7,14 @@
 import { Candle, BacktestConfig, BacktestResult, Strategy } from './types';
 import { getBacktestEngine } from './engine';
 import { calculateDetailedStatistics } from './statistics';
-import { calculateScore } from './scoring';
+import {
+  calculateScore,
+  calcBreakEven,
+  calcWinRateDecided,
+  calcTieRate,
+  calcEVPerTrade,
+  calcWrBeDelta,
+} from './scoring';
 import {
   LeaderboardEntry,
   LeaderboardConfig,
@@ -194,6 +201,13 @@ function buildLeaderboardEntry(
     kellyFraction,
     minRequiredBalance,
 
+    // 파생 지표 (scoring.ts helpers)
+    winRateDecided: calcWinRateDecided(result.wins, result.losses),
+    tieRate: calcTieRate(result.ties, result.totalTrades),
+    breakEvenWinRate: calcBreakEven(config.payout),
+    evPerTrade: calcEVPerTrade(result.wins, result.losses, config.payout),
+    wrBeDelta: calcWrBeDelta(result.wins, result.losses, config.payout),
+
     compositeScore: 0, // 이후 scoreAndRankEntries에서 계산
     rank: 0,
 
@@ -373,7 +387,7 @@ export function formatLeaderboardReport(result: LeaderboardResult): string {
   ];
 
   for (const entry of result.entries) {
-    const profitable = entry.winRate >= 52.1 ? '+' : '-';
+    const profitable = entry.wrBeDelta > 0 ? '+' : '-';
     const volumeDays = entry.daysToVolumeTarget !== null ? `${entry.daysToVolumeTarget}d` : 'N/A';
 
     const gradeStr = entry.grade ? ` [${entry.grade}]` : '';

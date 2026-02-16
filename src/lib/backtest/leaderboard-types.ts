@@ -49,6 +49,13 @@ export interface LeaderboardEntry {
   kellyFraction: number; // Kelly Criterion 최적 배팅 비율 %
   minRequiredBalance: number; // MDD 기반 최소 필요 자금
 
+  // 파생 지표 (UI 표시용, scoring.ts helpers로 계산)
+  winRateDecided: number; // wins/(wins+losses) % (ties 제외)
+  tieRate: number; // ties/totalTrades %
+  breakEvenWinRate: number; // payout 기반 손익분기 승률 %
+  evPerTrade: number; // 거래당 기대값 (소수, e.g., 0.056 = +5.6%)
+  wrBeDelta: number; // winRateDecided - breakEvenWinRate (pp)
+
   // 종합 점수
   compositeScore: number; // 0-100 종합 점수 (상대 비교)
   rank: number; // 순위
@@ -126,7 +133,10 @@ export interface LeaderboardResult {
 /** 정렬 기준 */
 export type LeaderboardSortKey =
   | 'compositeScore'
+  | 'absoluteScore'
   | 'winRate'
+  | 'evPerTrade'
+  | 'wrBeDelta'
   | 'netProfit'
   | 'profitFactor'
   | 'tradesPerDay'
