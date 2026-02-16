@@ -61,6 +61,10 @@ interface AdaptivePollingConfig {
   pollingFallbackMs: number;
   /** Polling interval when observer is active (health-check only) (ms) */
   pollingIdleMs: number;
+  /** Throttle for chrome.runtime.sendMessage to background (ms). Reduces IPC overhead. */
+  notifyThrottleMs: number;
+  /** Max age (ms) before a ticker's tick buffer is considered stale and eligible for cleanup. */
+  staleTickerMs: number;
 }
 
 const DEFAULT_ADAPTIVE_CONFIG: AdaptivePollingConfig = {
@@ -68,6 +72,8 @@ const DEFAULT_ADAPTIVE_CONFIG: AdaptivePollingConfig = {
   observerTimeoutMs: 3000,
   pollingFallbackMs: 500,
   pollingIdleMs: 5000,
+  notifyThrottleMs: 500,
+  staleTickerMs: 5 * 60 * 1000, // 5 minutes
 };
 
 export class CandleCollector {
@@ -79,10 +85,8 @@ export class CandleCollector {
   private pricePollingInterval: ReturnType<typeof setTimeout> | null = null;
   private _isCollecting = false;
   private listeners: ((ticker: string, candle: Candle) => void)[] = [];
-  private tickHistory: TickData[] = [];
   /** Ticker-keyed tick buffer for O(1) lookup by ticker */
   private ticksByTicker: Map<string, TickData[]> = new Map();
-  private maxTickHistory = 10000;
   private maxTicksPerTicker = 2000;
   private static readonly MAX_LISTENERS_WARNING = 10;
 
@@ -93,12 +97,22 @@ export class CandleCollector {
   private _lastProcessedAt = 0;
   private _pollingMode: 'idle' | 'fallback' = 'idle';
 
+  /** Per-ticker timestamp of last notifyBackground call (for notify throttle) */
+  private _lastNotifyAt = new Map<string, number>();
+  /** Per-ticker last-seen timestamp (for stale ticker cleanup) */
+  private _tickerLastSeenAt = new Map<string, number>();
+  /** Stale ticker cleanup timer */
+  private _staleCleanupTimer: ReturnType<typeof setInterval> | null = null;
+
   /** Observability counters */
   private _collectorStats = {
     observerUpdates: 0,
     pollingUpdates: 0,
     throttledSkips: 0,
     pollingModeChanges: 0,
+    notifySent: 0,
+    notifyThrottled: 0,
+    staleTicersCleaned: 0,
   };
 
   constructor(
@@ -142,6 +156,12 @@ export class CandleCollector {
     // Secondary: adaptive polling (idle check when observer works, fallback when it doesn't)
     this.startAdaptivePolling();
 
+    // Periodic stale ticker cleanup
+    this._staleCleanupTimer = setInterval(
+      () => this.cleanStaleTickers(),
+      this.adaptiveConfig.staleTickerMs,
+    );
+
     console.log('[PO] [CandleCollector] Collection started');
   }
 
@@ -160,6 +180,11 @@ export class CandleCollector {
     if (this.pricePollingInterval) {
       clearTimeout(this.pricePollingInterval);
       this.pricePollingInterval = null;
+    }
+
+    if (this._staleCleanupTimer) {
+      clearInterval(this._staleCleanupTimer);
+      this._staleCleanupTimer = null;
     }
 
     this._isCollecting = false;
@@ -181,10 +206,16 @@ export class CandleCollector {
   }
 
   /**
-   * Get tick history
+   * Get tick history (synthesized from per-ticker buffers).
+   * Returns a merged, chronologically sorted copy.
    */
   getTickHistory(): TickData[] {
-    return [...this.tickHistory];
+    const all: TickData[] = [];
+    for (const ticks of this.ticksByTicker.values()) {
+      all.push(...ticks);
+    }
+    all.sort((a, b) => a.timestamp - b.timestamp);
+    return all;
   }
 
   /**
@@ -506,17 +537,14 @@ export class CandleCollector {
   }
 
   /**
-   * Record tick to history
+   * Record tick to per-ticker buffer (single source of truth).
+   * tickHistory was removed — use getTickHistory() to synthesize from ticksByTicker.
    */
   private recordTick(tick: TickData): void {
-    this.tickHistory.push(tick);
+    // Track last-seen for stale ticker cleanup
+    this._tickerLastSeenAt.set(tick.ticker, Date.now());
 
-    // 히스토리 크기 제한
-    if (this.tickHistory.length > this.maxTickHistory) {
-      this.tickHistory = this.tickHistory.slice(-this.maxTickHistory);
-    }
-
-    // Ticker-indexed buffer
+    // Ticker-indexed buffer (single source of truth)
     let tickerBuf = this.ticksByTicker.get(tick.ticker);
     if (!tickerBuf) {
       tickerBuf = [];
@@ -626,18 +654,37 @@ export class CandleCollector {
    * Get collector observability stats
    */
   getCollectorStats() {
+    // Count active tickers from ticksByTicker
+    let totalTicksInMemory = 0;
+    for (const ticks of this.ticksByTicker.values()) {
+      totalTicksInMemory += ticks.length;
+    }
+
     return {
       observerAttached: this._observerAttached,
       pollingMode: this._pollingMode,
       lastObserverUpdateAt: this._lastObserverUpdateAt,
+      activeTickers: this.ticksByTicker.size,
+      totalTicksInMemory,
       ...this._collectorStats,
     };
   }
 
   /**
-   * Notify background script
+   * Notify background script (throttled per ticker to reduce IPC overhead).
+   * The background's TickBuffer also samples, but throttling here avoids
+   * sending messages that would be immediately dropped.
    */
   private notifyBackground(tick: TickData): void {
+    const now = Date.now();
+    const lastNotify = this._lastNotifyAt.get(tick.ticker) ?? 0;
+    if (now - lastNotify < this.adaptiveConfig.notifyThrottleMs) {
+      this._collectorStats.notifyThrottled++;
+      return;
+    }
+    this._lastNotifyAt.set(tick.ticker, now);
+    this._collectorStats.notifySent++;
+
     chrome.runtime
       .sendMessage({
         type: 'TICK_DATA',
@@ -646,6 +693,30 @@ export class CandleCollector {
       .catch(() => {
         // Background script may not be ready
       });
+  }
+
+  /**
+   * Clean up stale tickers that haven't received ticks for staleTickerMs.
+   * Prevents unbounded memory growth when switching assets frequently.
+   */
+  private cleanStaleTickers(): void {
+    const now = Date.now();
+    const staleThreshold = this.adaptiveConfig.staleTickerMs;
+    let cleaned = 0;
+
+    for (const [ticker, lastSeen] of this._tickerLastSeenAt.entries()) {
+      if (now - lastSeen > staleThreshold) {
+        this.ticksByTicker.delete(ticker);
+        this._tickerLastSeenAt.delete(ticker);
+        this._lastNotifyAt.delete(ticker);
+        cleaned++;
+      }
+    }
+
+    if (cleaned > 0) {
+      this._collectorStats.staleTicersCleaned += cleaned;
+      console.log(`[CandleCollector] Cleaned ${cleaned} stale ticker(s)`);
+    }
   }
 }
 

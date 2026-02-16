@@ -2,7 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { CandleRepository } from '../../lib/db';
 import type { CandleDataset } from '../../lib/db';
 import type { DataSenderStats } from '../../lib/data-sender';
-import { sendTabMessageCallback, sendRuntimeMessage } from '../infrastructure/extension-client';
+import {
+  sendTabMessageCallback,
+  sendTabMessage,
+  sendRuntimeMessage,
+} from '../infrastructure/extension-client';
 
 // NOTE: 서버는 로컬(collector)로만 붙는다. 프로덕션 빌드에서도 상태 확인이 필요해서 DEV 가드 제거.
 const SERVER_URL = 'http://localhost:3001';
@@ -243,6 +247,24 @@ export function DBMonitorDashboard() {
     } catch {}
   };
 
+  // Drain retry queue state
+  const [drainResult, setDrainResult] = useState<string | null>(null);
+
+  const handleDrainRetryQueue = async () => {
+    try {
+      setDrainResult('draining...');
+      const res = (await sendTabMessage('DRAIN_SENDER_RETRY_QUEUE', {
+        maxRetries: 2,
+      })) as { sent?: number } | null;
+      setDrainResult(res?.sent != null ? `${res.sent} sent` : 'done');
+      handleRefresh();
+      setTimeout(() => setDrainResult(null), 3000);
+    } catch {
+      setDrainResult('error');
+      setTimeout(() => setDrainResult(null), 3000);
+    }
+  };
+
   return (
     <div className="p-4 bg-gray-800 rounded-lg border border-cyan-500">
       {/* 헤더 */}
@@ -330,6 +352,27 @@ export function DBMonitorDashboard() {
                     <span className="text-gray-500 text-xs"> (성공/실패)</span>
                   </span>
                 </div>
+                {senderStats.bulkRetryCount > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">재시도 횟수</span>
+                    <span className="text-yellow-400 font-bold">{senderStats.bulkRetryCount}</span>
+                  </div>
+                )}
+                {(senderStats.retryQueueSize > 0 || senderStats.retryQueueDropped > 0) && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">재시도 큐</span>
+                    <span>
+                      <span className="text-yellow-400 font-bold">
+                        {senderStats.retryQueueSize}
+                      </span>
+                      {senderStats.retryQueueDropped > 0 && (
+                        <span className="text-red-400 text-xs ml-1">
+                          ({senderStats.retryQueueDropped} dropped)
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
                 {senderStats.lastBulkSendAt > 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-400">마지막 벌크</span>
@@ -552,6 +595,14 @@ export function DBMonitorDashboard() {
               className="flex-1 py-1.5 rounded text-xs text-gray-400 hover:text-white bg-gray-900 hover:bg-gray-700 transition-colors border border-gray-700"
             >
               Run Retention
+            </button>
+            <button
+              onClick={handleDrainRetryQueue}
+              disabled={!senderStats || senderStats.retryQueueSize === 0}
+              className="flex-1 py-1.5 rounded text-xs text-gray-400 hover:text-white bg-gray-900 hover:bg-gray-700 transition-colors border border-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {drainResult ??
+                `Drain Queue${senderStats?.retryQueueSize ? ` (${senderStats.retryQueueSize})` : ''}`}
             </button>
           </div>
 
