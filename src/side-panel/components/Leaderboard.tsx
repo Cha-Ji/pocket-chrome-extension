@@ -15,7 +15,10 @@ const SORT_CONFIGS: Record<
   LeaderboardSortKey,
   { label: string; defaultDir: SortDir; higherIsBetter: boolean }
 > = {
-  compositeScore: { label: 'Score', defaultDir: 'desc', higherIsBetter: true },
+  absoluteScore: { label: 'Grade', defaultDir: 'desc', higherIsBetter: true },
+  compositeScore: { label: 'Relative', defaultDir: 'desc', higherIsBetter: true },
+  evPerTrade: { label: 'EV', defaultDir: 'desc', higherIsBetter: true },
+  wrBeDelta: { label: 'WR-BE', defaultDir: 'desc', higherIsBetter: true },
   winRate: { label: 'Win Rate', defaultDir: 'desc', higherIsBetter: true },
   netProfit: { label: 'Net Profit', defaultDir: 'desc', higherIsBetter: true },
   profitFactor: { label: 'PF', defaultDir: 'desc', higherIsBetter: true },
@@ -29,8 +32,18 @@ const SORT_CONFIGS: Record<
   kellyFraction: { label: 'Kelly %', defaultDir: 'desc', higherIsBetter: true },
 };
 
+/** Primary sort buttons shown in the toolbar */
+const PRIMARY_SORT_KEYS: LeaderboardSortKey[] = [
+  'absoluteScore',
+  'evPerTrade',
+  'wrBeDelta',
+  'maxDrawdownPercent',
+  'netProfit',
+  'compositeScore',
+];
+
 export function Leaderboard({ entries, isRunning, progress, onRun }: LeaderboardProps) {
-  const [sortKey, setSortKey] = useState<LeaderboardSortKey>('compositeScore');
+  const [sortKey, setSortKey] = useState<LeaderboardSortKey>('absoluteScore');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -55,6 +68,11 @@ export function Leaderboard({ entries, isRunning, progress, onRun }: Leaderboard
     });
     return list;
   }, [entries, sortKey, sortDir]);
+
+  const profitableCount = useMemo(
+    () => entries.filter((e) => e.evPerTrade > 0).length,
+    [entries],
+  );
 
   return (
     <div className="space-y-3">
@@ -98,13 +116,13 @@ export function Leaderboard({ entries, isRunning, progress, onRun }: Leaderboard
           <MiniStat label="Strategies" value={entries.length.toString()} />
           <MiniStat
             label="Best WR"
-            value={`${formatPercent(Math.max(...entries.map((e) => e.winRate)))}%`}
+            value={`${formatPercent(Math.max(...entries.map((e) => e.winRateDecided)))}%`}
             positive
           />
           <MiniStat
-            label="Profitable"
-            value={entries.filter((e) => e.winRate >= 52.1).length.toString()}
-            positive={entries.some((e) => e.winRate >= 52.1)}
+            label="EV > 0"
+            value={profitableCount.toString()}
+            positive={profitableCount > 0}
           />
         </div>
       )}
@@ -112,16 +130,7 @@ export function Leaderboard({ entries, isRunning, progress, onRun }: Leaderboard
       {/* Sort Buttons */}
       {entries.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          {(
-            [
-              'compositeScore',
-              'winRate',
-              'netProfit',
-              'tradesPerDay',
-              'maxDrawdownPercent',
-              'daysToVolumeTarget',
-            ] as LeaderboardSortKey[]
-          ).map((key) => (
+          {PRIMARY_SORT_KEYS.map((key) => (
             <button
               key={key}
               onClick={() => handleSort(key)}
@@ -178,13 +187,11 @@ function LeaderboardCard({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const isProfitable = entry.winRate >= 52.1;
-  const scoreColor =
-    entry.compositeScore >= 70
-      ? 'text-pocket-green'
-      : entry.compositeScore >= 50
-        ? 'text-yellow-400'
-        : 'text-red-400';
+  // Profitable = EV > 0 (payout-based, not hardcoded win rate)
+  const isProfitable = entry.evPerTrade > 0;
+  const delta = entry.wrBeDelta;
+  const deltaColor = delta > 0 ? 'text-pocket-green' : delta < 0 ? 'text-red-400' : 'text-gray-400';
+  const evColor = entry.evPerTrade > 0 ? 'text-pocket-green' : entry.evPerTrade < 0 ? 'text-red-400' : 'text-gray-400';
 
   return (
     <div
@@ -192,65 +199,142 @@ function LeaderboardCard({
         isProfitable ? 'border-pocket-green/20' : 'border-transparent'
       }`}
     >
-      {/* Main Row */}
+      {/* Collapsed: 6 Key Metrics */}
       <button onClick={onToggle} className="w-full p-3 text-left hover:bg-white/5 transition">
+        {/* Row 1: Rank + Name + Grade + Score */}
         <div className="flex items-center gap-2 mb-2">
           <span className="text-[10px] font-bold text-gray-500 w-5">#{entry.rank}</span>
           <span className="text-xs font-bold text-white flex-1 truncate">{entry.strategyName}</span>
           {entry.grade && <GradeBadge grade={entry.grade} />}
-          <span className={`text-sm font-bold font-mono ${scoreColor}`}>
-            {formatNumber(entry.compositeScore)}
+          <span className="text-[10px] font-mono text-gray-500">
+            {formatNumber(entry.absoluteScore ?? 0, 0)}
           </span>
         </div>
 
-        {/* Key Metrics Grid */}
-        <div className="grid grid-cols-4 gap-x-2 gap-y-1 text-[10px]">
+        {/* Row 2: 6 Compact Metrics */}
+        <div className="grid grid-cols-6 gap-x-1 text-[10px]">
+          {/* 1. EV per trade */}
           <MetricCell
-            label="WR"
-            value={`${formatPercent(entry.winRate)}%`}
-            highlight={isProfitable}
+            label="EV"
+            value={`${entry.evPerTrade >= 0 ? '+' : ''}${(entry.evPerTrade * 100).toFixed(1)}%`}
+            colorClass={evColor}
+            tooltip="Expected Value per trade (decided basis)"
           />
-          <MetricCell label="PF" value={formatNumber(entry.profitFactor, 2)} />
-          <MetricCell label="MDD" value={`${formatPercent(entry.maxDrawdownPercent)}%`} negative />
-          <MetricCell label="MaxL" value={`${entry.maxConsecutiveLosses}x`} negative />
-          <MetricCell label="T/Day" value={formatNumber(entry.tradesPerDay, 1)} />
+
+          {/* 2. WR vs BE with delta */}
           <MetricCell
-            label="Net"
-            value={`$${formatMoney(entry.netProfit)}`}
-            highlight={entry.netProfit > 0}
-            negative={entry.netProfit < 0}
+            label="WR/BE"
+            value={`${formatPercent(entry.winRateDecided)}/${formatPercent(entry.breakEvenWinRate)}`}
+            colorClass={deltaColor}
+            tooltip={`WR(decided): ${formatPercent(entry.winRateDecided)}% vs Break-even: ${formatPercent(entry.breakEvenWinRate)}%`}
           />
-          <MetricCell label="D.Vol" value={`$${formatNumber(entry.dailyVolume)}`} />
+
+          {/* 3. Delta (pp) */}
           <MetricCell
-            label="Vol"
-            value={entry.daysToVolumeTarget !== null ? `${entry.daysToVolumeTarget}d` : 'N/A'}
-            highlight={entry.daysToVolumeTarget !== null && entry.daysToVolumeTarget <= 30}
+            label={'\u0394pp'}
+            value={`${delta >= 0 ? '+' : ''}${delta.toFixed(1)}`}
+            colorClass={deltaColor}
+            tooltip="WinRate - BreakEven (percentage points)"
+          />
+
+          {/* 4. Trades N (W/L/T) */}
+          <MetricCell
+            label="N"
+            value={`${entry.totalTrades}`}
+            subValue={`${entry.wins}/${entry.losses}${entry.ties > 0 ? `/${entry.ties}` : ''}`}
+            tooltip={`Wins: ${entry.wins} / Losses: ${entry.losses} / Ties: ${entry.ties}`}
+          />
+
+          {/* 5. MDD% */}
+          <MetricCell
+            label="MDD"
+            value={`${formatPercent(entry.maxDrawdownPercent)}%`}
+            colorClass="text-red-400"
+            tooltip="Maximum Drawdown %"
+          />
+
+          {/* 6. Max Losing Streak */}
+          <MetricCell
+            label="Streak"
+            value={`${entry.maxConsecutiveLosses}x`}
+            colorClass={entry.maxConsecutiveLosses >= 8 ? 'text-red-400' : 'text-gray-300'}
+            tooltip="Maximum consecutive losses"
           />
         </div>
       </button>
 
-      {/* Expanded Details */}
+      {/* Expanded: Tier-2 Details */}
       {expanded && (
         <div className="px-3 pb-3 border-t border-gray-700/50 pt-2 space-y-2">
+          {/* Tier-2 Metrics */}
+          <div className="text-[9px] text-gray-500 uppercase mb-1">Advanced Metrics</div>
           <div className="grid grid-cols-2 gap-2 text-[10px]">
-            <DetailRow label="Total Trades" value={entry.totalTrades.toString()} />
-            <DetailRow label="Wins / Losses" value={`${entry.wins} / ${entry.losses}`} />
+            <DetailRow
+              label="Profit Factor"
+              value={formatNumber(entry.profitFactor, 2)}
+            />
+            <DetailRow
+              label="Trades/Day"
+              value={formatNumber(entry.tradesPerDay, 1)}
+            />
+            <DetailRow
+              label="WR Stability"
+              value={`\u00B1${formatPercent(entry.winRateStdDev)}%`}
+            />
+            <DetailRow
+              label="Kelly %"
+              value={`${formatPercent(entry.kellyFraction)}%`}
+            />
+            <DetailRow
+              label="Vol Days"
+              value={entry.daysToVolumeTarget !== null ? `${entry.daysToVolumeTarget}d` : 'N/A'}
+            />
+            <DetailRow
+              label="Min Balance"
+              value={`$${formatNumber(entry.minRequiredBalance)}`}
+            />
+            <DetailRow
+              label="Net Profit"
+              value={`$${formatMoney(entry.netProfit)}`}
+              valueColor={entry.netProfit > 0 ? 'text-pocket-green' : entry.netProfit < 0 ? 'text-red-400' : undefined}
+            />
+            <DetailRow
+              label="Expectancy"
+              value={`$${formatMoney(entry.expectancy)}`}
+            />
+            <DetailRow
+              label="Sharpe"
+              value={formatNumber(entry.sharpeRatio, 2)}
+            />
+            <DetailRow
+              label="Sortino"
+              value={formatNumber(entry.sortinoRatio, 2)}
+            />
+            <DetailRow
+              label="Recovery"
+              value={formatNumber(entry.recoveryFactor, 2)}
+            />
+            <DetailRow
+              label="Max Win Streak"
+              value={`${entry.maxConsecutiveWins}x`}
+            />
+            <DetailRow
+              label="Relative Score"
+              value={formatNumber(entry.compositeScore, 1)}
+            />
+            <DetailRow
+              label="Tie Rate"
+              value={`${formatPercent(entry.tieRate)}%`}
+            />
+          </div>
+
+          {/* Data Quality */}
+          <div className="text-[9px] text-gray-500 uppercase mt-2 mb-1">Data</div>
+          <div className="grid grid-cols-2 gap-2 text-[10px]">
             <DetailRow label="Trading Days" value={entry.tradingDays.toString()} />
-            <DetailRow label="Expectancy" value={`$${formatMoney(entry.expectancy)}`} />
-            {entry.absoluteScore !== undefined && (
-              <DetailRow
-                label="Abs. Score"
-                value={`${formatNumber(entry.absoluteScore, 1)} (${entry.grade})`}
-              />
-            )}
-            <DetailRow label="Sharpe Ratio" value={formatNumber(entry.sharpeRatio, 2)} />
-            <DetailRow label="Sortino Ratio" value={formatNumber(entry.sortinoRatio, 2)} />
-            <DetailRow label="Recovery Factor" value={formatNumber(entry.recoveryFactor, 2)} />
-            <DetailRow label="Max Win Streak" value={`${entry.maxConsecutiveWins}x`} />
-            <DetailRow label="Kelly Fraction" value={`${formatPercent(entry.kellyFraction)}%`} />
-            <DetailRow label="WR Stability" value={`±${formatPercent(entry.winRateStdDev)}%`} />
-            <DetailRow label="Min Balance" value={`$${formatNumber(entry.minRequiredBalance)}`} />
+            <DetailRow label="Daily Vol" value={`$${formatNumber(entry.dailyVolume)}`} />
             <DetailRow label="Total Volume" value={`$${formatNumber(entry.totalVolume)}`} />
+            <DetailRow label="Candles" value={entry.candleCount.toString()} />
           </div>
 
           {/* Strategy Parameters */}
@@ -276,22 +360,25 @@ function LeaderboardCard({
 function MetricCell({
   label,
   value,
-  highlight,
-  negative,
+  subValue,
+  colorClass,
+  tooltip,
 }: {
   label: string;
   value: string;
+  subValue?: string;
+  colorClass?: string;
   highlight?: boolean;
   negative?: boolean;
+  tooltip?: string;
 }) {
-  let color = 'text-gray-300';
-  if (highlight) color = 'text-pocket-green';
-  if (negative) color = 'text-red-400';
+  const color = colorClass ?? 'text-gray-300';
 
   return (
-    <div>
+    <div title={tooltip}>
       <div className="text-gray-600">{label}</div>
-      <div className={`font-mono font-medium ${color}`}>{value}</div>
+      <div className={`font-mono font-medium ${color} leading-tight`}>{value}</div>
+      {subValue && <div className="font-mono text-[8px] text-gray-500 leading-tight">{subValue}</div>}
     </div>
   );
 }
@@ -314,11 +401,19 @@ function GradeBadge({ grade }: { grade: string }) {
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({
+  label,
+  value,
+  valueColor,
+}: {
+  label: string;
+  value: string;
+  valueColor?: string;
+}) {
   return (
     <div className="flex justify-between">
       <span className="text-gray-500">{label}</span>
-      <span className="text-gray-300 font-mono">{value}</span>
+      <span className={`${valueColor ?? 'text-gray-300'} font-mono`}>{value}</span>
     </div>
   );
 }
@@ -348,10 +443,16 @@ function MiniStat({
 
 function getSortValue(entry: LeaderboardEntry, key: LeaderboardSortKey): number {
   switch (key) {
+    case 'absoluteScore':
+      return entry.absoluteScore ?? 0;
     case 'compositeScore':
       return entry.compositeScore;
+    case 'evPerTrade':
+      return entry.evPerTrade;
+    case 'wrBeDelta':
+      return entry.wrBeDelta;
     case 'winRate':
-      return entry.winRate;
+      return entry.winRateDecided;
     case 'netProfit':
       return entry.netProfit;
     case 'profitFactor':
