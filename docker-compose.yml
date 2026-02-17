@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  collector:
+    build:
+      context: ./apps/collector
+      dockerfile: Dockerfile
+    container_name: pq-collector
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - DB_PATH=/data/market-data.db
+    volumes:
+      - collector-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  collector-data:
+    driver: local

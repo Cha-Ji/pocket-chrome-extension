@@ -89,6 +89,49 @@ PM2 설정: `scripts/ecosystem.config.cjs`
 - 자동 재시작 (max 10회, 2초 간격)
 - 로그 파일: `data/logs/collector-out.log`, `data/logs/collector-error.log`
 
+#### Docker 실행 (권장 — 운영 환경)
+
+```bash
+# 빌드 + 백그라운드 실행
+npm run collector:docker:up
+# 또는: docker compose up -d collector
+
+# 로그 확인
+npm run collector:docker:logs
+# 또는: docker compose logs -f collector
+
+# 중지
+npm run collector:docker:down
+# 또는: docker compose down
+```
+
+**소스**: `apps/collector/` (독립 패키지, extension 코드에 의존하지 않음)
+
+**아키텍처**:
+- `apps/collector/Dockerfile`: multi-stage 빌드 (Node 20, better-sqlite3 네이티브 컴파일)
+- `docker-compose.yml`: 서비스 정의, 볼륨, 헬스체크
+- 컨테이너는 non-root 사용자(`collector:1001`)로 실행됨
+
+**SQLite 볼륨**:
+- Docker named volume `collector-data`가 `/data/market-data.db`로 마운트됨
+- 컨테이너 재시작/재빌드에도 데이터 유지
+- 볼륨 위치 확인: `docker volume inspect pocket-chrome-extension_collector-data`
+
+**헬스체크**:
+- 30초 간격으로 `GET /health` 자동 호출
+- `docker ps`에서 `healthy/unhealthy` 상태 확인 가능
+
+```bash
+# 헬스체크 확인
+curl http://localhost:3001/health
+# → {"status":"ok","totalCandles":...,"totalTicks":...,"totalCandles1m":...}
+
+# 샘플 데이터 전송 (테스트)
+curl -X POST http://localhost:3001/api/candles/bulk \
+  -H "Content-Type: application/json" \
+  -d '{"candles":[{"symbol":"EURUSD_otc","interval":"1m","timestamp":1700000000000,"open":1.1,"high":1.11,"low":1.09,"close":1.105}]}'
+```
+
 #### 환경 변수
 
 | 변수 | 기본값 | 설명 |

@@ -25,7 +25,10 @@
     "collector": "npx tsx scripts/data-collector-server.ts",
     "collector:start": "pm2 start scripts/ecosystem.config.cjs",
     "collector:stop": "pm2 stop data-collector",
-    "collector:logs": "pm2 logs data-collector"
+    "collector:logs": "pm2 logs data-collector",
+    "collector:docker:up": "docker compose up -d collector",
+    "collector:docker:down": "docker compose down",
+    "collector:docker:logs": "docker compose logs -f collector"
   },
   "dependencies": {
     "dexie": "^4.0.10",
