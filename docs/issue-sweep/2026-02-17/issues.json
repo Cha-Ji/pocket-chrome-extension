@@ -1,0 +1,17 @@
+[
+  {"number": 49, "title": "any 타입 193개 제거 - TypeScript 타입 안전성 강화", "state": "open", "labels": ["refactor", "p1"], "url": "https://github.com/Cha-Ji/pocket-chrome-extension/issues/49"},
+  {"number": 50, "title": "메모리 누수 - WebSocket 버퍼/캔들 맵 무한 성장", "state": "open", "labels": ["bug", "performance", "p2"], "url": "https://github.com/Cha-Ji/pocket-chrome-extension/issues/50"},
+  {"number": 52, "title": "Demo Mode 안전 체크 강화", "state": "open", "labels": ["enhancement", "security", "p2"], "url": "https://github.com/Cha-Ji/pocket-chrome-extension/issues/52"},
+  {"number": 53, "title": "테스트 커버리지 확대 - 현재 ~34% → 목표 80%", "state": "open", "labels": ["enhancement", "testing", "p2"], "url": "https://github.com/Cha-Ji/pocket-chrome-extension/issues/53"},
+  {"number": 54, "title": "Content Script 관심사 분리", "state": "closed", "labels": ["refactor", "p2"], "url": "https://github.com/Cha-Ji/pocket-chrome-extension/issues/54"},
+  {"number": 55, "title": "console.log 490건 정리 - 구조화된 로깅 시스템 적용", "state": "open", "labels": ["refactor", "p2"], "url": "https://github.com/Cha-Ji/pocket-chrome-extension/issues/55"},
+  {"number": 56, "title": "에러 처리 패턴 통일 (throw/return/silent 혼재 정리)", "state": "open", "labels": ["refactor", "p2"], "url": "https://github.com/Cha-Ji/pocket-chrome-extension/issues/56"},
+  {"number": 57, "title": "Candle 데이터 벌크 인서트 성능 최적화", "state": "closed", "labels": ["enhancement", "performance", "p3"], "url": "https://github.com/Cha-Ji/pocket-chrome-extension/issues/57"},
+  {"number": 58, "title": "README.md 작성", "state": "open", "labels": ["documentation", "enhancement", "p3"], "url": "https://github.com/Cha-Ji/pocket-chrome-extension/issues/58"},
+  {"number": 59, "title": "DOM 셀렉터 자동 검증 및 알림 시스템", "state": "open", "labels": ["enhancement", "p3"], "url": "https://github.com/Cha-Ji/pocket-chrome-extension/issues/59"},
+  {"number": 60, "title": "글로벌 뮤터블 상태 → 상태 관리 시스템 도입", "state": "open", "labels": ["refactor", "p3"], "url": "https://github.com/Cha-Ji/pocket-chrome-extension/issues/60"},
+  {"number": 70, "title": "SQLite 수집 데이터 기반 백테스트 리포트", "state": "open", "labels": ["feat"], "url": "https://github.com/Cha-Ji/pocket-chrome-extension/issues/70"},
+  {"number": 71, "title": "데이터 정제 파이프라인 구축 — feat/63 머지", "state": "open", "labels": ["feat", "p0"], "url": "https://github.com/Cha-Ji/pocket-chrome-extension/issues/71"},
+  {"number": 72, "title": "백테스트 전략 고도화 — V3 추세 전략 통합", "state": "open", "labels": ["feat", "p1"], "url": "https://github.com/Cha-Ji/pocket-chrome-extension/issues/72"},
+  {"number": 73, "title": "백테스트 결과 → 실전 전략 피드백 루프 구축", "state": "open", "labels": ["feat", "p1"], "url": "https://github.com/Cha-Ji/pocket-chrome-extension/issues/73"}
+]
