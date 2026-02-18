@@ -15,6 +15,7 @@ import {
   TradeResult,
 } from './types';
 import { preprocessCandles, type PreprocessResult } from './candle-utils';
+import { IndicatorCache } from './indicator-cache';
 
 export class BacktestEngine {
   private strategies: Map<string, Strategy> = new Map();
@@ -89,93 +90,101 @@ export class BacktestEngine {
     let maxBalance = balance;
     let maxDrawdown = 0;
 
-    // Walk through candles
-    const lookback = 50; // candles needed for indicators
+    // 지표 캐시 활성화 — 전체 filteredCandles에 대해 한 번만 계산
+    const indicatorCache = new IndicatorCache(filteredCandles);
+    indicatorCache.activate();
 
-    for (let i = lookback; i < filteredCandles.length; i++) {
-      const historicalCandles = filteredCandles.slice(0, i + 1);
-      const currentCandle = filteredCandles[i];
+    try {
+      // Walk through candles
+      const lookback = 50; // candles needed for indicators
 
-      // Generate signal
-      const signal = strategy.generateSignal(historicalCandles, config.strategyParams);
+      for (let i = lookback; i < filteredCandles.length; i++) {
+        const historicalCandles = filteredCandles.slice(0, i + 1);
+        const currentCandle = filteredCandles[i];
 
-      if (signal && signal.direction) {
-        // Calculate bet amount
-        const betAmount =
-          config.betType === 'fixed' ? config.betAmount : balance * (config.betAmount / 100);
+        // Generate signal
+        const signal = strategy.generateSignal(historicalCandles, config.strategyParams);
 
-        // Skip if not enough balance
-        if (betAmount > balance) continue;
+        if (signal && signal.direction) {
+          // Calculate bet amount
+          const betAmount =
+            config.betType === 'fixed' ? config.betAmount : balance * (config.betAmount / 100);
 
-        // Latency simulation: actual entry happens latencyMs after signal
-        const latencyMs = config.latencyMs || 0;
-        const entryTime = currentCandle.timestamp + latencyMs;
+          // Skip if not enough balance
+          if (betAmount > balance) continue;
 
-        // Find the candle closest to actual entry time (latency-adjusted)
-        let entryCandle = currentCandle;
-        if (latencyMs > 0) {
-          const entryCandleIndex = filteredCandles.findIndex(
-            (c, idx) => idx >= i && c.timestamp >= entryTime,
-          );
-          if (entryCandleIndex !== -1) {
-            entryCandle = filteredCandles[entryCandleIndex];
+          // Latency simulation: actual entry happens latencyMs after signal
+          const latencyMs = config.latencyMs || 0;
+          const entryTime = currentCandle.timestamp + latencyMs;
+
+          // Find the candle closest to actual entry time (latency-adjusted)
+          let entryCandle = currentCandle;
+          if (latencyMs > 0) {
+            const entryCandleIndex = filteredCandles.findIndex(
+              (c, idx) => idx >= i && c.timestamp >= entryTime,
+            );
+            if (entryCandleIndex !== -1) {
+              entryCandle = filteredCandles[entryCandleIndex];
+            }
+            // If latency pushes entry beyond available data, use the signal candle
           }
-          // If latency pushes entry beyond available data, use the signal candle
+
+          // Find exit candle (based on expiry from actual entry time)
+          const expiryTime = entryTime + config.expirySeconds * 1000;
+          const exitCandleIndex = filteredCandles.findIndex((c) => c.timestamp >= expiryTime);
+
+          if (exitCandleIndex === -1) continue; // No exit candle found
+
+          const exitCandle = filteredCandles[exitCandleIndex];
+
+          // Skip trade if exit candle is too far from expected expiry (gap in data)
+          // Allow up to 3x the expected expiry window to account for minor gaps
+          const exitTimeDiff = exitCandle.timestamp - expiryTime;
+          const maxExitSlippage = config.expirySeconds * 1000 * 2;
+          if (exitTimeDiff > maxExitSlippage) continue;
+
+          // Entry price uses the latency-adjusted candle's close + slippage
+          const entryPrice =
+            entryCandle.close + (config.slippage || 0) * (signal.direction === 'CALL' ? 1 : -1);
+
+          const result = this.determineResult(signal.direction, entryPrice, exitCandle.close);
+
+          // Calculate profit
+          const profit = this.calculateProfit(result, betAmount, config.payout);
+          balance += profit;
+
+          // Track trade
+          const trade: BacktestTrade = {
+            entryTime,
+            entryPrice,
+            exitTime: exitCandle.timestamp,
+            exitPrice: exitCandle.close,
+            direction: signal.direction,
+            result,
+            payout: config.payout,
+            profit,
+            strategySignal: signal.indicators,
+          };
+          trades.push(trade);
+
+          // Update equity curve
+          equityCurve.push({ timestamp: exitCandle.timestamp, balance });
+
+          // Track drawdown
+          if (balance > maxBalance) {
+            maxBalance = balance;
+          }
+          const drawdown = maxBalance - balance;
+          if (drawdown > maxDrawdown) {
+            maxDrawdown = drawdown;
+          }
+
+          // Skip ahead to exit (no overlapping trades for now)
+          i = exitCandleIndex;
         }
-
-        // Find exit candle (based on expiry from actual entry time)
-        const expiryTime = entryTime + config.expirySeconds * 1000;
-        const exitCandleIndex = filteredCandles.findIndex((c) => c.timestamp >= expiryTime);
-
-        if (exitCandleIndex === -1) continue; // No exit candle found
-
-        const exitCandle = filteredCandles[exitCandleIndex];
-
-        // Skip trade if exit candle is too far from expected expiry (gap in data)
-        // Allow up to 3x the expected expiry window to account for minor gaps
-        const exitTimeDiff = exitCandle.timestamp - expiryTime;
-        const maxExitSlippage = config.expirySeconds * 1000 * 2;
-        if (exitTimeDiff > maxExitSlippage) continue;
-
-        // Entry price uses the latency-adjusted candle's close + slippage
-        const entryPrice =
-          entryCandle.close + (config.slippage || 0) * (signal.direction === 'CALL' ? 1 : -1);
-
-        const result = this.determineResult(signal.direction, entryPrice, exitCandle.close);
-
-        // Calculate profit
-        const profit = this.calculateProfit(result, betAmount, config.payout);
-        balance += profit;
-
-        // Track trade
-        const trade: BacktestTrade = {
-          entryTime,
-          entryPrice,
-          exitTime: exitCandle.timestamp,
-          exitPrice: exitCandle.close,
-          direction: signal.direction,
-          result,
-          payout: config.payout,
-          profit,
-          strategySignal: signal.indicators,
-        };
-        trades.push(trade);
-
-        // Update equity curve
-        equityCurve.push({ timestamp: exitCandle.timestamp, balance });
-
-        // Track drawdown
-        if (balance > maxBalance) {
-          maxBalance = balance;
-        }
-        const drawdown = maxBalance - balance;
-        if (drawdown > maxDrawdown) {
-          maxDrawdown = drawdown;
-        }
-
-        // Skip ahead to exit (no overlapping trades for now)
-        i = exitCandleIndex;
       }
+    } finally {
+      indicatorCache.deactivate();
     }
 
     // Calculate stats
