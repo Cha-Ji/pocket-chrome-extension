@@ -1,31 +1,63 @@
 ---
 name: 3-file-pattern
-description: 복잡한 작업에서 3-File Documentation Strategy(Planning with Files)를 강제 적용해 `task_plan.md`, `findings.md`, `progress.md`를 생성·유지·갱신하는 스킬. 사용자가 3-File 방식/문서화 전략을 요청했거나, 다단계 계획·조사·구현이 필요한 작업을 진행할 때 사용.
+description: 현재 문서 운영 모델(BOARD.md + Wiki)에 맞춰 세션 핸드오프/상태 기록/결정 기록을 일관되게 수행하고, 필요 시에만 레거시 3-file 문서를 참조·갱신하는 스킬.
 ---
 
-# 3-File Pattern
+# BOARD-First Documentation Pattern
 
 ## 개요
 
-복잡한 작업을 수행할 때 `task_plan.md`, `findings.md`, `progress.md` 3개 파일을 중심으로 계획·지식·진행 상황을 관리하도록 강제한다.
+문서 운영 기준이 `docs/BOARD.md` + `../pocket-chrome-extension.wiki`로 전환되었으므로,
+이 스킬은 상태판 중심의 작업 추적을 강제한다.
+
+`task_plan.md`, `findings.md`, `progress.md`는 기본 운영 대상이 아니라 **레거시 아카이브(`docs/archive/`)**로 취급한다.
 
 ## 핵심 규칙
 
-- 시작 전에 `task_plan.md`, `progress.md`를 반드시 읽어 현재 맥락을 파악하라.
-- 3개 파일이 없으면 즉시 생성하라(기본 템플릿은 `references/file-templates.md` 참고).
-- 새로운 사실/제약/결정은 발견 즉시 `findings.md`에 기록하라.
-- 하위 작업을 완료할 때마다 `task_plan.md` 체크박스를 갱신하라.
-- 작업 중간 상태와 다음 행동을 `progress.md`에 기록하라.
-- 응답 종료 시 어떤 파일을 업데이트했는지 명시하라.
+- 코드/문서 수정이 필요하면 항상 `git-worktree` 스킬로 분리 브랜치를 만든 뒤 해당 worktree에서 작업한다.
+- 메인 체크아웃 경로에서 직접 수정하지 않는다.
+- 작업 종료 기준은 `commit` + `push` + `PR 생성`까지 완료하는 것이다.
+- 세션 시작 시 항상 `docs/BOARD.md`를 먼저 읽는다.
+- `docs/head/*`는 운영 중단 경로이므로 새 기록을 남기지 않는다.
+- 실시간 상태/차단/결정은 `docs/BOARD.md`에만 기록한다.
+- 장기 참조/아카이브/작업 이력은 `docs/wiki`(=`../pocket-chrome-extension.wiki`)를 사용한다.
+- 팀 간 전달 사항은 `docs/teams/{planning|dev|qa}/inbox.md`에 append 한다.
+- 응답 종료 시 업데이트한 파일을 명시한다.
 
 ## 워크플로
 
-1. 작업 시작 시 `task_plan.md`와 `progress.md`를 읽고, 현재 진행 상태를 요약하라.
-2. 3개 파일이 누락되어 있으면 `references/file-templates.md`에 따라 생성하라.
-3. 실행 중 발견한 정보는 `findings.md`에 즉시 추가하라.
-4. 완료된 하위 작업은 `task_plan.md`에서 체크하라.
-5. 현재 세션의 상태와 즉시 다음 행동은 `progress.md` 최상단에 기록하라.
-6. 최종 응답에 업데이트한 파일명을 명시하라.
+1. `git-worktree`로 작업 브랜치를 분리 생성하고, 생성된 worktree 경로로 이동한다.
+2. `docs/BOARD.md` 확인:
+   - Active Tasks(누가 무엇을 하는지)
+   - Recent Decisions(최근 기술 결정)
+   - Blocked / Needs Attention
+3. 필요 시 자기 작업 상태를 `BOARD.md`의 자기 행에 반영한다.
+   - Status: `idle|researching|coding|testing|reviewing|blocked`
+   - 충돌 방지를 위해 자기 행만 수정한다.
+4. 구현/조사 중 새 기술 결정이 생기면 `Recent Decisions` 맨 위에 추가한다.
+   - 5개 초과 시 오래된 항목은 Wiki `[[Key-Decisions]]`로 이동한다.
+5. 세션 종료/중단 시 자기 행의 상태와 요약을 최신화한다.
+6. 최종 응답에 이번 턴의 문서 반영 내역을 명시한다.
+
+## Wiki 연동 규칙
+
+- Wiki 원본 저장소: `../pocket-chrome-extension.wiki`
+- 레포 내 편의 경로: `docs/wiki` (symlink)
+- Worklog 정책:
+  - 실시간 상태는 `BOARD.md`
+  - 이력/회고는 Wiki `Worklog/`
+  - 자동화 명령: `npm run wiki:daily`, `npm run wiki:rollup`
+
+## 레거시 3-file 처리 (예외)
+
+다음 경우에만 3-file 문서를 다룬다.
+
+1. 사용자가 명시적으로 `task_plan.md/findings.md/progress.md` 업데이트를 요청한 경우
+2. `docs/archive/`의 과거 작업을 복원/분석하는 경우
+
+규칙:
+- 새 기능을 위해 `docs/` 루트에 3-file 구조를 재생성하지 않는다.
+- 기존 아카이브 문서는 필요 최소 범위로만 읽고 갱신한다.
 
 ## 헬스체크 로깅
 
@@ -35,12 +67,12 @@ description: 복잡한 작업에서 3-File Documentation Strategy(Planning with 
 ```text
 --- healthcheck ---
 context_used:
-  task_plan_tokens: 대략적인 토큰 수 혹은 줄 수
-  findings_tokens: 대략적인 토큰 수 혹은 줄 수
-  progress_tokens: 대략적인 토큰 수 혹은 줄 수
+  board_tokens: 대략적인 토큰 수 혹은 줄 수
+  wiki_tokens: 대략적인 토큰 수 혹은 줄 수
+  inbox_tokens: 대략적인 토큰 수 혹은 줄 수
   extra_context: (있다면) 외부 문서/툴 결과의 간단한 설명
 actions:
-  - type: update_task_plan | update_findings | update_progress | no_update
+  - type: update_board | update_wiki | update_inbox | update_legacy_3file | no_update
     details: 어떤 업데이트를 했는지 한 줄 설명
 ab_test_variant: <현재 사용 중인 변형 이름 또는 ID> (예: "variant_a" / "short_context" 등)
 notes: 모델 입장에서 느낀 컨텍스트 품질이나 문제점이 있다면 짧게 남긴다.
@@ -59,8 +91,8 @@ notes: 모델 입장에서 느낀 컨텍스트 품질이나 문제점이 있다�
 각 도구 호출 후에는, 결과를 곧바로 그대로 쓰지 말고 다음 기준으로 요약하라:
 
 1. 이 결과가 이번 작업의 목표와 어떻게 연결되는지
-2. `findings.md`에 기록해야 할 "장기적으로 재사용 가능한 인사이트"는 무엇인지
-3. `progress.md`에 남길 "이번 시도에 특화된 로그"는 무엇인지
+2. `BOARD.md` 또는 Wiki에 기록해야 할 "재사용 가능한 인사이트/결정"은 무엇인지
+3. 팀 inbox 전달이 필요한 의존/요청 사항이 있는지
 
 요약은 리스트·섹션·테이블 등 구조화된 형태를 선호하여, 나중에 다시 읽을 때 빠르게 스캔할 수 있도록 하라.
 
@@ -70,15 +102,14 @@ notes: 모델 입장에서 느낀 컨텍스트 품질이나 문제점이 있다�
 시스템이 `ab_test_variant`를 지시하면, 다음과 같이 행동하라:
 
 ### variant_a
-- `task_plan.md`의 전체를 읽되, `findings.md`는 최근 항목(예: 최근 N개의 발견)만 우선적으로 사용하라.
-- 컨텍스트를 길게 유지하되, 요약보다는 "많이 읽기"에 치우친 전략이다.
+- `docs/BOARD.md`를 전체 확인하고, Wiki 관련 페이지를 폭넓게 읽어 문맥을 최대한 보존한다.
 
 ### variant_b
-- `task_plan.md`와 `progress.md`를 간단히 요약한 뒤, `findings.md`에서 현재 질문과 의미적으로 가장 관련 있는 부분만 선택해 사용하라.
-- "최소 충분 컨텍스트"를 더 엄격하게 추구하는 전략이다.
+- `docs/BOARD.md` 핵심 섹션만 요약하고, 필요한 Wiki 섹션만 선택적으로 읽는다.
+- "최소 충분 컨텍스트"를 엄격하게 추구한다.
 
 ### variant_c
-- 시스템이 제공한 추가 외부 컨텍스트(예: RAG 결과)를 우선 사용하고, 3파일은 필요할 때만 부분적으로 참조한다.
+- 시스템이 제공한 추가 외부 컨텍스트(예: RAG 결과)를 우선 사용하고, BOARD/Wiki는 검증용으로만 참조한다.
 - 외부 지식 비중이 높은 태스크를 위한 전략이다.
 
 어떤 변형을 사용하든, 헬스체크 블록의 `ab_test_variant` 필드에 현재 변형 이름을 반드시 기록하라.
@@ -89,9 +120,9 @@ notes: 모델 입장에서 느낀 컨텍스트 품질이나 문제점이 있다�
 
 1. 이번 턴의 결론/결과를 한두 문장으로 요약
 2. 필요한 경우, 구체적인 설명·코드·리스트
-3. (옵션) `task_plan.md`, `findings.md`, `progress.md`에 적용할 변경 내용을 요약한 섹션
+3. (옵션) `docs/BOARD.md` / Wiki / inbox에 반영한 변경 요약
 4. 맨 마지막에 `--- healthcheck ---` 블록
 
 ## 참고 자료
 
-- `references/file-templates.md`: 각 파일의 기본 템플릿과 형식 규칙
+- `references/file-templates.md`: BOARD/Wiki/inbox 기본 템플릿과 레거시 3-file 예외 규칙
