@@ -23,7 +23,7 @@ import {
 } from '../../lib/safety/account-verifier';
 import { createLogger } from '../../lib/logger';
 import { getSelectorHealthcheck } from '../../lib/platform/adapters/pocket-option/selector-healthcheck';
-import { detectEnvironment } from '../../lib/platform/adapters/pocket-option/selectors';
+import { detectEnvironment, getFallbacksForEnvironment, getSelectorsForEnvironment } from '../../lib/platform/adapters/pocket-option/selectors';
 import { getSelectorResolver } from '../selector-resolver';
 import { installEnvDebugConsoleAPI } from '../../lib/instrumentation';
 
@@ -47,14 +47,14 @@ export async function initialize(ctx: ContentScriptContext): Promise<void> {
     getSelectorResolver().rebuildForEnvironment(env);
 
     // 트레이딩 UI가 렌더링될 때까지 대기 (SPA 지연 대응)
-    const tradingPanel = await waitForElement('#put-call-buttons-chart-1', 15000);
-    if (tradingPanel) {
-      console.log('[PO] [3.1.1] Trading panel found, waiting for buttons...');
-      // 버튼이 패널 내에 렌더링될 때까지 짧은 대기
-      await waitForElement('.btn-call', 5000);
-    } else {
-      console.warn('[PO] [3.1.1] Trading panel not found within 15s, running healthcheck anyway');
-    }
+    // fallback 셀렉터를 OR 결합하여 어떤 레이아웃이든 즉시 감지
+    const envSelectors = getSelectorsForEnvironment(env);
+    const envFallbacks = getFallbacksForEnvironment(env);
+    const callSelectors = [envSelectors.callButton, ...(envFallbacks.callButton ?? [])];
+    const uniqueCallSelectors = [...new Set(callSelectors)].filter(Boolean);
+    const combinedSelector = uniqueCallSelectors.join(', ');
+    console.log(`[PO] [3.1.1] Waiting for trading UI: ${combinedSelector}`);
+    await waitForElement(combinedSelector, 10000);
 
     // Run selector healthcheck
     const healthcheck = getSelectorHealthcheck();
