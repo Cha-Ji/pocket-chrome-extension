@@ -31,8 +31,8 @@ describe('Types', () => {
     });
 
     it('should have correct call/put button selectors', () => {
-      expect(DEFAULT_SELECTORS.callButton).toBe('.switch-state-block__item:first-child');
-      expect(DEFAULT_SELECTORS.putButton).toBe('.switch-state-block__item:last-child');
+      expect(DEFAULT_SELECTORS.callButton).toBe('.btn-call');
+      expect(DEFAULT_SELECTORS.putButton).toBe('.btn-put');
     });
 
     it('should have demo indicator selector', () => {
