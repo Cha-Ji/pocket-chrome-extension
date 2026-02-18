@@ -1,6 +1,28 @@
 # Pocket Quant Trader - Progress
 
-**최종 업데이트:** 2026-02-15 KST
+**최종 업데이트:** 2026-02-18 KST
+
+## (2026-02-18) Strategy Config Pipeline 1단계 — 전략 선택 자동화
+
+### 완료 항목
+- **strategy-config.ts**: leaderboard → 심볼별 상위 N개 전략 추출 타입 및 로직
+- **generate-strategy-config.ts**: CLI 빌드 스크립트 (단일/멀티 심볼)
+- **SignalGeneratorV2 수정**: strategyConfig 로드 → config 우선 선택 → 기본 fallback
+- **테스트**: 22개 신규 (config 추출 14 + V2 통합 8), 전체 938개 통과
+- **TypeScript**: 0 errors
+
+### 테스트 결과
+- 전체: 938 tests passed (48 suites)
+- 신규: 22 tests (strategy-config 14 + signal-generator-v2 config 8)
+
+### 다음 행동
+- 2단계: Forward Test 파이프라인 (후속 이슈)
+- 3단계: 주간 자동 재최적화 (후속 이슈)
+- 4단계: LLM 리포트 (후속 이슈)
+
+### 상세: `docs/features/strategy-config-pipeline/`
+
+---
 
 ## (2026-02-15) 데이터 파이프라인 안정화 — 통계 정확도 + 메모리 최적화 + 운영 UX
 

@@ -17,6 +17,8 @@ import {
 } from '../backtest/strategies/high-winrate';
 import { sbb120Strategy } from '../backtest/strategies/sbb-120';
 import { zmr60WithHighWinRateConfig, ZMR60Config } from '../backtest/strategies/zmr-60';
+import type { StrategyConfigMap, SymbolStrategyConfig } from './strategy-config';
+import type { Strategy as BacktestStrategy } from '../backtest/types';
 
 // ============================================================
 // Configuration
@@ -34,6 +36,8 @@ export interface SignalGeneratorV2Config {
   highWinRateConfig: Partial<HighWinRateConfig>;
   zmr60MergeMode: ZMR60MergeMode;
   zmr60Config: Partial<ZMR60Config>;
+  /** 심볼별 전략 설정 (strategy-config.json에서 로드) */
+  strategyConfig?: StrategyConfigMap;
 }
 
 const DEFAULT_CONFIG: SignalGeneratorV2Config = {
@@ -70,6 +74,8 @@ export class SignalGeneratorV2 {
     signalsFiltered: 0,
     byStrategy: new Map<string, { count: number; wins: number; losses: number; ties: number }>(),
   };
+  /** 백테스트 전략 레지스트리 (strategy-config에서 참조하는 전략) */
+  private backtestStrategies: Map<string, BacktestStrategy> = new Map();
 
   constructor(config?: Partial<SignalGeneratorV2Config>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -145,6 +151,33 @@ export class SignalGeneratorV2 {
   }
 
   /**
+   * Load strategy config for symbol-specific strategy selection.
+   * When loaded, selectStrategy will prefer config-specified strategies
+   * before falling back to the default behavior.
+   */
+  loadStrategyConfig(configMap: StrategyConfigMap): void {
+    this.config.strategyConfig = configMap;
+  }
+
+  /**
+   * Register a backtest strategy for use with strategy-config.
+   * strategy-config references strategyIds from the leaderboard,
+   * which are backtest strategy IDs.
+   */
+  registerBacktestStrategy(strategy: BacktestStrategy): void {
+    this.backtestStrategies.set(strategy.id, strategy);
+  }
+
+  /**
+   * Register multiple backtest strategies at once.
+   */
+  registerBacktestStrategies(strategies: BacktestStrategy[]): void {
+    for (const s of strategies) {
+      this.backtestStrategies.set(s.id, s);
+    }
+  }
+
+  /**
    * Update signal result
    */
   updateSignalResult(signalId: string, result: 'win' | 'loss' | 'tie'): void {
@@ -174,8 +207,8 @@ export class SignalGeneratorV2 {
   private checkSignals(symbol: string, candles: Candle[]): Signal | null {
     const regimeInfo = detectRegime(candles);
 
-    // 1. 시장 레짐에 따른 전략 선택
-    const strategyResult = this.selectStrategy(candles, regimeInfo);
+    // 1. 시장 레짐에 따른 전략 선택 (config가 있으면 config 우선)
+    const strategyResult = this.selectStrategy(candles, regimeInfo, symbol);
 
     if (!strategyResult || !strategyResult.signal) {
       return null;
@@ -220,6 +253,76 @@ export class SignalGeneratorV2 {
   }
 
   private selectStrategy(
+    candles: Candle[],
+    regimeInfo: { regime: MarketRegime; adx: number; direction: number },
+    symbol?: string,
+  ): StrategyResult | null {
+    // strategy-config가 있고 심볼에 대한 설정이 있으면 config 기반 선택 시도
+    if (symbol && this.config.strategyConfig) {
+      const symbolConfig = this.config.strategyConfig[symbol];
+      if (symbolConfig) {
+        const configResult = this.selectFromConfig(candles, symbolConfig);
+        if (configResult && configResult.signal) {
+          return configResult;
+        }
+        // config에서 신호가 없으면 기본 로직으로 fallback
+      }
+    }
+
+    return this.selectStrategyDefault(candles, regimeInfo);
+  }
+
+  /**
+   * strategy-config 기반 전략 선택.
+   * 우선순위 순서로 전략을 시도하고, 첫 번째 신호를 반환한다.
+   */
+  private selectFromConfig(
+    candles: Candle[],
+    symbolConfig: SymbolStrategyConfig,
+  ): StrategyResult | null {
+    for (const strategyId of symbolConfig.strategies) {
+      const params = symbolConfig.params[strategyId];
+      try {
+        const result = this.executeBacktestStrategy(strategyId, candles, params);
+        if (result && result.signal) {
+          return result;
+        }
+      } catch {
+        // 전략 실행 실패 → 다음 전략으로 fallback
+        continue;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 백테스트 전략을 StrategyResult 형식으로 실행한다.
+   */
+  private executeBacktestStrategy(
+    strategyId: string,
+    candles: Candle[],
+    params?: Record<string, number>,
+  ): StrategyResult | null {
+    const strategy = this.backtestStrategies.get(strategyId);
+    if (!strategy) return null;
+
+    const effectiveParams = params ?? getDefaultParams(strategy);
+    const signal = strategy.generateSignal(candles, effectiveParams);
+    if (!signal || !signal.direction) return null;
+
+    return {
+      signal: signal.direction,
+      confidence: signal.confidence,
+      strategyId,
+      reason: signal.reason ?? `[config] ${strategy.name}`,
+      indicators: signal.indicators,
+    };
+  }
+
+  /**
+   * 기존 하드코딩된 전략 선택 로직 (후방호환).
+   */
+  private selectStrategyDefault(
     candles: Candle[],
     regimeInfo: { regime: MarketRegime; adx: number; direction: number },
   ): StrategyResult | null {
@@ -359,6 +462,18 @@ export class SignalGeneratorV2 {
       status: 'pending',
     };
   }
+}
+
+// ============================================================
+// Helper: Extract default params from Strategy definition
+// ============================================================
+
+function getDefaultParams(strategy: BacktestStrategy): Record<string, number> {
+  const params: Record<string, number> = {};
+  for (const [key, def] of Object.entries(strategy.params)) {
+    params[key] = def.default;
+  }
+  return params;
 }
 
 // ============================================================

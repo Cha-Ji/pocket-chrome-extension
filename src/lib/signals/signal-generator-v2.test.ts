@@ -424,6 +424,250 @@ describe('SignalGeneratorV2', () => {
       expect(rsiBBBounceStrategy).not.toHaveBeenCalled();
     });
   });
+
+  // ============================================================
+  // strategy-config 기반 전략 선택
+  // ============================================================
+
+  describe('strategy-config 기반 전략 선택', () => {
+    it('config가 있으면 config의 전략을 우선 사용한다', () => {
+      const mockStrategy = {
+        id: 'test-strategy',
+        name: 'Test Strategy',
+        description: 'Test',
+        params: {},
+        generateSignal: vi.fn().mockReturnValue({
+          direction: 'CALL',
+          confidence: 0.85,
+          indicators: { test: 1 },
+          reason: 'Test signal',
+        }),
+      };
+
+      generator.registerBacktestStrategy(mockStrategy);
+      generator.loadStrategyConfig({
+        BTCUSDT: {
+          strategies: ['test-strategy'],
+          params: {},
+        },
+      });
+
+      const candles = generateCandles(60);
+      generator.setHistory('BTCUSDT', candles);
+      const signal = generator.addCandle('BTCUSDT', makeCandle(50100, 1000000 + 60 * 60000));
+
+      expect(signal).not.toBeNull();
+      expect(signal!.strategyId).toBe('test-strategy');
+      expect(mockStrategy.generateSignal).toHaveBeenCalled();
+    });
+
+    it('config의 첫 번째 전략이 실패하면 두 번째 전략을 시도한다', () => {
+      const failStrategy = {
+        id: 'fail-strategy',
+        name: 'Fail Strategy',
+        description: 'Always fails',
+        params: {},
+        generateSignal: vi.fn().mockReturnValue(null),
+      };
+
+      const successStrategy = {
+        id: 'success-strategy',
+        name: 'Success Strategy',
+        description: 'Always succeeds',
+        params: {},
+        generateSignal: vi.fn().mockReturnValue({
+          direction: 'PUT',
+          confidence: 0.7,
+          indicators: {},
+          reason: 'Fallback signal',
+        }),
+      };
+
+      generator.registerBacktestStrategies([failStrategy, successStrategy]);
+      generator.loadStrategyConfig({
+        BTCUSDT: {
+          strategies: ['fail-strategy', 'success-strategy'],
+          params: {},
+        },
+      });
+
+      const selectStrategy = (generator as any).selectStrategy.bind(generator);
+      const candles = generateCandles(60);
+
+      const result = selectStrategy(
+        candles,
+        { regime: 'ranging', adx: 15, direction: 0 },
+        'BTCUSDT',
+      );
+
+      expect(failStrategy.generateSignal).toHaveBeenCalled();
+      expect(successStrategy.generateSignal).toHaveBeenCalled();
+      expect(result).not.toBeNull();
+      expect(result!.strategyId).toBe('success-strategy');
+    });
+
+    it('config의 모든 전략이 실패하면 기본 로직으로 fallback한다', async () => {
+      const { rsiBBBounceStrategy } = await import('../backtest/strategies/high-winrate');
+
+      const failStrategy = {
+        id: 'fail-strategy',
+        name: 'Fail',
+        description: 'Fails',
+        params: {},
+        generateSignal: vi.fn().mockReturnValue(null),
+      };
+
+      generator.registerBacktestStrategy(failStrategy);
+      generator.loadStrategyConfig({
+        BTCUSDT: {
+          strategies: ['fail-strategy'],
+          params: {},
+        },
+      });
+
+      const selectStrategy = (generator as any).selectStrategy.bind(generator);
+      const candles = generateCandles(60);
+
+      selectStrategy(candles, { regime: 'ranging', adx: 15, direction: 0 }, 'BTCUSDT');
+
+      // config 전략이 실패했으므로 기본 로직(rsiBBBounceStrategy)이 호출되어야 한다
+      expect(rsiBBBounceStrategy).toHaveBeenCalled();
+    });
+
+    it('config에 없는 심볼이면 기본 로직을 사용한다', async () => {
+      const { rsiBBBounceStrategy } = await import('../backtest/strategies/high-winrate');
+      (rsiBBBounceStrategy as ReturnType<typeof vi.fn>).mockClear();
+
+      generator.loadStrategyConfig({
+        'OTHER-SYMBOL': {
+          strategies: ['some-strategy'],
+          params: {},
+        },
+      });
+
+      const selectStrategy = (generator as any).selectStrategy.bind(generator);
+      const candles = generateCandles(60);
+
+      selectStrategy(candles, { regime: 'ranging', adx: 15, direction: 0 }, 'BTCUSDT');
+
+      // BTCUSDT에 대한 config가 없으므로 기본 로직 사용
+      expect(rsiBBBounceStrategy).toHaveBeenCalled();
+    });
+
+    it('config가 없으면 기존 동작을 유지한다 (후방호환)', async () => {
+      const { rsiBBBounceStrategy } = await import('../backtest/strategies/high-winrate');
+      (rsiBBBounceStrategy as ReturnType<typeof vi.fn>).mockClear();
+
+      // strategyConfig를 설정하지 않음
+      const selectStrategy = (generator as any).selectStrategy.bind(generator);
+      const candles = generateCandles(60);
+
+      selectStrategy(candles, { regime: 'ranging', adx: 15, direction: 0 }, 'BTCUSDT');
+      expect(rsiBBBounceStrategy).toHaveBeenCalled();
+    });
+
+    it('config에서 지정한 params를 전략에 전달한다', () => {
+      const mockStrategy = {
+        id: 'param-strategy',
+        name: 'Param Strategy',
+        description: 'Test',
+        params: {
+          period: { default: 14, min: 5, max: 50, step: 1 },
+        },
+        generateSignal: vi.fn().mockReturnValue({
+          direction: 'CALL',
+          confidence: 0.8,
+          indicators: {},
+        }),
+      };
+
+      generator.registerBacktestStrategy(mockStrategy);
+      generator.loadStrategyConfig({
+        BTCUSDT: {
+          strategies: ['param-strategy'],
+          params: { 'param-strategy': { period: 7 } },
+        },
+      });
+
+      const selectStrategy = (generator as any).selectStrategy.bind(generator);
+      const candles = generateCandles(60);
+
+      selectStrategy(candles, { regime: 'ranging', adx: 15, direction: 0 }, 'BTCUSDT');
+
+      // custom params가 전달되었는지 확인
+      expect(mockStrategy.generateSignal).toHaveBeenCalledWith(candles, { period: 7 });
+    });
+
+    it('config에 params가 없으면 전략의 기본값을 사용한다', () => {
+      const mockStrategy = {
+        id: 'default-param-strategy',
+        name: 'Default Param Strategy',
+        description: 'Test',
+        params: {
+          period: { default: 14, min: 5, max: 50, step: 1 },
+          threshold: { default: 70, min: 50, max: 90, step: 5 },
+        },
+        generateSignal: vi.fn().mockReturnValue({
+          direction: 'PUT',
+          confidence: 0.75,
+          indicators: {},
+        }),
+      };
+
+      generator.registerBacktestStrategy(mockStrategy);
+      generator.loadStrategyConfig({
+        BTCUSDT: {
+          strategies: ['default-param-strategy'],
+          params: {},
+        },
+      });
+
+      const selectStrategy = (generator as any).selectStrategy.bind(generator);
+      const candles = generateCandles(60);
+
+      selectStrategy(candles, { regime: 'ranging', adx: 15, direction: 0 }, 'BTCUSDT');
+
+      // 기본 파라미터가 사용되어야 한다
+      expect(mockStrategy.generateSignal).toHaveBeenCalledWith(candles, {
+        period: 14,
+        threshold: 70,
+      });
+    });
+
+    it('등록되지 않은 전략은 건너뛴다', () => {
+      const mockStrategy = {
+        id: 'registered-strategy',
+        name: 'Registered',
+        description: 'Test',
+        params: {},
+        generateSignal: vi.fn().mockReturnValue({
+          direction: 'CALL',
+          confidence: 0.9,
+          indicators: {},
+        }),
+      };
+
+      generator.registerBacktestStrategy(mockStrategy);
+      generator.loadStrategyConfig({
+        BTCUSDT: {
+          strategies: ['unregistered-strategy', 'registered-strategy'],
+          params: {},
+        },
+      });
+
+      const selectStrategy = (generator as any).selectStrategy.bind(generator);
+      const candles = generateCandles(60);
+
+      const result = selectStrategy(
+        candles,
+        { regime: 'ranging', adx: 15, direction: 0 },
+        'BTCUSDT',
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.strategyId).toBe('registered-strategy');
+    });
+  });
 });
 
 // ============================================================
