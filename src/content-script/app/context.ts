@@ -12,6 +12,7 @@ import { IndicatorReader } from '../indicator-reader';
 import { SignalGeneratorV2 } from '../../lib/signals/signal-generator-v2';
 import { TelegramService } from '../../lib/notifications/telegram';
 import { getWebSocketInterceptor } from '../websocket-interceptor';
+import type { AccountVerifier } from '../../lib/safety/account-verifier';
 
 export interface PendingTrade {
   tradeId: number;
@@ -49,6 +50,7 @@ export interface ContentScriptContext {
   signalGenerator: SignalGeneratorV2 | null;
   telegramService: TelegramService | null;
   wsInterceptor: ReturnType<typeof getWebSocketInterceptor> | null;
+  accountVerifier: AccountVerifier | null;
 
   // State flags
   isInitialized: boolean;
@@ -72,6 +74,7 @@ export function createContext(): ContentScriptContext {
     signalGenerator: null,
     telegramService: null,
     wsInterceptor: null,
+    accountVerifier: null,
 
     isInitialized: false,
     isExecutingTrade: false,

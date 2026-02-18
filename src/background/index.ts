@@ -693,7 +693,7 @@ async function handleSelectorHealthcheckResult(
       );
 
       // Force-stop active trading session when critical selectors are missing
-      if (tradingStatus.isRunning) {
+      if (backgroundStore.getState().tradingStatus.isRunning) {
         console.warn('[Background] Force-stopping trading due to selector healthcheck failure');
         await stopTrading();
       }
