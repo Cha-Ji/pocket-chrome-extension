@@ -21,18 +21,25 @@
     // ── 메시지 디코딩 ────────────────────────────────────
 
     var decodeData = function(data) {
-        if (typeof data === 'string') return Promise.resolve({ text: data, type: 'string' });
+        if (typeof data === 'string') {
+            // byteLength: UTF-8 인코딩 기준 바이트 수
+            var byteLength = typeof TextEncoder !== 'undefined'
+                ? new TextEncoder().encode(data).byteLength
+                : data.length;
+            return Promise.resolve({ text: data, type: 'string', byteLength: byteLength });
+        }
         if (data instanceof ArrayBuffer) {
             var text = new TextDecoder('utf-8').decode(new Uint8Array(data));
-            return Promise.resolve({ text: text, type: 'arraybuffer' });
+            return Promise.resolve({ text: text, type: 'arraybuffer', byteLength: data.byteLength });
         }
         if (data instanceof Blob) {
+            var blobSize = data.size;
             return data.arrayBuffer().then(function(buf) {
                 var text = new TextDecoder('utf-8').decode(new Uint8Array(buf));
-                return { text: text, type: 'blob' };
+                return { text: text, type: 'blob', byteLength: blobSize };
             });
         }
-        return Promise.resolve({ text: null, type: typeof data });
+        return Promise.resolve({ text: null, type: typeof data, byteLength: 0 });
     };
 
     var extractPayload = function(text) {
@@ -86,6 +93,7 @@
                     text: typeof data === 'string' ? data : null,
                     payload: payload || null,
                     dataType: decoded.type,
+                    dataSize: decoded.byteLength,
                     timestamp: Date.now()
                 }
             }, window.location.origin);
