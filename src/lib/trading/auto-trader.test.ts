@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AutoTrader, AutoTraderConfig, AutoTraderStats } from './auto-trader';
+import { POError, ErrorCode, errorHandler } from '../errors';
 
 // fetchCandles, SignalGenerator 모킹
 vi.mock('../signals/signal-generator', () => ({
@@ -457,6 +458,213 @@ describe('AutoTrader', () => {
       const cb = vi.fn();
       trader.setResultCallback(cb);
       expect((trader as any).onResult).toBe(cb);
+    });
+
+    it('setErrorCallback이 설정된다', () => {
+      const cb = vi.fn();
+      trader.setErrorCallback(cb);
+      expect((trader as any).onError).toBe(cb);
+    });
+  });
+
+  // ============================================================
+  // 에러 전파 (silent fail 제거 검증)
+  // ============================================================
+
+  describe('에러 전파 - tick에서 fetchCandles 실패', () => {
+    it('tick에서 에러 발생 시 onError 콜백으로 POError가 전파된다', async () => {
+      const { fetchCandles } = await import('../signals/signal-generator');
+      const fetchMock = fetchCandles as ReturnType<typeof vi.fn>;
+      fetchMock.mockRejectedValueOnce(new Error('Network failure'));
+
+      const errors: POError[] = [];
+      trader.setErrorCallback((err) => errors.push(err));
+      (trader as any).config.enabled = true;
+
+      await (trader as any).tick();
+
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBeInstanceOf(POError);
+      expect(errors[0].code).toBe(ErrorCode.NETWORK_REQUEST_FAILED);
+      expect(errors[0].context.module).toBe('lib/trading');
+      expect(errors[0].context.function).toBe('tick');
+    });
+
+    it('tick에서 에러 발생 시 errorHandler에도 기록된다', async () => {
+      const { fetchCandles } = await import('../signals/signal-generator');
+      const fetchMock = fetchCandles as ReturnType<typeof vi.fn>;
+      fetchMock.mockRejectedValueOnce(new Error('Network failure'));
+
+      errorHandler.clearHistory();
+      (trader as any).config.enabled = true;
+
+      await (trader as any).tick();
+
+      const history = errorHandler.getHistory();
+      expect(history.length).toBeGreaterThanOrEqual(1);
+      expect(history[0].error.code).toBe(ErrorCode.NETWORK_REQUEST_FAILED);
+    });
+
+    it('tick에서 에러 발생 시 로그 콜백에 에러 메시지가 전달된다', async () => {
+      const { fetchCandles } = await import('../signals/signal-generator');
+      const fetchMock = fetchCandles as ReturnType<typeof vi.fn>;
+      fetchMock.mockRejectedValueOnce(new Error('Network failure'));
+
+      const logs: Array<{ message: string; level: string }> = [];
+      trader.setLogCallback((msg, level) => logs.push({ message: msg, level }));
+      (trader as any).config.enabled = true;
+
+      await (trader as any).tick();
+
+      const errorLogs = logs.filter((l) => l.level === 'error');
+      expect(errorLogs.length).toBeGreaterThanOrEqual(1);
+      expect(errorLogs[0].message).toContain('NETWORK_REQUEST_FAILED');
+    });
+  });
+
+  describe('에러 전파 - loadHistory에서 실패', () => {
+    it('loadHistory에서 에러 발생 시 onError 콜백으로 전파된다', async () => {
+      const { fetchCandles } = await import('../signals/signal-generator');
+      const fetchMock = fetchCandles as ReturnType<typeof vi.fn>;
+      fetchMock.mockRejectedValueOnce(new Error('API timeout'));
+
+      const errors: POError[] = [];
+      trader.setErrorCallback((err) => errors.push(err));
+
+      await (trader as any).loadHistory();
+
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBeInstanceOf(POError);
+      expect(errors[0].context.function).toBe('loadHistory');
+    });
+  });
+
+  describe('에러 전파 - simulateResult에서 실패', () => {
+    it('simulateResult에서 에러 발생 시 onError 콜백으로 전파된다', async () => {
+      const { fetchCandles } = await import('../signals/signal-generator');
+      const fetchMock = fetchCandles as ReturnType<typeof vi.fn>;
+      fetchMock.mockRejectedValueOnce(new Error('Price fetch failed'));
+
+      const errors: POError[] = [];
+      trader.setErrorCallback((err) => errors.push(err));
+
+      const execution = {
+        signalId: 'test-1',
+        executedAt: Date.now(),
+        direction: 'CALL' as const,
+        amount: 10,
+        expiry: 60,
+        entryPrice: 50000,
+      };
+
+      await (trader as any).simulateResult(execution);
+
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBeInstanceOf(POError);
+      expect(errors[0].context.function).toBe('simulateResult');
+    });
+  });
+
+  describe('에러 전파 - executeSignal에서 콜백 실패', () => {
+    it('onExecute 콜백이 throw하면 POError로 정규화되어 전파된다', async () => {
+      const liveTrader = new AutoTrader({
+        ...defaultConfig,
+        demoMode: false,
+      });
+
+      liveTrader.setExecuteCallback(async () => {
+        throw new Error('Executor crashed');
+      });
+
+      const errors: POError[] = [];
+      liveTrader.setErrorCallback((err) => errors.push(err));
+
+      const signal = {
+        id: 'sig-1',
+        symbol: 'BTCUSDT',
+        direction: 'CALL' as const,
+        strategy: 'test',
+        confidence: 0.9,
+        entryPrice: 50000,
+        timestamp: Date.now(),
+        expiry: 60,
+      };
+
+      await (liveTrader as any).executeSignal(signal);
+
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBeInstanceOf(POError);
+      expect(errors[0].code).toBe(ErrorCode.TRADE_EXECUTION_FAILED);
+    });
+
+    it('onExecute가 false를 반환하면 TRADE_EXECUTION_FAILED POError가 전파된다', async () => {
+      const liveTrader = new AutoTrader({
+        ...defaultConfig,
+        demoMode: false,
+      });
+
+      liveTrader.setExecuteCallback(async () => false);
+
+      const errors: POError[] = [];
+      liveTrader.setErrorCallback((err) => errors.push(err));
+
+      const signal = {
+        id: 'sig-2',
+        symbol: 'BTCUSDT',
+        direction: 'PUT' as const,
+        strategy: 'test',
+        confidence: 0.8,
+        entryPrice: 50000,
+        timestamp: Date.now(),
+        expiry: 60,
+      };
+
+      await (liveTrader as any).executeSignal(signal);
+
+      expect(errors).toHaveLength(1);
+      expect(errors[0].code).toBe(ErrorCode.TRADE_EXECUTION_FAILED);
+    });
+  });
+
+  describe('에러 전파 - handleError가 POError를 재활용한다', () => {
+    it('이미 POError인 경우 코드를 유지한다', () => {
+      const original = new POError({
+        code: ErrorCode.TRADE_INVALID_AMOUNT,
+        message: 'test',
+        context: { module: 'lib/trading', function: 'test' },
+      });
+
+      const result = (trader as any).handleError(original, 'test');
+
+      expect(result).toBeInstanceOf(POError);
+      expect(result.code).toBe(ErrorCode.TRADE_INVALID_AMOUNT);
+    });
+
+    it('일반 Error는 지정된 코드로 POError로 변환된다', () => {
+      const result = (trader as any).handleError(
+        new Error('plain error'),
+        'test',
+        ErrorCode.TRADE_EXECUTION_FAILED,
+      );
+
+      expect(result).toBeInstanceOf(POError);
+      expect(result.code).toBe(ErrorCode.TRADE_EXECUTION_FAILED);
+      expect(result.message).toBe('plain error');
+    });
+
+    it('onError 콜백이 throw해도 handleError는 정상 반환한다', () => {
+      trader.setErrorCallback(() => {
+        throw new Error('callback bug');
+      });
+
+      const result = (trader as any).handleError(
+        new Error('original error'),
+        'test',
+        ErrorCode.UNKNOWN,
+      );
+
+      expect(result).toBeInstanceOf(POError);
+      expect(result.message).toBe('original error');
     });
   });
 });
