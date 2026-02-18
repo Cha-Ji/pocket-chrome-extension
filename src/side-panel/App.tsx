@@ -8,6 +8,7 @@ import { Dashboard } from './components/Dashboard';
 import { AutoMinerControl } from './components/AutoMinerControl';
 import { HistoryMiner } from './components/HistoryMiner';
 import { DBMonitorDashboard } from './components/DBMonitorDashboard';
+import { SelectorWarning } from './components/SelectorWarning';
 import { useTradingStatus } from './hooks/useTradingStatus';
 import { useLogs } from './hooks/useLogs';
 import { useTrades } from './hooks/useTrades';
@@ -155,6 +156,9 @@ function AppContent() {
           {status.isRunning ? 'RUNNING' : 'STOPPED'}
         </span>
       </header>
+
+      {/* Selector Healthcheck Warning */}
+      <SelectorWarning />
 
       {/* Tab Navigation */}
       <div className="flex gap-1 bg-pocket-dark rounded-lg p-1">

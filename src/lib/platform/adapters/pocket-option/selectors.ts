@@ -1,84 +1,99 @@
 // ============================================================
-// Pocket Option DOM Selectors - 플랫폼별 셀렉터 정의
+// Pocket Option DOM Selectors — Aggregator
 // ============================================================
-// 기존 DEFAULT_SELECTORS, ROBUST_SELECTORS, 각 모듈의 로컬 셀렉터를
-// 한 곳에 모아 관리한다. PO Real 어댑터는 이 파일을 상속/오버라이드한다.
+// Re-exports environment-specific selectors from sub-modules.
+// Provides detectEnvironment() and getSelectorsForEnvironment()
+// for environment-aware selector resolution.
 // ============================================================
 
 import type { DOMSelectors } from '../../../types';
 
-/** Pocket Option Demo 전용 셀렉터 */
-export const PO_DEMO_SELECTORS: DOMSelectors = {
-  callButton: '.switch-state-block__item:first-child',
-  putButton: '.switch-state-block__item:last-child',
-  amountInput: '#put-call-buttons-chart-1 input[type="text"]',
-  expirationDisplay: '.block--expiration-inputs .value__val',
-  balanceDisplay: '.balance-info-block__value',
-  balanceLabel: '.balance-info-block__label',
-  tickerSelector: '.chart-item .pair',
-  chartContainer: '.chart-item',
-  priceDisplay: '.chart-item .value__val',
-  demoIndicator: '.balance-info-block__label',
-};
+// ─── Re-exports from sub-modules ────────────────────────────
 
-/** 페이아웃 모니터용 셀렉터 */
-export const PO_PAYOUT_SELECTORS = {
-  assetList: '.assets-block__alist.alist',
-  assetItem: '.alist__item',
-  assetLabel: '.alist__label',
-  assetProfit: '.alist__payout',
-  pairTrigger: '.current-symbol',
-  overlay: '.modal-overlay',
-} as const;
+export type { PlatformEnvironment } from './selectors.common';
+export {
+  SELECTOR_VERSION,
+  PO_DOMAINS,
+  PO_PAYOUT_SELECTORS,
+  PO_PRICE_SELECTORS,
+  PO_DEMO_DETECTION,
+  PO_REAL_DETECTION,
+  CRITICAL_SELECTOR_KEYS,
+  NON_CRITICAL_SELECTOR_KEYS,
+} from './selectors.common';
 
-/** 가격 수집용 셀렉터 */
-export const PO_PRICE_SELECTORS = {
-  currentPrice: '.chart-item .value, .chart-block__price .value',
-  priceValue: '.chart-item .value__val, .chart-block__price .value__val',
-  chartCanvas: 'canvas.chart-area',
-  chartContainer: '.chart-item, .chart-block',
-  assetName: '.chart-item .pair, .chart-block .pair',
-  serverTime: '.server-time, .time-block',
-} as const;
+export { PO_DEMO_SELECTORS, PO_DEMO_FALLBACKS } from './selectors.demo';
+export { PO_REAL_SELECTORS, PO_REAL_FALLBACKS } from './selectors.real';
 
-/** 데모 감지용 CSS 셀렉터 */
-export const PO_DEMO_DETECTION = {
-  demoChartClass: '.is-chart-demo',
-  balanceLabel: '.balance-info-block__label',
-} as const;
+// ─── Internal imports for logic ─────────────────────────────
 
-/** Pocket Option Real (Live) 전용 셀렉터 — Demo와 동일 구조, 차이점만 오버라이드 */
-export const PO_REAL_SELECTORS: DOMSelectors = {
-  ...PO_DEMO_SELECTORS,
-  // Real 모드에서 다를 수 있는 셀렉터를 여기에 오버라이드
-};
+import type { PlatformEnvironment } from './selectors.common';
+import { PO_DEMO_SELECTORS, PO_DEMO_FALLBACKS } from './selectors.demo';
+import { PO_REAL_SELECTORS, PO_REAL_FALLBACKS } from './selectors.real';
 
-/** Real 모드 감지 셀렉터 */
-export const PO_REAL_DETECTION = {
-  /** Real 모드에는 .is-chart-demo 클래스가 없음 */
-  balanceLabel: '.balance-info-block__label',
-} as const;
+// ─── Legacy backward-compat re-export ───────────────────────
 
-/** 셀렉터 fallback 체인 — 셀렉터 키별 대체 후보 (우선순위순) */
-export const PO_SELECTOR_FALLBACKS: Record<string, string[]> = {
-  callButton: [
-    '.switch-state-block__item:first-child',
-    '.btn-call',
-    '.trading-panel__buttons-item--up',
-  ],
-  putButton: [
-    '.switch-state-block__item:last-child',
-    '.btn-put',
-    '.trading-panel__buttons-item--down',
-  ],
-  priceDisplay: [
-    '.chart-item .value__val',
-    '.chart-block__price .value',
-    '.current-price',
-    '[data-test="current-price"]',
-  ],
-  balanceDisplay: ['.balance-info-block__value', '.user-balance', '.header__balance-value'],
-};
+/**
+ * Legacy fallback chains export.
+ * @deprecated Use getFallbacksForEnvironment(env) instead.
+ */
+export const PO_SELECTOR_FALLBACKS: Record<string, string[]> = PO_DEMO_FALLBACKS;
 
-/** Pocket Option 도메인 패턴 */
-export const PO_DOMAINS = ['pocketoption.com', 'po.trade', 'po2.trade'] as const;
+// ─── Environment Detection ──────────────────────────────────
+
+/**
+ * Detect the current platform environment (demo/real/unknown).
+ *
+ * Uses a 3-point check:
+ * 1. URL path contains 'demo'
+ * 2. Chart element has '.is-chart-demo' class
+ * 3. Balance label text contains 'demo'
+ *
+ * Returns 'unknown' when signals are mixed or insufficient.
+ */
+export function detectEnvironment(): PlatformEnvironment {
+  // 1. URL check (most reliable)
+  const urlHasDemo = window.location.pathname.includes('demo');
+
+  // 2. CSS class check
+  const hasChartDemoClass = !!document.querySelector('.is-chart-demo');
+
+  // 3. Balance label check
+  const labelText =
+    document.querySelector('.balance-info-block__label')?.textContent?.toLowerCase() ?? '';
+  const labelHasDemo = labelText.includes('demo');
+
+  // Strong demo signals
+  if (urlHasDemo) return 'demo';
+  if (hasChartDemoClass && labelHasDemo) return 'demo';
+
+  // Strong real signals: no demo indicators AND label has meaningful text
+  if (!hasChartDemoClass && !labelHasDemo && labelText.length > 0) return 'real';
+
+  // Mixed or insufficient signals
+  return 'unknown';
+}
+
+/** Get the primary selector set for the detected environment */
+export function getSelectorsForEnvironment(env: PlatformEnvironment): DOMSelectors {
+  switch (env) {
+    case 'demo':
+      return PO_DEMO_SELECTORS;
+    case 'real':
+      return PO_REAL_SELECTORS;
+    case 'unknown':
+      return PO_DEMO_SELECTORS; // safe default
+  }
+}
+
+/** Get the fallback chains for the detected environment */
+export function getFallbacksForEnvironment(env: PlatformEnvironment): Record<string, string[]> {
+  switch (env) {
+    case 'demo':
+      return PO_DEMO_FALLBACKS;
+    case 'real':
+      return PO_REAL_FALLBACKS;
+    case 'unknown':
+      return PO_DEMO_FALLBACKS; // safe default
+  }
+}

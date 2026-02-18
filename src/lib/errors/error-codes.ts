@@ -71,6 +71,11 @@ export enum ErrorCode {
   WS_MESSAGE_PARSE_FAILED = 'WS_MESSAGE_PARSE_FAILED',
 
   // ============================================
+  // Selector Healthcheck Errors
+  // ============================================
+  SELECTOR_HEALTHCHECK_FAILED = 'SELECTOR_HEALTHCHECK_FAILED',
+
+  // ============================================
   // Unknown/Generic Errors (9xx)
   // ============================================
   UNKNOWN = 'UNKNOWN',
@@ -146,6 +151,9 @@ export const ERROR_SEVERITY_MAP: Record<ErrorCode, ErrorSeverity> = {
   [ErrorCode.WS_DISCONNECTED]: ErrorSeverity.WARNING,
   [ErrorCode.WS_MESSAGE_PARSE_FAILED]: ErrorSeverity.WARNING,
 
+  // Selector Healthcheck
+  [ErrorCode.SELECTOR_HEALTHCHECK_FAILED]: ErrorSeverity.ERROR,
+
   // Unknown
   [ErrorCode.UNKNOWN]: ErrorSeverity.ERROR,
   [ErrorCode.INTERNAL]: ErrorSeverity.ERROR,
@@ -205,6 +213,9 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.WS_CONNECTION_FAILED]: 'WebSocket 연결 실패',
   [ErrorCode.WS_DISCONNECTED]: 'WebSocket 연결 끊김',
   [ErrorCode.WS_MESSAGE_PARSE_FAILED]: 'WebSocket 메시지 파싱 실패',
+
+  // Selector Healthcheck
+  [ErrorCode.SELECTOR_HEALTHCHECK_FAILED]: '셀렉터 헬스체크 실패 — 거래 기능 중단됨',
 
   // Unknown
   [ErrorCode.UNKNOWN]: '알 수 없는 오류',
