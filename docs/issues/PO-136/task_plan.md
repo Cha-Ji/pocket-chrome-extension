@@ -14,4 +14,4 @@ Binance 저장 데이터(JSON + SQLite) 기반 백테스트를 자동 실행하�
 - [x] 메시지 길이 제한(분할 전송) 처리
 - [x] 테스트 코드 추가 (`scripts/run-binance-backtests-and-notify.test.ts`)
 - [x] 테스트 실행 및 통과 확인
-- [ ] 커밋 + 푸시 + PR 생성 (`Closes #136`)
+- [x] 커밋 + 푸시 + PR 생성 (`Closes #136`)

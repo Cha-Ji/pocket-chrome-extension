@@ -20,3 +20,9 @@
 - `npx vitest run scripts/run-binance-backtests-and-notify.test.ts` → 4 passed
 - `npm run type-check` → 0 errors
 - `npm run backtest:binance:notify` (텔레그램 키 없음 환경) → 의도한 자격증명 오류 메시지 확인
+
+## 2026-02-18 배포 준비
+
+- 커밋: `0eccd3eb` (`[#136][backtest-notify] Binance 듀얼 백테스트 텔레그램 알림 자동화`)
+- 브랜치 푸시: `origin/feat/136-binance-backtest-telegram-notify`
+- PR 생성: https://github.com/Cha-Ji/pocket-chrome-extension/pull/139 (`Closes #136`)
