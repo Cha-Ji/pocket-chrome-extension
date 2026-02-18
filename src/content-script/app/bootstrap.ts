@@ -46,6 +46,16 @@ export async function initialize(ctx: ContentScriptContext): Promise<void> {
     console.log(`[PO] [3.1] Environment detected: ${env}`);
     getSelectorResolver().rebuildForEnvironment(env);
 
+    // 트레이딩 UI가 렌더링될 때까지 대기 (SPA 지연 대응)
+    const tradingPanel = await waitForElement('#put-call-buttons-chart-1', 15000);
+    if (tradingPanel) {
+      console.log('[PO] [3.1.1] Trading panel found, waiting for buttons...');
+      // 버튼이 패널 내에 렌더링될 때까지 짧은 대기
+      await waitForElement('.btn-call', 5000);
+    } else {
+      console.warn('[PO] [3.1.1] Trading panel not found within 15s, running healthcheck anyway');
+    }
+
     // Run selector healthcheck
     const healthcheck = getSelectorHealthcheck();
     const healthResult = healthcheck.runAndBroadcast();
