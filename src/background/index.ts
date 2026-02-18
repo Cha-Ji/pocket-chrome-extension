@@ -306,6 +306,12 @@ async function handleMessage(
     case 'RELOAD_TELEGRAM_CONFIG':
       return handleReloadTelegramConfig(message.payload);
 
+    case 'SELECTOR_HEALTHCHECK_RESULT':
+      return handleSelectorHealthcheckResult(message.payload);
+
+    case 'GET_SELECTOR_HEALTHCHECK':
+      return lastHealthcheckResult;
+
     default:
       // Don't log errors for relay-only messages (already forwarded via port)
       if (!RELAY_MESSAGE_TYPES.has((message as { type: string }).type)) {
@@ -657,6 +663,69 @@ async function handleReloadTelegramConfig(_config: TelegramConfig): Promise<{ su
   );
 
   return { success: true };
+}
+
+// ============================================================
+// Selector Healthcheck
+// ============================================================
+
+let lastHealthcheckResult: MessagePayloadMap['SELECTOR_HEALTHCHECK_RESULT'] | null = null;
+
+async function handleSelectorHealthcheckResult(
+  payload: MessagePayloadMap['SELECTOR_HEALTHCHECK_RESULT'],
+): Promise<{ received: boolean }> {
+  const ctx = { module: 'background' as const, function: 'handleSelectorHealthcheckResult' };
+
+  lastHealthcheckResult = payload;
+
+  if (!payload.passed) {
+    const level = payload.tradingHalted ? 'CRITICAL' : 'WARNING';
+    console.warn(`[Background] Selector healthcheck ${level}:`, payload);
+
+    if (payload.tradingHalted) {
+      errorHandler.handle(
+        new POError({
+          code: ErrorCode.SELECTOR_HEALTHCHECK_FAILED,
+          message: `Selector healthcheck failed — trading halted. Critical: [${payload.criticalFailures.join(', ')}]`,
+          severity: ErrorSeverity.ERROR,
+          context: ctx,
+        }),
+      );
+
+      // Force-stop active trading session when critical selectors are missing
+      if (tradingStatus.isRunning) {
+        console.warn('[Background] Force-stopping trading due to selector healthcheck failure');
+        await stopTrading();
+      }
+    }
+
+    // Send Telegram notification if enabled (errors channel)
+    await ignoreError(
+      async () => {
+        const telegram = await getTelegramService();
+        const config = telegram.getConfig();
+        if (config.enabled && config.notifyErrors) {
+          const failList = [
+            ...payload.criticalFailures.map((k) => `[CRITICAL] ${k}`),
+            ...payload.nonCriticalFailures.map((k) => `[WARN] ${k}`),
+          ].join('\n');
+
+          await telegram.sendMessage(
+            `<b>Selector Healthcheck ${payload.tradingHalted ? 'FAILED' : 'WARNING'}</b>\n` +
+              `env=${payload.environment} | v${payload.version}\n` +
+              `${payload.tradingHalted ? 'Trading HALTED\n' : ''}` +
+              `\n${failList}`,
+          );
+        }
+      },
+      ctx,
+      { logLevel: 'warn' },
+    );
+  } else {
+    console.log('[Background] Selector healthcheck PASSED');
+  }
+
+  return { received: true };
 }
 
 // ============================================================
