@@ -231,7 +231,11 @@ function setupWebSocketHandler(ctx: ContentScriptContext): void {
 
   ctx.wsInterceptor.onMessage((message: WebSocketMessage) => {
     // Feed WS messages to AccountVerifier for demo/real detection (#52)
-    ctx.accountVerifier?.feedWsMessage(message.raw ?? message.text ?? message.parsed);
+    // P2 review fix: Prefer parsed payload over raw frame. Socket.IO frames
+    // (e.g. "451-[...]") are rejected by WsDecoder.detectFromString because
+    // it only parses strings starting with '{' or '['. Feeding the already-
+    // parsed object/array avoids unnecessary UNKNOWN fallbacks.
+    ctx.accountVerifier?.feedWsMessage(message.parsed ?? message.raw ?? message.text);
 
     if (message.parsed && Array.isArray(message.parsed)) {
       const event = message.parsed[0];

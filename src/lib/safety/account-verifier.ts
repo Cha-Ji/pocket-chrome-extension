@@ -395,28 +395,30 @@ export class AccountVerifier {
   /**
    * Check if a trade should be allowed based on current verification state.
    * This is the gate that trade-lifecycle.ts calls before executing.
+   *
+   * P1 review fix: Forces a fresh verification instead of relying solely on
+   * cached results. This closes the window where a demo→live account switch
+   * could go undetected between periodic 30s re-verification cycles.
    */
   isTradeAllowed(): { allowed: boolean; reason?: string } {
-    if (!this.lastResult) {
-      // Never verified yet — block trades to be safe
-      return { allowed: false, reason: 'Account verification not yet completed' };
-    }
+    // Force fresh verification at trade time to catch account switches immediately
+    const result = this.verify();
 
-    if (this.lastResult.type === 'DEMO') {
+    if (result.type === 'DEMO') {
       return { allowed: true };
     }
 
-    if (this.lastResult.type === 'LIVE') {
+    if (result.type === 'LIVE') {
       return {
         allowed: false,
-        reason: `LIVE account detected (source: ${this.lastResult.source}, confidence: ${this.lastResult.confidence})`,
+        reason: `LIVE account detected (source: ${result.source}, confidence: ${result.confidence})`,
       };
     }
 
     // UNKNOWN
     return {
       allowed: false,
-      reason: `Account type unknown (source: ${this.lastResult.source}) — trading halted for safety`,
+      reason: `Account type unknown (source: ${result.source}) — trading halted for safety`,
     };
   }
 

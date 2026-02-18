@@ -434,12 +434,34 @@ describe('AccountVerifier', () => {
       expect(check.reason).toContain('LIVE');
     });
 
-    it('should block trades when never verified', () => {
+    it('should force fresh verification even without prior verify() call', () => {
+      // P1 review fix: isTradeAllowed() now calls verify() internally,
+      // so "never verified" state no longer exists. With no DOM signals
+      // present, DOM decoder returns LIVE → trades blocked.
       const verifier = createVerifier();
-      // Never called verify()
       const check = verifier.isTradeAllowed();
       expect(check.allowed).toBe(false);
-      expect(check.reason).toContain('not yet completed');
+      // Fresh verify runs decoder chain; default jsdom URL has no 'demo'
+      // and no label → DOM returns LIVE
+      expect(check.reason).toContain('LIVE');
+    });
+
+    it('should catch account switch at trade time without waiting for periodic verify', () => {
+      // P1 review fix: isTradeAllowed() forces fresh verification
+      // so a demo→live switch is detected immediately at trade gate.
+      setupDemoMode();
+      const verifier = createVerifier();
+      verifier.verify(); // initial: DEMO
+
+      // Simulate account switch to live
+      document.body.innerHTML = '';
+      setupLiveMode();
+
+      // Even without waiting for the periodic re-verify timer,
+      // isTradeAllowed() catches the switch immediately
+      const check = verifier.isTradeAllowed();
+      expect(check.allowed).toBe(false);
+      expect(check.reason).toContain('LIVE');
     });
   });
 
