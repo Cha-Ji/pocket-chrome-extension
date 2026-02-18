@@ -427,10 +427,28 @@ app.get('/api/candles_1m', (req, res) => {
       }>;
 
       if (cached.length > 0) {
-        return res.json({
-          candles: cached,
-          meta: { symbol, count: cached.length, source: 'cache' },
-        });
+        // Verify cache covers the requested range by checking tick boundaries
+        const tickRange = db
+          .prepare(
+            `SELECT MIN(ts_ms) as min_ts, MAX(ts_ms) as max_ts FROM ticks WHERE symbol = ? AND ts_ms >= ? AND ts_ms <= ?`
+          )
+          .get(symbol as string, startTs, endTs) as { min_ts: number | null; max_ts: number | null };
+
+        const cacheMin = cached[0].ts_ms;
+        const cacheMax = cached[cached.length - 1].ts_ms;
+        const INTERVAL_MS = 60000;
+
+        // Cache is considered complete if it covers the tick data boundaries (within 1 interval tolerance)
+        const coversStart = !tickRange.min_ts || cacheMin <= tickRange.min_ts + INTERVAL_MS;
+        const coversEnd = !tickRange.max_ts || cacheMax >= tickRange.max_ts - INTERVAL_MS;
+
+        if (coversStart && coversEnd) {
+          return res.json({
+            candles: cached,
+            meta: { symbol, count: cached.length, source: 'cache' },
+          });
+        }
+        // Cache incomplete — fall through to resample
       }
     }
 
@@ -790,12 +808,8 @@ function resampleAndCache(
   }>;
   tickCount: number;
 } {
-  const lastCache = db
-    .prepare(`SELECT MAX(ts_ms) as last_ts FROM candles_1m WHERE symbol = ?`)
-    .get(symbol) as { last_ts: number | null };
-
-  const effectiveStart = lastCache.last_ts ? Math.max(startTs, lastCache.last_ts) : startTs;
-
+  // Always read ticks from the original startTs to allow backfilling earlier ranges.
+  // The INSERT ON CONFLICT in upsertTransaction handles already-cached buckets safely.
   const ticks = db
     .prepare(
       `
@@ -804,7 +818,7 @@ function resampleAndCache(
     ORDER BY ts_ms ASC
   `
     )
-    .all(symbol, effectiveStart, endTs) as Array<{ ts_ms: number; price: number }>;
+    .all(symbol, startTs, endTs) as Array<{ ts_ms: number; price: number }>;
 
   if (ticks.length === 0) {
     const existing = db
