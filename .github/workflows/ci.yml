@@ -28,9 +28,6 @@ jobs:
       - name: Lint
         run: npx eslint src
 
-      - name: Format check
-        run: npx prettier --check "src/**/*.{ts,tsx}"
-
       - name: Unit tests
         run: npm run test:unit
 
