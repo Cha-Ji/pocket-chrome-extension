@@ -100,6 +100,12 @@ Options:
   --multi              Treat input as directory of LeaderboardResult JSONs
   -h, --help           Show this help
 
+Determinism:
+  동일 입력이면 항상 동일 출력을 보장합니다 (generatedAt 필드 제외).
+  - 동일 점수/rank 시 strategyId 오름차순 tie-breaker
+  - 동일 심볼 중복 시 executedAt → executionTimeMs → totalStrategies로 최신본 선택
+  - 출력 JSON의 모든 객체 키는 알파벳순으로 안정 정렬
+
 Examples:
   npx tsx scripts/generate-strategy-config.ts data/leaderboard-AAPL-OTC.json --symbol AAPL-OTC
   npx tsx scripts/generate-strategy-config.ts data/leaderboard-result.json
@@ -121,8 +127,8 @@ function main(): void {
     config = processSingle(args);
   }
 
-  const output = JSON.stringify(config, null, 2);
-  fs.writeFileSync(args.outputPath, output, 'utf-8');
+  const output = stableStringify(config, 2);
+  fs.writeFileSync(args.outputPath, output + '\n', 'utf-8');
 
   // Report
   const symbolCount = Object.keys(config.symbols).length;
@@ -180,8 +186,8 @@ function processMulti(args: CliArgs): StrategyConfigFile {
     }
   }
 
-  // 같은 심볼에 여러 파일이 있을 경우 최신(executedAt)을 우선
-  results.sort((a, b) => (b.executedAt ?? 0) - (a.executedAt ?? 0));
+  // extractMultiSymbolConfig 내부에서 심볼별 최신본 선택 + 결정적 정렬을 수행.
+  // 여기서는 추가 사전 정렬 불필요 (결정성은 모듈 측에서 보장).
 
   return extractMultiSymbolConfig(results, {
     topN: args.topN,
@@ -197,6 +203,23 @@ function isLeaderboardResult(obj: unknown): obj is LeaderboardResult {
     'config' in obj &&
     Array.isArray((obj as LeaderboardResult).entries)
   );
+}
+
+/**
+ * 객체 키를 알파벳순으로 재귀적으로 정렬한 JSON 문자열을 반환한다.
+ * 동일 입력에 대해 항상 동일한 출력을 보장한다.
+ */
+function stableStringify(obj: unknown, indent: number = 2): string {
+  return JSON.stringify(obj, (_key, value) => {
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      const sorted: Record<string, unknown> = {};
+      for (const k of Object.keys(value).sort()) {
+        sorted[k] = value[k];
+      }
+      return sorted;
+    }
+    return value;
+  }, indent);
 }
 
 main();

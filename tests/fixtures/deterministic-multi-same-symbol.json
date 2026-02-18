@@ -1,0 +1,80 @@
+[
+  {
+    "entries": [
+      {
+        "strategyId": "old-strategy",
+        "strategyName": "Old Strategy",
+        "params": { "period": 10 },
+        "totalTrades": 80, "wins": 44, "losses": 34, "ties": 2,
+        "winRate": 55.0, "netProfit": 80.0, "netProfitPercent": 8.0,
+        "profitFactor": 1.10, "expectancy": 1.0,
+        "maxDrawdown": 90.0, "maxDrawdownPercent": 9.0,
+        "maxConsecutiveLosses": 4, "maxConsecutiveWins": 5,
+        "recoveryFactor": 0.89, "sharpeRatio": 0.7, "sortinoRatio": 0.8,
+        "tradingDays": 30, "tradesPerDay": 2.7, "dailyVolume": 267.0,
+        "totalVolume": 8000.0, "daysToVolumeTarget": 375,
+        "winRateStdDev": 7.0, "kellyFraction": 2.5, "minRequiredBalance": 270.0,
+        "winRateDecided": 56.4, "tieRate": 2.5, "breakEvenWinRate": 52.08,
+        "evPerTrade": 0.041, "wrBeDelta": 4.32,
+        "compositeScore": 60.0, "rank": 1,
+        "dataRange": { "start": 1700000000000, "end": 1701000000000 },
+        "candleCount": 16000, "betAmount": 100, "payout": 92, "expirySeconds": 60,
+        "createdAt": 1701000000000
+      }
+    ],
+    "config": {
+      "symbol": "BTCUSDT",
+      "startTime": 1700000000000,
+      "endTime": 1701000000000,
+      "initialBalance": 1000,
+      "betAmount": 100,
+      "betType": "fixed",
+      "payout": 92,
+      "expirySeconds": 60,
+      "volumeMultiplier": 100
+    },
+    "executedAt": 1701000000000,
+    "totalStrategies": 5,
+    "filteredOut": 4,
+    "executionTimeMs": 800
+  },
+  {
+    "entries": [
+      {
+        "strategyId": "new-strategy",
+        "strategyName": "New Strategy",
+        "params": { "period": 14, "multiplier": 2 },
+        "totalTrades": 100, "wins": 56, "losses": 42, "ties": 2,
+        "winRate": 56.0, "netProfit": 150.0, "netProfitPercent": 15.0,
+        "profitFactor": 1.22, "expectancy": 1.5,
+        "maxDrawdown": 70.0, "maxDrawdownPercent": 7.0,
+        "maxConsecutiveLosses": 3, "maxConsecutiveWins": 7,
+        "recoveryFactor": 2.14, "sharpeRatio": 1.1, "sortinoRatio": 1.3,
+        "tradingDays": 30, "tradesPerDay": 3.3, "dailyVolume": 333.0,
+        "totalVolume": 10000.0, "daysToVolumeTarget": 300,
+        "winRateStdDev": 5.5, "kellyFraction": 4.0, "minRequiredBalance": 210.0,
+        "winRateDecided": 57.1, "tieRate": 2.0, "breakEvenWinRate": 52.08,
+        "evPerTrade": 0.048, "wrBeDelta": 5.02,
+        "compositeScore": 78.0, "rank": 1,
+        "dataRange": { "start": 1700000000000, "end": 1702592000000 },
+        "candleCount": 43200, "betAmount": 100, "payout": 92, "expirySeconds": 60,
+        "createdAt": 1702592000000
+      }
+    ],
+    "config": {
+      "symbol": "BTCUSDT",
+      "startTime": 1700000000000,
+      "endTime": 1702592000000,
+      "initialBalance": 1000,
+      "betAmount": 100,
+      "betType": "fixed",
+      "payout": 92,
+      "expirySeconds": 60,
+      "volumeMultiplier": 100
+    },
+    "executedAt": 1702592000000,
+    "totalStrategies": 8,
+    "filteredOut": 7,
+    "executionTimeMs": 1200
+  }
+]
