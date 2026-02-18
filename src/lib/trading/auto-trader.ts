@@ -550,13 +550,27 @@ export class AutoTrader {
       { module: 'lib/trading', function: fn },
       code,
     );
-    errorHandler.handle(poError);
-    this.log(poError.toShortString(), 'error');
+
+    // Guard internal error handling — this.log() invokes consumer onLog callback
+    // which may throw; errorHandler.handle() is also defensive-wrapped.
+    try {
+      errorHandler.handle(poError);
+      this.log(poError.toShortString(), 'error');
+    } catch (internalError) {
+      // Fall back to raw logger (not this.log) to avoid re-entering failing callbacks
+      loggers.autoTrader.error(poError.toShortString());
+      loggers.autoTrader.warn('[AutoTrader] handleError internal failure:', internalError);
+    }
+
+    // Guard consumer-provided onError callback — must never propagate.
+    // Prevents interval loop death and unhandled rejections.
     try {
       this.onError?.(poError);
     } catch (callbackError) {
+      // Uses loggers directly (not this.log) to prevent recursive callback failures
       loggers.autoTrader.error('[AutoTrader] onError callback threw:', callbackError);
     }
+
     return poError;
   }
 
