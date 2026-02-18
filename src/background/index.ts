@@ -29,6 +29,7 @@ import {
 } from '../lib/errors';
 import { PORT_CHANNEL, RELAY_MESSAGE_TYPES, THROTTLE_CONFIG } from '../lib/port-channel';
 import { TickBuffer } from './tick-buffer';
+import { backgroundStore } from './store';
 import {
   handleTradeExecuted as tradeHandlerExecuted,
   handleFinalizeTrade as tradeHandlerFinalize,
@@ -59,15 +60,25 @@ errorHandler.onError(async (error) => {
 });
 
 // ============================================================
-// State
+// State (managed via backgroundStore — see store.ts)
 // ============================================================
 
-let tradingStatus: TradingStatus = {
-  isRunning: false,
-  currentTicker: undefined,
-  balance: undefined,
-  sessionId: undefined,
-};
+// Log significant state changes (skip high-frequency ticker updates)
+backgroundStore.subscribe((next, prev) => {
+  const ns = next.tradingStatus;
+  const ps = prev.tradingStatus;
+  if (
+    ns.isRunning !== ps.isRunning ||
+    ns.balance !== ps.balance ||
+    ns.sessionId !== ps.sessionId
+  ) {
+    console.log('[Background] State changed:', {
+      isRunning: ns.isRunning,
+      balance: ns.balance,
+      sessionId: ns.sessionId,
+    });
+  }
+});
 
 // ============================================================
 // Storage Access Level (Content Script에서 session storage 접근 허용)
@@ -149,7 +160,7 @@ function relayToSidePanels(message: { type: string; payload?: unknown }): void {
 function getTradeHandlerDeps(): TradeHandlerDeps {
   return {
     tradeRepo: TradeRepository,
-    tradingStatus,
+    tradingStatus: backgroundStore.getState().tradingStatus,
     broadcast: (message) => {
       chrome.runtime.sendMessage(message).catch(() => {
         // Side panel may not be open - this is expected
@@ -245,7 +256,7 @@ async function handleMessage(
       return handleGetTradesWithErrorHandling(message.payload);
 
     case 'GET_STATUS':
-      return tradingStatus;
+      return backgroundStore.getState().tradingStatus;
 
     case 'START_TRADING':
       return startTrading();
@@ -316,7 +327,7 @@ async function handleMessage(
 async function startTrading(): Promise<{ success: boolean; error?: string }> {
   const ctx = { module: 'background' as const, function: 'startTrading' };
 
-  if (tradingStatus.isRunning) {
+  if (backgroundStore.getState().tradingStatus.isRunning) {
     return { success: false, error: 'Already running' };
   }
 
@@ -341,7 +352,9 @@ async function startTrading(): Promise<{ success: boolean; error?: string }> {
         });
       }
 
-      tradingStatus.isRunning = true;
+      backgroundStore.setState((s) => ({
+        tradingStatus: { ...s.tradingStatus, isRunning: true },
+      }));
       notifyStatusChange();
       return true;
     },
@@ -355,7 +368,7 @@ async function startTrading(): Promise<{ success: boolean; error?: string }> {
 async function stopTrading(): Promise<{ success: boolean; error?: string }> {
   const ctx = { module: 'background' as const, function: 'stopTrading' };
 
-  if (!tradingStatus.isRunning) {
+  if (!backgroundStore.getState().tradingStatus.isRunning) {
     return { success: false, error: 'Not running' };
   }
 
@@ -371,7 +384,9 @@ async function stopTrading(): Promise<{ success: boolean; error?: string }> {
 
     await chrome.tabs.sendMessage(tab.id, { type: 'STOP_TRADING' });
 
-    tradingStatus.isRunning = false;
+    backgroundStore.setState((s) => ({
+      tradingStatus: { ...s.tradingStatus, isRunning: false },
+    }));
     notifyStatusChange();
     return true;
   }, ctx);
@@ -380,7 +395,9 @@ async function stopTrading(): Promise<{ success: boolean; error?: string }> {
 }
 
 function updateStatus(updates: Partial<TradingStatus>): void {
-  tradingStatus = { ...tradingStatus, ...updates };
+  backgroundStore.setState((s) => ({
+    tradingStatus: { ...s.tradingStatus, ...updates },
+  }));
   notifyStatusChange();
 }
 
@@ -411,7 +428,12 @@ tickBuffer.start();
 function handleTickData(tick: Tick): void {
   if (!tick) return;
   tickBuffer.ingest(tick);
-  tradingStatus.currentTicker = tick.ticker;
+  // Only update store when ticker actually changes to avoid noisy notifications
+  if (backgroundStore.getState().tradingStatus.currentTicker !== tick.ticker) {
+    backgroundStore.setState((s) => ({
+      tradingStatus: { ...s.tradingStatus, currentTicker: tick.ticker },
+    }));
+  }
 }
 
 async function handleGetTickBufferStats(): Promise<{
@@ -606,7 +628,7 @@ function notifyStatusChange(): void {
   chrome.runtime
     .sendMessage({
       type: 'STATUS_UPDATE',
-      payload: tradingStatus,
+      payload: backgroundStore.getState().tradingStatus,
     })
     .catch(() => {
       // Side panel may not be open - this is expected
