@@ -72,7 +72,7 @@ export function v3TrendPullbackStrategy(
   const stoch = Stochastic.latest(highs, lows, closes, cfg.stochK, cfg.stochD);
   const rsi = RSI.latest(closes, cfg.rsiPeriod);
 
-  if (!sFast || !sMid || !sSlow || !stoch || !rsi) {
+  if (sFast == null || sMid == null || sSlow == null || stoch == null || rsi == null) {
     return { ...noSignal, reason: 'Not enough indicator data' };
   }
 
