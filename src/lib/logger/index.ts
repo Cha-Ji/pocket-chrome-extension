@@ -50,6 +50,7 @@ const MODULE_COLORS: Record<string, string> = {
   Parser: '#80f',
   Background: '#888',
   UI: '#4af',
+  Safety: '#f44',
   AutoTrader: '#fa0',
   EnvDebug: '#0fc',
 };
@@ -241,6 +242,7 @@ export const loggers = {
   ui: new Logger('UI'),
   autoTrader: new Logger('AutoTrader'),
   main: new Logger('Main'),
+  safety: new Logger('Safety'),
 };
 
 // Factory function for custom modules

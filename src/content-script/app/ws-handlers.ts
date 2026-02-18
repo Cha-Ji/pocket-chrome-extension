@@ -239,6 +239,13 @@ function setupWebSocketHandler(ctx: ContentScriptContext): void {
       message.rawType === 'string' ? 'text' : message.rawType === 'binary' ? 'binary' : 'unknown',
     );
 
+    // Feed WS messages to AccountVerifier for demo/real detection (#52)
+    // P2 review fix: Prefer parsed payload over raw frame. Socket.IO frames
+    // (e.g. "451-[...]") are rejected by WsDecoder.detectFromString because
+    // it only parses strings starting with '{' or '['. Feeding the already-
+    // parsed object/array avoids unnecessary UNKNOWN fallbacks.
+    ctx.accountVerifier?.feedWsMessage(message.parsed ?? message.raw ?? message.text);
+
     if (message.parsed && Array.isArray(message.parsed)) {
       const event = message.parsed[0];
       if (event === 'load_history' || event === 'history' || event === 'candles') {
