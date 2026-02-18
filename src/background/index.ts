@@ -297,6 +297,9 @@ async function handleMessage(
     case 'SELECTOR_HEALTHCHECK_RESULT':
       return handleSelectorHealthcheckResult(message.payload);
 
+    case 'GET_SELECTOR_HEALTHCHECK':
+      return lastHealthcheckResult;
+
     default:
       // Don't log errors for relay-only messages (already forwarded via port)
       if (!RELAY_MESSAGE_TYPES.has((message as { type: string }).type)) {
@@ -643,10 +646,14 @@ async function handleReloadTelegramConfig(_config: TelegramConfig): Promise<{ su
 // Selector Healthcheck
 // ============================================================
 
+let lastHealthcheckResult: MessagePayloadMap['SELECTOR_HEALTHCHECK_RESULT'] | null = null;
+
 async function handleSelectorHealthcheckResult(
   payload: MessagePayloadMap['SELECTOR_HEALTHCHECK_RESULT'],
 ): Promise<{ received: boolean }> {
   const ctx = { module: 'background' as const, function: 'handleSelectorHealthcheckResult' };
+
+  lastHealthcheckResult = payload;
 
   if (!payload.passed) {
     const level = payload.tradingHalted ? 'CRITICAL' : 'WARNING';
@@ -661,6 +668,12 @@ async function handleSelectorHealthcheckResult(
           context: ctx,
         }),
       );
+
+      // Force-stop active trading session when critical selectors are missing
+      if (tradingStatus.isRunning) {
+        console.warn('[Background] Force-stopping trading due to selector healthcheck failure');
+        await stopTrading();
+      }
     }
 
     // Send Telegram notification if enabled (errors channel)

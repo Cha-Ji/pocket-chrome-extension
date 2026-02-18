@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { usePortSubscription } from '../hooks/usePortSubscription';
 import type { MessagePayloadMap } from '../../lib/types';
 
@@ -11,6 +11,8 @@ type HealthcheckPayload = MessagePayloadMap['SELECTOR_HEALTHCHECK_RESULT'];
  * - Unknown environment: orange notice
  *
  * Receives data via port subscription (push from background).
+ * Also fetches the last known result on mount so that failures
+ * detected before the side panel opened are not missed.
  */
 export function SelectorWarning() {
   const [result, setResult] = useState<HealthcheckPayload | null>(null);
@@ -20,6 +22,18 @@ export function SelectorWarning() {
     setResult(payload as HealthcheckPayload);
     setDismissed(false); // Show again on new result
   });
+
+  // Fetch last known healthcheck result on mount
+  useEffect(() => {
+    chrome.runtime
+      .sendMessage({ type: 'GET_SELECTOR_HEALTHCHECK' })
+      .then((cached: HealthcheckPayload | null) => {
+        if (cached) setResult((prev) => prev ?? cached);
+      })
+      .catch(() => {
+        // Background may not be ready yet
+      });
+  }, []);
 
   // Don't render if no result, passed, or dismissed
   if (!result || result.passed || dismissed) return null;

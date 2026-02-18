@@ -229,13 +229,20 @@ export class SelectorHealthcheck {
 
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
-      const previousHalted = this.lastResult?.tradingHalted ?? false;
+
+      // Capture previous state BEFORE run() overwrites this.lastResult
+      const prev = this.lastResult;
+      const prevHalted = prev?.tradingHalted ?? false;
+      const prevCritical = prev?.criticalFailures.join(',') ?? '';
+      const prevNonCritical = prev?.nonCriticalFailures.join(',') ?? '';
+
       const result = this.run();
 
-      // Only broadcast if status changed (prevent spam)
+      // Broadcast if any dimension changed (halted, critical keys, non-critical keys)
       const statusChanged =
-        result.tradingHalted !== previousHalted ||
-        result.criticalFailures.join(',') !== (this.lastResult?.criticalFailures ?? []).join(',');
+        result.tradingHalted !== prevHalted ||
+        result.criticalFailures.join(',') !== prevCritical ||
+        result.nonCriticalFailures.join(',') !== prevNonCritical;
 
       if (statusChanged) {
         logger.info('Selector status changed after DOM mutation — broadcasting');

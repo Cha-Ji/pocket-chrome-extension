@@ -332,6 +332,7 @@ export interface MessagePayloadMap {
   GET_ERROR_STATS: undefined;
   GET_ERROR_HISTORY: { limit?: number };
   // Selector Healthcheck
+  GET_SELECTOR_HEALTHCHECK: undefined;
   SELECTOR_HEALTHCHECK_RESULT: {
     environment: 'demo' | 'real' | 'unknown';
     timestamp: number;
