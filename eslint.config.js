@@ -25,12 +25,26 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/ban-ts-comment': 'warn',
-      'no-console': 'off',
+      'no-console': 'warn',
       'no-empty': 'warn',
       'no-undef': 'off',
       'no-case-declarations': 'warn',
       'no-useless-escape': 'warn',
       'no-useless-assignment': 'warn',
+    },
+  },
+  // Allow console in logger implementation (it IS the console abstraction)
+  {
+    files: ['src/lib/logger/**/*.ts'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
+  // Allow console in test files
+  {
+    files: ['**/*.test.ts', '**/*.test.tsx', 'src/test/**/*.ts'],
+    rules: {
+      'no-console': 'off',
     },
   },
   prettier,

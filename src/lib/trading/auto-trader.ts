@@ -7,6 +7,7 @@
 import { Signal } from '../signals/types';
 import { SignalGenerator, fetchCandles } from '../signals/signal-generator';
 import { validateTradeAmount } from './validate-amount';
+import { loggers } from '../logger';
 
 export interface TradeExecution {
   signalId: string;
@@ -519,8 +520,17 @@ export class AutoTrader {
   }
 
   private log(message: string, level: 'info' | 'success' | 'error' | 'warning'): void {
-    const time = new Date().toLocaleTimeString();
-    console.log(`[${time}] ${message}`);
+    switch (level) {
+      case 'error':
+        loggers.autoTrader.error(message);
+        break;
+      case 'warning':
+        loggers.autoTrader.warn(message);
+        break;
+      default:
+        loggers.autoTrader.info(message);
+        break;
+    }
     this.onLog?.(message, level);
   }
 }

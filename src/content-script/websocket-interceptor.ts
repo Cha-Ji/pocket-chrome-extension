@@ -1,5 +1,6 @@
 import { getWebSocketParser, WebSocketParser, CandleData } from './websocket-parser';
 import type { PriceUpdate, WebSocketConnection, WebSocketMessage } from './websocket-types';
+import { loggers } from '../lib/logger';
 
 export type {
   PriceUpdate,
@@ -93,10 +94,10 @@ class WebSocketInterceptor {
       const asset = event.data.data?.asset;
       if (asset) {
         this.lastAssetId = asset;
-        console.log(`[PO] [WS] 🎯 Asset ID captured (outgoing): ${asset}`);
+        loggers.ws.info(`Asset ID captured (outgoing): ${asset}`);
       }
     } else if (event.data.type === 'bridge-ready') {
-      console.log('[PO] [WS] Main World Bridge Connected');
+      loggers.ws.info('Main World Bridge Connected');
     }
   }
 
@@ -128,10 +129,10 @@ class WebSocketInterceptor {
 
     if (parsed && parsed.type === 'candle_history') {
       const candles = parsed.data as CandleData[];
-      console.log(`[PO] [WS-Interceptor] Candle History Detected! Count: ${candles?.length || 0}`);
+      loggers.ws.info(`Candle History Detected! Count: ${candles?.length || 0}`);
       if (candles && candles.length > 0) {
         const symbol = candles[0].symbol || 'UNKNOWN';
-        console.log(`[PO] [WS] History/Bulk Captured: ${candles.length} candles for ${symbol}`);
+        loggers.ws.info(`History/Bulk Captured: ${candles.length} candles for ${symbol}`);
         this.historyCallbacks.forEach((cb) => cb(candles));
       }
     } else if (
@@ -224,7 +225,7 @@ class WebSocketInterceptor {
         const assetId = String(symbol);
         if (assetId !== this.lastAssetId) {
           this.lastAssetId = assetId;
-          console.log(`[PO] [WS] 🎯 Asset ID tracked (stream): ${assetId}`);
+          loggers.ws.debug(`Asset ID tracked (stream): ${assetId}`);
         }
       }
     }
@@ -237,7 +238,7 @@ class WebSocketInterceptor {
         const assetId = assetMatch[1];
         if (assetId !== this.lastAssetId) {
           this.lastAssetId = assetId;
-          console.log(`[PO] [WS] 🎯 Asset ID tracked (raw): ${assetId}`);
+          loggers.ws.debug(`Asset ID tracked (raw): ${assetId}`);
         }
       }
     }

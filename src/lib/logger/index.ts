@@ -1,7 +1,24 @@
 // ============================================================
 // Pocket Quant Logger
 // ============================================================
-// Centralized logging with module prefixes and log levels
+// Centralized logging with module prefixes and log levels.
+//
+// LOG LEVEL POLICY
+// ────────────────
+// | Level | Usage                                          |
+// |-------|------------------------------------------------|
+// | DEBUG | Verbose tracing (asset tracking, parser probe) |
+// | INFO  | Normal operational events (startup, trade log) |
+// | WARN  | Recoverable issues (pattern error, retry)      |
+// | ERROR | Failures requiring attention (DB write fail)   |
+//
+// PRODUCTION BEHAVIOUR
+// ────────────────────
+// Default level is 'info' — all DEBUG output is suppressed at
+// runtime without any build-time transform.  ESLint enforces
+// `no-console: warn` in src/ so new raw console.* calls are
+// flagged during development.  The logger itself is exempt
+// (it IS the console abstraction).
 // ============================================================
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'none';
@@ -33,6 +50,7 @@ const MODULE_COLORS: Record<string, string> = {
   Parser: '#80f',
   Background: '#888',
   UI: '#4af',
+  AutoTrader: '#fa0',
 };
 
 // Default configuration
@@ -220,6 +238,7 @@ export const loggers = {
   parser: new Logger('Parser'),
   background: new Logger('Background'),
   ui: new Logger('UI'),
+  autoTrader: new Logger('AutoTrader'),
   main: new Logger('Main'),
 };
 
