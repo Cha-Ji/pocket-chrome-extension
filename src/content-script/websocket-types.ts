@@ -35,6 +35,22 @@ export interface TradeData {
   timestamp: number;
 }
 
+/** 프레임 유형: text(문자열), binary(ArrayBuffer/Blob/BufferSource), unknown */
+export type FrameType = 'text' | 'binary' | 'unknown';
+
+/**
+ * WebSocket 프레임 메타데이터
+ * PR #111 codex 피드백: 바이너리 프레임의 정확한 분류 및 바이트 크기 기록
+ */
+export interface FrameMetadata {
+  /** 프레임 유형 분류 (text / binary / unknown) */
+  frameType: FrameType;
+  /** 프레임 크기 — 단위: 바이트(byte) */
+  frameSizeBytes: number;
+  /** 바이너리 프레임 미리보기 (기본 OFF, feature flag로 활성화) */
+  binaryPreview?: Uint8Array;
+}
+
 export interface WebSocketMessage {
   connectionId: string;
   url: string;
@@ -43,6 +59,8 @@ export interface WebSocketMessage {
   timestamp: number;
   raw?: any;
   text?: string | null;
+  /** 프레임 메타데이터: 정확한 타입 분류 + 바이트 크기 */
+  frameMetadata?: FrameMetadata;
 }
 
 export type WebSocketEventType =

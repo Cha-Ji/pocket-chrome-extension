@@ -1,5 +1,6 @@
 import { getWebSocketParser, WebSocketParser, CandleData } from './websocket-parser';
 import type { PriceUpdate, WebSocketConnection, WebSocketMessage } from './websocket-types';
+import { classifyFrame } from './websocket-frame-metadata';
 import { loggers } from '../lib/logger';
 
 export type {
@@ -79,6 +80,12 @@ class WebSocketInterceptor {
     if (!validBridgeTypes.includes(event.data.type)) return;
     if (event.data.type === 'ws-message') {
       const data = event.data.data || {};
+      const frameMetadata = classifyFrame({
+        raw: data.raw,
+        dataType: data.dataType,
+        dataSize: data.dataSize,
+        text: data.text,
+      });
       const message: WebSocketMessage = {
         connectionId: data.url || 'ws-bridge',
         url: data.url || 'unknown',
@@ -87,6 +94,7 @@ class WebSocketInterceptor {
         timestamp: data.timestamp || Date.now(),
         raw: data.raw,
         text: data.text ?? null,
+        frameMetadata,
       };
       this.handleMessage(message, message.timestamp);
     } else if (event.data.type === 'ws-asset-change') {
