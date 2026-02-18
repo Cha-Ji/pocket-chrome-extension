@@ -416,14 +416,14 @@ export interface DOMSelectors {
  * @see src/lib/platform/adapters/pocket-option/selectors.ts
  */
 export const DEFAULT_SELECTORS: DOMSelectors = {
-  // Trading buttons
-  callButton: '.switch-state-block__item:first-child', // 매수 button
-  putButton: '.switch-state-block__item:last-child', // 매도 button
-  amountInput: '#put-call-buttons-chart-1 input[type="text"]',
+  // Trading buttons (updated 2026-02-18)
+  callButton: '.btn-call',
+  putButton: '.btn-put',
+  amountInput: '#put-call-buttons-chart-1 input',
   expirationDisplay: '.block--expiration-inputs .value__val',
 
   // Display elements
-  balanceDisplay: '.balance-info-block__value',
+  balanceDisplay: '.balance-info-block__balance',
   balanceLabel: '.balance-info-block__label', // Shows "QT Demo" or account type
   tickerSelector: '.chart-item .pair', // e.g., "Alibaba OTC"
   chartContainer: '.chart-item',

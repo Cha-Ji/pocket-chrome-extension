@@ -145,7 +145,7 @@ describe('SelectorHealthcheck', () => {
       expect(result.passed).toBe(true);
       expect(result.tradingHalted).toBe(false);
       expect(result.criticalFailures).toEqual([]);
-      expect(result.version).toBe('1.0.0');
+      expect(result.version).toBe('1.1.0');
       expect(result.snapshot).toBeUndefined(); // No snapshot for demo
 
       cleanup();
@@ -301,7 +301,7 @@ describe('SelectorHealthcheck', () => {
           type: 'SELECTOR_HEALTHCHECK_RESULT',
           payload: expect.objectContaining({
             environment: 'demo',
-            version: '1.0.0',
+            version: '1.1.0',
           }),
         }),
       );

@@ -4,7 +4,7 @@
 
 
 /** Selector set version — bump when PO DOM structure changes */
-export const SELECTOR_VERSION = '1.0.0';
+export const SELECTOR_VERSION = '1.1.0';
 
 /** Platform environment type */
 export type PlatformEnvironment = 'demo' | 'real' | 'unknown';
