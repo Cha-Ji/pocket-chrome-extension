@@ -28,6 +28,7 @@ import {
   ignoreError,
 } from '../lib/errors';
 import { PORT_CHANNEL, RELAY_MESSAGE_TYPES, THROTTLE_CONFIG } from '../lib/port-channel';
+import { loggers } from '../lib/logger';
 import { TickBuffer } from './tick-buffer';
 import {
   handleTradeExecuted as tradeHandlerExecuted,
@@ -84,13 +85,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     const newTelegram = changes.appConfig.newValue?.telegram;
     // telegram 섹션이 실제로 변경된 경우에만 리셋
     if (JSON.stringify(oldTelegram) !== JSON.stringify(newTelegram)) {
-      console.log('[Background] Telegram config changed in storage.local — resetting singleton');
+      loggers.background.info('Telegram config changed in storage.local — resetting singleton');
       resetTelegramService();
     }
   }
   if (areaName === 'session' && changes.telegramSecure) {
-    console.log(
-      '[Background] Telegram secure data changed in storage.session — resetting singleton',
+    loggers.background.info(
+      'Telegram secure data changed in storage.session — resetting singleton',
     );
     resetTelegramService();
   }
@@ -106,12 +107,12 @@ const lastRelayedAt = new Map<string, number>();
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== PORT_CHANNEL) return;
 
-  console.log('[Background] Side panel port connected');
+  loggers.background.info('Side panel port connected');
   connectedPorts.add(port);
 
   port.onDisconnect.addListener(() => {
     connectedPorts.delete(port);
-    console.log('[Background] Side panel port disconnected');
+    loggers.background.info('Side panel port disconnected');
   });
 });
 
@@ -174,12 +175,12 @@ function getCandleHandlerDeps(): CandleHandlerDeps {
 // ============================================================
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[Background] Extension installed');
+  loggers.background.info('Extension installed');
   initializeSidePanel();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
-  console.log('[Background] Extension started');
+  loggers.background.info('Extension started');
   await ignoreError(
     async () => {
       const telegram = await getTelegramService();
@@ -515,7 +516,7 @@ async function handleTradeExecutedWithErrorHandling(
 ): Promise<{ success: boolean; tradeId?: number; ignored?: boolean }> {
   const ctx = { module: 'background' as const, function: 'handleTradeExecuted' };
 
-  console.log('[Background] Trade executed:', payload);
+  loggers.background.info('Trade executed:', payload);
 
   // P0: entryPrice가 없거나 0이면 경고 (데이터 오염 방지)
   if (payload.result !== false && (!payload.entryPrice || payload.entryPrice <= 0)) {
@@ -574,7 +575,7 @@ async function handleFinalizeTradeWithErrorHandling(
 ): Promise<{ success: boolean }> {
   const ctx = { module: 'background' as const, function: 'handleFinalizeTrade' };
 
-  console.log('[Background] Finalizing trade:', payload);
+  loggers.background.info('Finalizing trade:', payload);
 
   const result = await tryCatchAsync(
     () => tradeHandlerFinalize(payload, getTradeHandlerDeps()),
@@ -622,7 +623,7 @@ async function handleReloadTelegramConfig(_config: TelegramConfig): Promise<{ su
 
   // 싱글톤 무효화 → 다음 getTelegramService()가 storage에서 최신 설정 로드
   resetTelegramService();
-  console.log('[Background] Telegram service singleton reset');
+  loggers.background.info('Telegram service singleton reset');
 
   await ignoreError(
     async () => {
