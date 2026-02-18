@@ -28,7 +28,9 @@ import {
   ignoreError,
 } from '../lib/errors';
 import { PORT_CHANNEL, RELAY_MESSAGE_TYPES, THROTTLE_CONFIG } from '../lib/port-channel';
+import { loggers } from '../lib/logger';
 import { TickBuffer } from './tick-buffer';
+import { backgroundStore } from './store';
 import {
   handleTradeExecuted as tradeHandlerExecuted,
   handleFinalizeTrade as tradeHandlerFinalize,
@@ -59,15 +61,25 @@ errorHandler.onError(async (error) => {
 });
 
 // ============================================================
-// State
+// State (managed via backgroundStore — see store.ts)
 // ============================================================
 
-let tradingStatus: TradingStatus = {
-  isRunning: false,
-  currentTicker: undefined,
-  balance: undefined,
-  sessionId: undefined,
-};
+// Log significant state changes (skip high-frequency ticker updates)
+backgroundStore.subscribe((next, prev) => {
+  const ns = next.tradingStatus;
+  const ps = prev.tradingStatus;
+  if (
+    ns.isRunning !== ps.isRunning ||
+    ns.balance !== ps.balance ||
+    ns.sessionId !== ps.sessionId
+  ) {
+    console.log('[Background] State changed:', {
+      isRunning: ns.isRunning,
+      balance: ns.balance,
+      sessionId: ns.sessionId,
+    });
+  }
+});
 
 // ============================================================
 // Storage Access Level (Content Script에서 session storage 접근 허용)
@@ -84,13 +96,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     const newTelegram = changes.appConfig.newValue?.telegram;
     // telegram 섹션이 실제로 변경된 경우에만 리셋
     if (JSON.stringify(oldTelegram) !== JSON.stringify(newTelegram)) {
-      console.log('[Background] Telegram config changed in storage.local — resetting singleton');
+      loggers.background.info('Telegram config changed in storage.local — resetting singleton');
       resetTelegramService();
     }
   }
   if (areaName === 'session' && changes.telegramSecure) {
-    console.log(
-      '[Background] Telegram secure data changed in storage.session — resetting singleton',
+    loggers.background.info(
+      'Telegram secure data changed in storage.session — resetting singleton',
     );
     resetTelegramService();
   }
@@ -106,12 +118,12 @@ const lastRelayedAt = new Map<string, number>();
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== PORT_CHANNEL) return;
 
-  console.log('[Background] Side panel port connected');
+  loggers.background.info('Side panel port connected');
   connectedPorts.add(port);
 
   port.onDisconnect.addListener(() => {
     connectedPorts.delete(port);
-    console.log('[Background] Side panel port disconnected');
+    loggers.background.info('Side panel port disconnected');
   });
 });
 
@@ -149,7 +161,7 @@ function relayToSidePanels(message: { type: string; payload?: unknown }): void {
 function getTradeHandlerDeps(): TradeHandlerDeps {
   return {
     tradeRepo: TradeRepository,
-    tradingStatus,
+    tradingStatus: backgroundStore.getState().tradingStatus,
     broadcast: (message) => {
       chrome.runtime.sendMessage(message).catch(() => {
         // Side panel may not be open - this is expected
@@ -174,12 +186,12 @@ function getCandleHandlerDeps(): CandleHandlerDeps {
 // ============================================================
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[Background] Extension installed');
+  loggers.background.info('Extension installed');
   initializeSidePanel();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
-  console.log('[Background] Extension started');
+  loggers.background.info('Extension started');
   await ignoreError(
     async () => {
       const telegram = await getTelegramService();
@@ -245,7 +257,7 @@ async function handleMessage(
       return handleGetTradesWithErrorHandling(message.payload);
 
     case 'GET_STATUS':
-      return tradingStatus;
+      return backgroundStore.getState().tradingStatus;
 
     case 'START_TRADING':
       return startTrading();
@@ -294,6 +306,12 @@ async function handleMessage(
     case 'RELOAD_TELEGRAM_CONFIG':
       return handleReloadTelegramConfig(message.payload);
 
+    case 'SELECTOR_HEALTHCHECK_RESULT':
+      return handleSelectorHealthcheckResult(message.payload);
+
+    case 'GET_SELECTOR_HEALTHCHECK':
+      return lastHealthcheckResult;
+
     default:
       // Don't log errors for relay-only messages (already forwarded via port)
       if (!RELAY_MESSAGE_TYPES.has((message as { type: string }).type)) {
@@ -316,7 +334,7 @@ async function handleMessage(
 async function startTrading(): Promise<{ success: boolean; error?: string }> {
   const ctx = { module: 'background' as const, function: 'startTrading' };
 
-  if (tradingStatus.isRunning) {
+  if (backgroundStore.getState().tradingStatus.isRunning) {
     return { success: false, error: 'Already running' };
   }
 
@@ -341,7 +359,9 @@ async function startTrading(): Promise<{ success: boolean; error?: string }> {
         });
       }
 
-      tradingStatus.isRunning = true;
+      backgroundStore.setState((s) => ({
+        tradingStatus: { ...s.tradingStatus, isRunning: true },
+      }));
       notifyStatusChange();
       return true;
     },
@@ -355,7 +375,7 @@ async function startTrading(): Promise<{ success: boolean; error?: string }> {
 async function stopTrading(): Promise<{ success: boolean; error?: string }> {
   const ctx = { module: 'background' as const, function: 'stopTrading' };
 
-  if (!tradingStatus.isRunning) {
+  if (!backgroundStore.getState().tradingStatus.isRunning) {
     return { success: false, error: 'Not running' };
   }
 
@@ -371,7 +391,9 @@ async function stopTrading(): Promise<{ success: boolean; error?: string }> {
 
     await chrome.tabs.sendMessage(tab.id, { type: 'STOP_TRADING' });
 
-    tradingStatus.isRunning = false;
+    backgroundStore.setState((s) => ({
+      tradingStatus: { ...s.tradingStatus, isRunning: false },
+    }));
     notifyStatusChange();
     return true;
   }, ctx);
@@ -380,7 +402,9 @@ async function stopTrading(): Promise<{ success: boolean; error?: string }> {
 }
 
 function updateStatus(updates: Partial<TradingStatus>): void {
-  tradingStatus = { ...tradingStatus, ...updates };
+  backgroundStore.setState((s) => ({
+    tradingStatus: { ...s.tradingStatus, ...updates },
+  }));
   notifyStatusChange();
 }
 
@@ -411,7 +435,12 @@ tickBuffer.start();
 function handleTickData(tick: Tick): void {
   if (!tick) return;
   tickBuffer.ingest(tick);
-  tradingStatus.currentTicker = tick.ticker;
+  // Only update store when ticker actually changes to avoid noisy notifications
+  if (backgroundStore.getState().tradingStatus.currentTicker !== tick.ticker) {
+    backgroundStore.setState((s) => ({
+      tradingStatus: { ...s.tradingStatus, currentTicker: tick.ticker },
+    }));
+  }
 }
 
 async function handleGetTickBufferStats(): Promise<{
@@ -515,7 +544,7 @@ async function handleTradeExecutedWithErrorHandling(
 ): Promise<{ success: boolean; tradeId?: number; ignored?: boolean }> {
   const ctx = { module: 'background' as const, function: 'handleTradeExecuted' };
 
-  console.log('[Background] Trade executed:', payload);
+  loggers.background.info('Trade executed:', payload);
 
   // P0: entryPrice가 없거나 0이면 경고 (데이터 오염 방지)
   if (payload.result !== false && (!payload.entryPrice || payload.entryPrice <= 0)) {
@@ -574,7 +603,7 @@ async function handleFinalizeTradeWithErrorHandling(
 ): Promise<{ success: boolean }> {
   const ctx = { module: 'background' as const, function: 'handleFinalizeTrade' };
 
-  console.log('[Background] Finalizing trade:', payload);
+  loggers.background.info('Finalizing trade:', payload);
 
   const result = await tryCatchAsync(
     () => tradeHandlerFinalize(payload, getTradeHandlerDeps()),
@@ -606,7 +635,7 @@ function notifyStatusChange(): void {
   chrome.runtime
     .sendMessage({
       type: 'STATUS_UPDATE',
-      payload: tradingStatus,
+      payload: backgroundStore.getState().tradingStatus,
     })
     .catch(() => {
       // Side panel may not be open - this is expected
@@ -622,7 +651,7 @@ async function handleReloadTelegramConfig(_config: TelegramConfig): Promise<{ su
 
   // 싱글톤 무효화 → 다음 getTelegramService()가 storage에서 최신 설정 로드
   resetTelegramService();
-  console.log('[Background] Telegram service singleton reset');
+  loggers.background.info('Telegram service singleton reset');
 
   await ignoreError(
     async () => {
@@ -634,6 +663,69 @@ async function handleReloadTelegramConfig(_config: TelegramConfig): Promise<{ su
   );
 
   return { success: true };
+}
+
+// ============================================================
+// Selector Healthcheck
+// ============================================================
+
+let lastHealthcheckResult: MessagePayloadMap['SELECTOR_HEALTHCHECK_RESULT'] | null = null;
+
+async function handleSelectorHealthcheckResult(
+  payload: MessagePayloadMap['SELECTOR_HEALTHCHECK_RESULT'],
+): Promise<{ received: boolean }> {
+  const ctx = { module: 'background' as const, function: 'handleSelectorHealthcheckResult' };
+
+  lastHealthcheckResult = payload;
+
+  if (!payload.passed) {
+    const level = payload.tradingHalted ? 'CRITICAL' : 'WARNING';
+    console.warn(`[Background] Selector healthcheck ${level}:`, payload);
+
+    if (payload.tradingHalted) {
+      errorHandler.handle(
+        new POError({
+          code: ErrorCode.SELECTOR_HEALTHCHECK_FAILED,
+          message: `Selector healthcheck failed — trading halted. Critical: [${payload.criticalFailures.join(', ')}]`,
+          severity: ErrorSeverity.ERROR,
+          context: ctx,
+        }),
+      );
+
+      // Force-stop active trading session when critical selectors are missing
+      if (backgroundStore.getState().tradingStatus.isRunning) {
+        console.warn('[Background] Force-stopping trading due to selector healthcheck failure');
+        await stopTrading();
+      }
+    }
+
+    // Send Telegram notification if enabled (errors channel)
+    await ignoreError(
+      async () => {
+        const telegram = await getTelegramService();
+        const config = telegram.getConfig();
+        if (config.enabled && config.notifyErrors) {
+          const failList = [
+            ...payload.criticalFailures.map((k) => `[CRITICAL] ${k}`),
+            ...payload.nonCriticalFailures.map((k) => `[WARN] ${k}`),
+          ].join('\n');
+
+          await telegram.sendMessage(
+            `<b>Selector Healthcheck ${payload.tradingHalted ? 'FAILED' : 'WARNING'}</b>\n` +
+              `env=${payload.environment} | v${payload.version}\n` +
+              `${payload.tradingHalted ? 'Trading HALTED\n' : ''}` +
+              `\n${failList}`,
+          );
+        }
+      },
+      ctx,
+      { logLevel: 'warn' },
+    );
+  } else {
+    console.log('[Background] Selector healthcheck PASSED');
+  }
+
+  return { received: true };
 }
 
 // ============================================================

@@ -12,6 +12,7 @@ import type {
   TradeData,
   ParsedMessage,
 } from './websocket-types';
+import { loggers } from '../lib/logger';
 
 export type {
   PriceUpdate,
@@ -334,8 +335,8 @@ export class WebSocketParser {
           if (historyData && Array.isArray(historyData) && historyData.length > 0) {
             const candles = parseHistoryData(historyData, symbolFromPayload);
             if (candles.length > 0) {
-              console.log(
-                `[WS Parser] ✅ History parsed: ${candles.length} candles from event '${eventName}'`,
+              loggers.parser.info(
+                `History parsed: ${candles.length} candles from event '${eventName}'`,
               );
               return {
                 type: 'candle_history',
@@ -402,8 +403,8 @@ export class WebSocketParser {
             (Array.isArray(first) && first.length >= 4) ||
             (typeof first === 'object' && first !== null && ('open' in first || 'close' in first))
           ) {
-            console.log(
-              `[WS Parser] 🔍 Attempting to parse unknown event '${eventName}' as history`,
+            loggers.parser.debug(
+              `Attempting to parse unknown event '${eventName}' as history`,
             );
             const candles = parseHistoryData(payload, 'CURRENT');
             if (candles.length > 0) {
@@ -530,7 +531,7 @@ export class WebSocketParser {
           }
         }
       } catch (e) {
-        console.warn(`[WS Parser] Pattern ${pattern.name} error:`, e);
+        loggers.parser.warn(`Pattern ${pattern.name} error:`, e);
       }
     }
 

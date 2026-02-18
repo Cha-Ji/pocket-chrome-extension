@@ -35,6 +35,8 @@ export const RELAY_MESSAGE_TYPES: Set<string> = new Set([
   'WS_CONNECTION',
   // P2 review fix: Relay account verification alerts to side panel UI
   'ACCOUNT_VERIFY_ALERT',
+  // Selector healthcheck results relayed to side panel
+  'SELECTOR_HEALTHCHECK_RESULT',
 ]);
 
 /**

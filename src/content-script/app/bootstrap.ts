@@ -22,6 +22,9 @@ import {
   LoggerAlertChannel,
 } from '../../lib/safety/account-verifier';
 import { createLogger } from '../../lib/logger';
+import { getSelectorHealthcheck } from '../../lib/platform/adapters/pocket-option/selector-healthcheck';
+import { detectEnvironment } from '../../lib/platform/adapters/pocket-option/selectors';
+import { getSelectorResolver } from '../selector-resolver';
 
 const safetyLog = createLogger('Safety');
 
@@ -36,6 +39,19 @@ export async function initialize(ctx: ContentScriptContext): Promise<void> {
     }
     const selectors = await loadSelectors();
     console.log('[PO] [3] Selectors loaded');
+
+    // Detect environment and rebuild resolver selectors
+    const env = detectEnvironment();
+    console.log(`[PO] [3.1] Environment detected: ${env}`);
+    getSelectorResolver().rebuildForEnvironment(env);
+
+    // Run selector healthcheck
+    const healthcheck = getSelectorHealthcheck();
+    const healthResult = healthcheck.runAndBroadcast();
+    console.log(`[PO] [3.2] Healthcheck: passed=${healthResult.passed}, halted=${healthResult.tradingHalted}`);
+
+    // Start MutationObserver for ongoing re-validation
+    healthcheck.startObserver();
 
     ctx.dataCollector = new DataCollector(selectors);
     ctx.tradeExecutor = new TradeExecutor(selectors);

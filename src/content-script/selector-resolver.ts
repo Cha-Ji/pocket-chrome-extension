@@ -3,11 +3,15 @@
 // ============================================================
 // Uses platform selectors as the single source of truth.
 // TTL 기반 캐시 무효화 + DOM 존재 검증으로 stale 캐시 방지.
+// Supports environment-aware selector sets (demo/real/unknown).
 // ============================================================
 
+import type { PlatformEnvironment } from '../lib/platform/adapters/pocket-option/selectors.common';
 import {
   PO_DEMO_SELECTORS,
   PO_SELECTOR_FALLBACKS,
+  getSelectorsForEnvironment,
+  getFallbacksForEnvironment,
 } from '../lib/platform/adapters/pocket-option/selectors';
 import { createLogger } from '../lib/logger';
 
@@ -32,37 +36,52 @@ export type RobustSelectors = Record<string, SelectorDefinition>;
 
 /**
  * Build robust selectors from platform selector definitions.
- * Primary = PO_DEMO_SELECTORS[key], Fallbacks = PO_SELECTOR_FALLBACKS[key].
+ * Primary = selectors[key], Fallbacks = fallbacks[key].
+ *
+ * @param env Optional environment to select the correct set. Defaults to 'demo'.
  */
-function buildRobustSelectors(): RobustSelectors {
+export function buildRobustSelectors(env?: PlatformEnvironment): RobustSelectors {
+  const selectors = env ? getSelectorsForEnvironment(env) : PO_DEMO_SELECTORS;
+  const fallbacks = env ? getFallbacksForEnvironment(env) : PO_SELECTOR_FALLBACKS;
+
   const result: RobustSelectors = {};
-  const allKeys = new Set([
-    ...Object.keys(PO_DEMO_SELECTORS),
-    ...Object.keys(PO_SELECTOR_FALLBACKS),
-  ]);
+  const allKeys = new Set([...Object.keys(selectors), ...Object.keys(fallbacks)]);
 
   for (const key of allKeys) {
-    const primary = PO_DEMO_SELECTORS[key] || PO_SELECTOR_FALLBACKS[key]?.[0] || '';
-    const fallbacks = PO_SELECTOR_FALLBACKS[key] || [];
+    const primary = selectors[key] || fallbacks[key]?.[0] || '';
+    const fb = fallbacks[key] || [];
     if (primary) {
-      result[key] = { primary, fallbacks: fallbacks.filter((f) => f !== primary) };
+      result[key] = { primary, fallbacks: fb.filter((f) => f !== primary) };
     }
   }
 
   return result;
 }
 
+/** Default robust selectors (demo environment for backward compat) */
 export const ROBUST_SELECTORS: RobustSelectors = buildRobustSelectors();
 
 export class SelectorResolver {
   private cache: Map<string, CacheEntry> = new Map();
   private cacheTtlMs: number;
+  private selectors: RobustSelectors;
 
   // 캐시 통계 (디버깅용)
   private stats = { hits: 0, misses: 0, invalidations: 0 };
 
-  constructor(cacheTtlMs: number = DEFAULT_CACHE_TTL_MS) {
+  constructor(cacheTtlMs: number = DEFAULT_CACHE_TTL_MS, selectors?: RobustSelectors) {
     this.cacheTtlMs = cacheTtlMs;
+    this.selectors = selectors ?? buildRobustSelectors();
+  }
+
+  /**
+   * Rebuild internal selectors for a specific environment.
+   * Clears the cache since selectors may have changed.
+   */
+  rebuildForEnvironment(env: PlatformEnvironment): void {
+    this.selectors = buildRobustSelectors(env);
+    this.clearCache();
+    logger.info(`Selectors rebuilt for environment: ${env}`);
   }
 
   /**
@@ -95,7 +114,7 @@ export class SelectorResolver {
    * Resolve an element using fallbacks and caching
    */
   async resolve(key: string): Promise<HTMLElement | null> {
-    const def = ROBUST_SELECTORS[key];
+    const def = this.selectors[key];
     if (!def) return null;
 
     // 1. 캐시 확인 (TTL + DOM 존재 검증)

@@ -338,6 +338,18 @@ export interface MessagePayloadMap {
     accountType: AccountType;
     source: string;
   };
+  // Selector Healthcheck
+  GET_SELECTOR_HEALTHCHECK: undefined;
+  SELECTOR_HEALTHCHECK_RESULT: {
+    environment: 'demo' | 'real' | 'unknown';
+    timestamp: number;
+    version: string;
+    passed: boolean;
+    tradingHalted: boolean;
+    criticalFailures: string[];
+    nonCriticalFailures: string[];
+    snapshot?: Record<string, boolean>;
+  };
 }
 
 /** All valid message type strings */
