@@ -23,7 +23,7 @@ import {
 } from '../../lib/safety/account-verifier';
 import { createLogger } from '../../lib/logger';
 import { getSelectorHealthcheck } from '../../lib/platform/adapters/pocket-option/selector-healthcheck';
-import { detectEnvironment } from '../../lib/platform/adapters/pocket-option/selectors';
+import { detectEnvironment, getFallbacksForEnvironment, getSelectorsForEnvironment } from '../../lib/platform/adapters/pocket-option/selectors';
 import { getSelectorResolver } from '../selector-resolver';
 import { installEnvDebugConsoleAPI } from '../../lib/instrumentation';
 
@@ -45,6 +45,16 @@ export async function initialize(ctx: ContentScriptContext): Promise<void> {
     const env = detectEnvironment();
     console.log(`[PO] [3.1] Environment detected: ${env}`);
     getSelectorResolver().rebuildForEnvironment(env);
+
+    // 트레이딩 UI가 렌더링될 때까지 대기 (SPA 지연 대응)
+    // fallback 셀렉터를 OR 결합하여 어떤 레이아웃이든 즉시 감지
+    const envSelectors = getSelectorsForEnvironment(env);
+    const envFallbacks = getFallbacksForEnvironment(env);
+    const callSelectors = [envSelectors.callButton, ...(envFallbacks.callButton ?? [])];
+    const uniqueCallSelectors = [...new Set(callSelectors)].filter(Boolean);
+    const combinedSelector = uniqueCallSelectors.join(', ');
+    console.log(`[PO] [3.1.1] Waiting for trading UI: ${combinedSelector}`);
+    await waitForElement(combinedSelector, 10000);
 
     // Run selector healthcheck
     const healthcheck = getSelectorHealthcheck();
