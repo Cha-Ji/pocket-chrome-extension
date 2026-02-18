@@ -47,6 +47,44 @@ export interface HealthcheckResult {
 
 const REVALIDATION_DEBOUNCE_MS = 5_000;
 
+// ─── Change Detection ───────────────────────────────────────
+// Pocket Option's DOM changes frequently when switching between
+// demo/real accounts or when the platform deploys updates.
+// We must detect ALL meaningful state changes — not just
+// tradingHalted / criticalFailures — so the background and
+// side-panel always reflect the latest selector health.
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Compare two healthcheck results across every meaningful dimension.
+ * Returns `true` when any field differs (= broadcast required).
+ *
+ * Dimensions checked:
+ *  - tradingHalted (critical flag)
+ *  - passed (overall pass/fail)
+ *  - environment (demo / real / unknown)
+ *  - version (selector schema revision)
+ *  - criticalFailures list
+ *  - nonCriticalFailures list
+ *
+ * When `prev` is null (first run) any result counts as "changed".
+ */
+export function hasResultChanged(
+  prev: HealthcheckResult | null,
+  next: HealthcheckResult,
+): boolean {
+  if (!prev) return true;
+
+  return (
+    prev.tradingHalted !== next.tradingHalted ||
+    prev.passed !== next.passed ||
+    prev.environment !== next.environment ||
+    prev.version !== next.version ||
+    prev.criticalFailures.join(',') !== next.criticalFailures.join(',') ||
+    prev.nonCriticalFailures.join(',') !== next.nonCriticalFailures.join(',')
+  );
+}
+
 // ─── Healthcheck Class ──────────────────────────────────────
 
 export class SelectorHealthcheck {
@@ -230,21 +268,16 @@ export class SelectorHealthcheck {
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
 
-      // Capture previous state BEFORE run() overwrites this.lastResult
+      // ── IMPORTANT: capture prev BEFORE run() ──────────────────
+      // run() overwrites this.lastResult internally (line ~139).
+      // We must snapshot prev first so the diff comparison is
+      // against the *previous* cycle, not the current one.
       const prev = this.lastResult;
-      const prevHalted = prev?.tradingHalted ?? false;
-      const prevCritical = prev?.criticalFailures.join(',') ?? '';
-      const prevNonCritical = prev?.nonCriticalFailures.join(',') ?? '';
 
       const result = this.run();
+      // At this point this.lastResult === result (set inside run()).
 
-      // Broadcast if any dimension changed (halted, critical keys, non-critical keys)
-      const statusChanged =
-        result.tradingHalted !== prevHalted ||
-        result.criticalFailures.join(',') !== prevCritical ||
-        result.nonCriticalFailures.join(',') !== prevNonCritical;
-
-      if (statusChanged) {
+      if (hasResultChanged(prev, result)) {
         logger.info('Selector status changed after DOM mutation — broadcasting');
         this.onResultCallback?.(result);
         this.broadcastResult(result);

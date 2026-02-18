@@ -3,6 +3,8 @@ import {
   SelectorHealthcheck,
   resetSelectorHealthcheck,
   getSelectorHealthcheck,
+  hasResultChanged,
+  type HealthcheckResult,
 } from './selector-healthcheck';
 
 // Mock chrome.runtime.sendMessage (not available in jsdom)
@@ -122,11 +124,13 @@ describe('SelectorHealthcheck', () => {
     resetSelectorHealthcheck();
     healthcheck = new SelectorHealthcheck();
     vi.clearAllMocks();
+    vi.useFakeTimers();
   });
 
   afterEach(() => {
     healthcheck.destroy();
     document.body.innerHTML = '';
+    vi.useRealTimers();
   });
 
   describe('Demo environment — all selectors present', () => {
@@ -349,6 +353,169 @@ describe('SelectorHealthcheck', () => {
       healthcheck.stopObserver();
       // Stopping again should be idempotent
       healthcheck.stopObserver();
+    });
+  });
+
+  describe('hasResultChanged — comprehensive diff detection', () => {
+    const base: HealthcheckResult = {
+      environment: 'demo',
+      timestamp: 1000,
+      version: '1.0.0',
+      results: [],
+      passed: true,
+      tradingHalted: false,
+      criticalFailures: [],
+      nonCriticalFailures: [],
+    };
+
+    it('should return true when prev is null (first run)', () => {
+      expect(hasResultChanged(null, base)).toBe(true);
+    });
+
+    it('should return false when results are identical', () => {
+      expect(hasResultChanged({ ...base }, { ...base })).toBe(false);
+    });
+
+    it('should detect tradingHalted change', () => {
+      expect(hasResultChanged(base, { ...base, tradingHalted: true })).toBe(true);
+    });
+
+    it('should detect passed change', () => {
+      expect(hasResultChanged(base, { ...base, passed: false })).toBe(true);
+    });
+
+    it('should detect environment change (demo → real)', () => {
+      expect(hasResultChanged(base, { ...base, environment: 'real' })).toBe(true);
+    });
+
+    it('should detect environment change (demo → unknown)', () => {
+      expect(hasResultChanged(base, { ...base, environment: 'unknown' })).toBe(true);
+    });
+
+    it('should detect version change', () => {
+      expect(hasResultChanged(base, { ...base, version: '2.0.0' })).toBe(true);
+    });
+
+    it('should detect criticalFailures change', () => {
+      expect(
+        hasResultChanged(base, { ...base, criticalFailures: ['callButton'] }),
+      ).toBe(true);
+    });
+
+    it('should detect nonCriticalFailures change (non-critical only)', () => {
+      // This was the bug Codex reported: non-critical-only changes were missed
+      expect(
+        hasResultChanged(base, { ...base, nonCriticalFailures: ['tickerSelector'] }),
+      ).toBe(true);
+    });
+
+    it('should detect nonCriticalFailures order change', () => {
+      const prev = { ...base, nonCriticalFailures: ['a', 'b'] };
+      const next = { ...base, nonCriticalFailures: ['b', 'a'] };
+      // Different order → different join result → treated as change
+      expect(hasResultChanged(prev, next)).toBe(true);
+    });
+
+    it('should ignore timestamp changes (not compared)', () => {
+      expect(hasResultChanged(base, { ...base, timestamp: 9999 })).toBe(false);
+    });
+  });
+
+  describe('scheduleRevalidation — broadcast on any change', () => {
+    it('should broadcast when non-critical failures change after DOM mutation', async () => {
+      const cleanup = createFullDemoDOM();
+
+      Object.defineProperty(window, 'location', {
+        value: { pathname: '/demo/trading', href: 'https://pocketoption.com/demo/trading' },
+        writable: true,
+      });
+
+      const callback = vi.fn();
+      healthcheck.onResult(callback);
+
+      // Initial run to populate lastResult
+      healthcheck.runAndBroadcast();
+      callback.mockClear();
+      (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockClear();
+
+      // Now remove a non-critical element to trigger a non-critical-only change
+      const chartItem = document.querySelector('.chart-item');
+      chartItem?.remove();
+
+      // Start observer and trigger DOM mutation
+      healthcheck.startObserver();
+      const newDiv = document.createElement('div');
+      newDiv.className = 'trigger-mutation';
+      document.body.appendChild(newDiv);
+
+      // Fast-forward debounce timer
+      await vi.advanceTimersByTimeAsync(6000);
+
+      // The callback should have been called because non-critical selectors changed
+      expect(callback).toHaveBeenCalled();
+      expect(chrome.runtime.sendMessage).toHaveBeenCalled();
+
+      healthcheck.stopObserver();
+      cleanup();
+    });
+
+    it('should NOT broadcast when results are unchanged after DOM mutation', async () => {
+      const cleanup = createFullDemoDOM();
+
+      Object.defineProperty(window, 'location', {
+        value: { pathname: '/demo/trading', href: 'https://pocketoption.com/demo/trading' },
+        writable: true,
+      });
+
+      const callback = vi.fn();
+      healthcheck.onResult(callback);
+
+      // Initial run
+      healthcheck.runAndBroadcast();
+      callback.mockClear();
+      (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockClear();
+
+      // Trigger DOM mutation without changing any selectors
+      healthcheck.startObserver();
+      const newDiv = document.createElement('div');
+      newDiv.className = 'irrelevant-class';
+      document.body.appendChild(newDiv);
+
+      await vi.advanceTimersByTimeAsync(6000);
+
+      // No change in selector status → no broadcast
+      expect(callback).not.toHaveBeenCalled();
+
+      healthcheck.stopObserver();
+      cleanup();
+    });
+
+    it('should capture prev BEFORE run() to avoid self-comparison', () => {
+      // This test verifies the ordering invariant:
+      // prev must be captured before run() overwrites lastResult.
+      Object.defineProperty(window, 'location', {
+        value: { pathname: '/demo/trading', href: 'https://pocketoption.com/demo/trading' },
+        writable: true,
+      });
+
+      // First run: empty DOM → will have critical failures
+      const result1 = healthcheck.run();
+      expect(result1.tradingHalted).toBe(true);
+
+      // Now getLastResult should match result1
+      expect(healthcheck.getLastResult()).toBe(result1);
+
+      // Create full DOM
+      const cleanup = createFullDemoDOM();
+
+      // Second run: should detect change from halted → not halted
+      const result2 = healthcheck.run();
+      expect(result2.tradingHalted).toBe(false);
+
+      // lastResult is now result2, and result1 !== result2
+      expect(hasResultChanged(result1, result2)).toBe(true);
+
+      cleanup();
     });
   });
 
