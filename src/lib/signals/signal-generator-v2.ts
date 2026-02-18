@@ -19,6 +19,7 @@ import { sbb120Strategy } from '../backtest/strategies/sbb-120';
 import { zmr60WithHighWinRateConfig, ZMR60Config } from '../backtest/strategies/zmr-60';
 import type { StrategyConfigMap, SymbolStrategyConfig } from './strategy-config';
 import type { Strategy as BacktestStrategy } from '../backtest/types';
+import { selectTrendStrategy } from './trend-strategies';
 
 // ============================================================
 // Configuration
@@ -326,17 +327,14 @@ export class SignalGeneratorV2 {
     candles: Candle[],
     regimeInfo: { regime: MarketRegime; adx: number; direction: number },
   ): StrategyResult | null {
-    const { regime } = regimeInfo;
+    const { regime, adx } = regimeInfo;
 
-    // 백테스트 결과 기반 전략 선택 (보수적 접근):
-    // - ranging (ADX < 25): RSI+BB 54.0% ✅ + SBB-120 (squeeze breakout)
-    // - 다른 레짐: 신호 생성 안함 (성과 저조)
-    //
-    // 횡보장에서만 신호 생성. detectRegime()은 ADX < 25를 'ranging'으로 정의하므로
-    // regime 비교만으로 충분하다.
+    // 레짐별 전략 라우팅:
+    // - trending (ADX >= 25): EMA Pullback / V3 SMMA+Stoch trend pullback
+    // - ranging  (ADX < 25):  SBB-120 → RSI+BB + ZMR-60 (기존)
 
-    if (regime !== 'ranging') {
-      return null;
+    if (adx >= 25 && regime !== 'ranging') {
+      return selectTrendStrategy(candles, regimeInfo, this.config.highWinRateConfig);
     }
 
     // 횡보장 (ADX < 25)에서 전략 선택:

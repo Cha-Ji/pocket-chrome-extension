@@ -22,6 +22,11 @@ vi.mock('../backtest/strategies/zmr-60', () => ({
     .mockReturnValue({ signal: null, confidence: 0, reason: 'No signal', indicators: {} }),
 }));
 
+// trend-strategies 모킹
+vi.mock('./trend-strategies', () => ({
+  selectTrendStrategy: vi.fn().mockReturnValue(null),
+}));
+
 // ============================================================
 // 헬퍼: 테스트용 캔들 데이터 생성
 // ============================================================
@@ -395,33 +400,97 @@ describe('SignalGeneratorV2', () => {
   // selectStrategy 내부 메서드
   // ============================================================
 
-  describe('selectStrategy', () => {
-    it('ranging이 아닌 regime + ADX >= 25이면 null 반환', () => {
+  describe('selectStrategy — regime routing', () => {
+    it('ADX >= 25 (trending)이면 selectTrendStrategy를 호출한다', async () => {
+      const { selectTrendStrategy } = await import('./trend-strategies');
+      (selectTrendStrategy as ReturnType<typeof vi.fn>).mockClear();
+
       const selectStrategy = (generator as any).selectStrategy.bind(generator);
       const candles = generateCandles(60);
+
+      selectStrategy(candles, { regime: 'weak_uptrend', adx: 30, direction: 1 });
+      expect(selectTrendStrategy).toHaveBeenCalledWith(candles, expect.objectContaining({ regime: 'weak_uptrend', adx: 30 }), expect.any(Object));
+    });
+
+    it('ADX >= 25 (trending) + trend 전략이 null이면 최종 null 반환', async () => {
+      const { selectTrendStrategy } = await import('./trend-strategies');
+      (selectTrendStrategy as ReturnType<typeof vi.fn>).mockReturnValue(null);
+
+      const selectStrategy = (generator as any).selectStrategy.bind(generator);
+      const candles = generateCandles(60);
+
       const result = selectStrategy(candles, { regime: 'weak_uptrend', adx: 30, direction: 1 });
       expect(result).toBeNull();
     });
 
-    it('ranging regime에서는 rsiBBBounceStrategy를 호출한다', async () => {
+    it('ADX >= 25 (trending) + trend 전략이 신호를 반환하면 그대로 전달', async () => {
+      const { selectTrendStrategy } = await import('./trend-strategies');
+      const mockResult = {
+        signal: 'CALL' as const,
+        confidence: 0.7,
+        strategyId: 'EMA-PULLBACK',
+        reason: 'Uptrend pullback',
+        indicators: { rsi: 45 },
+      };
+      (selectTrendStrategy as ReturnType<typeof vi.fn>).mockReturnValue(mockResult);
+
+      const selectStrategy = (generator as any).selectStrategy.bind(generator);
+      const candles = generateCandles(60);
+
+      const result = selectStrategy(candles, { regime: 'weak_uptrend', adx: 30, direction: 1 });
+      expect(result).toEqual(mockResult);
+    });
+
+    it('ADX < 25 (ranging)이면 rsiBBBounceStrategy를 호출한다', async () => {
       const { rsiBBBounceStrategy } = await import('../backtest/strategies/high-winrate');
+      const { selectTrendStrategy } = await import('./trend-strategies');
+      (rsiBBBounceStrategy as ReturnType<typeof vi.fn>).mockClear();
+      (selectTrendStrategy as ReturnType<typeof vi.fn>).mockClear();
+
       const selectStrategy = (generator as any).selectStrategy.bind(generator);
       const candles = generateCandles(60);
 
       selectStrategy(candles, { regime: 'ranging', adx: 15, direction: 0 });
       expect(rsiBBBounceStrategy).toHaveBeenCalledWith(candles, expect.any(Object));
+      expect(selectTrendStrategy).not.toHaveBeenCalled();
     });
 
-    it('non-ranging regime에서는 ADX 값과 무관하게 null을 반환한다', async () => {
-      const { rsiBBBounceStrategy } = await import('../backtest/strategies/high-winrate');
-      (rsiBBBounceStrategy as ReturnType<typeof vi.fn>).mockClear();
+    it('strong_uptrend(ADX 45)에서 trend 라우팅이 동작한다', async () => {
+      const { selectTrendStrategy } = await import('./trend-strategies');
+      (selectTrendStrategy as ReturnType<typeof vi.fn>).mockClear();
 
       const selectStrategy = (generator as any).selectStrategy.bind(generator);
       const candles = generateCandles(60);
 
-      const result = selectStrategy(candles, { regime: 'weak_uptrend', adx: 20, direction: 1 });
-      expect(result).toBeNull();
-      expect(rsiBBBounceStrategy).not.toHaveBeenCalled();
+      selectStrategy(candles, { regime: 'strong_uptrend', adx: 45, direction: 1 });
+      expect(selectTrendStrategy).toHaveBeenCalled();
+    });
+
+    it('strong_downtrend(ADX 42)에서 trend 라우팅이 동작한다', async () => {
+      const { selectTrendStrategy } = await import('./trend-strategies');
+      (selectTrendStrategy as ReturnType<typeof vi.fn>).mockClear();
+
+      const selectStrategy = (generator as any).selectStrategy.bind(generator);
+      const candles = generateCandles(60);
+
+      selectStrategy(candles, { regime: 'strong_downtrend', adx: 42, direction: -1 });
+      expect(selectTrendStrategy).toHaveBeenCalled();
+    });
+
+    it('[회귀 방지] ADX < 25 + non-ranging은 ranging 경로로 폴스루한다', async () => {
+      // detectRegime()은 ADX < 25를 항상 'ranging'으로 분류하지만,
+      // 만약 외부에서 직접 호출할 때 regime 불일치가 있더라도 안전하게 동작
+      const { rsiBBBounceStrategy } = await import('../backtest/strategies/high-winrate');
+      const { selectTrendStrategy } = await import('./trend-strategies');
+      (rsiBBBounceStrategy as ReturnType<typeof vi.fn>).mockClear();
+      (selectTrendStrategy as ReturnType<typeof vi.fn>).mockClear();
+
+      const selectStrategy = (generator as any).selectStrategy.bind(generator);
+      const candles = generateCandles(60);
+
+      // ADX 20 but regime says weak_uptrend (edge case) → should NOT route to trend
+      selectStrategy(candles, { regime: 'weak_uptrend', adx: 20, direction: 1 });
+      expect(selectTrendStrategy).not.toHaveBeenCalled();
     });
   });
 
