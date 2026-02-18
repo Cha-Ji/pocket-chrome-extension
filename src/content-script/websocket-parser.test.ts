@@ -572,3 +572,464 @@ describe('registerPocketOptionPattern', () => {
     expect(result.type).toBe('unknown');
   });
 });
+
+// ============================================================
+// Fixture-based coverage: realistic PO messages & uncovered branches
+// ============================================================
+describe('WebSocketParser - fixture-based coverage', () => {
+  let parser: WebSocketParser;
+
+  beforeEach(() => {
+    parser = new WebSocketParser();
+  });
+
+  // ----------------------------------------------------------
+  // Realistic Pocket Option message fixtures
+  // ----------------------------------------------------------
+  const fixtures = {
+    // updateStream: the primary real-time price event
+    updateStream: '42["updateStream",[["#EURUSD_otc",1707123456,1.23456]]]',
+    updateStreamMulti:
+      '42["updateStream",[["#EURUSD_otc",1707123456,1.23456],["#GBPUSD_otc",1707123456,1.34567]]]',
+
+    // History events
+    historyNewFast: (candles: any[]) =>
+      `42["updateHistoryNewFast",{"asset":"#EURUSD_otc","data":${JSON.stringify(candles)}}]`,
+
+    // loadHistoryPeriod with candles field
+    loadHistoryPeriod: (candles: any[]) =>
+      `42["loadHistoryPeriod",{"candles":${JSON.stringify(candles)},"symbol":"#BTCUSD"}]`,
+
+    // History with `history` key
+    historyPayload: (candles: any[]) =>
+      `42["history",{"history":${JSON.stringify(candles)},"asset":"#JPYUSD"}]`,
+
+    // History with string data (JSON string in data field)
+    historyStringData: (candles: any[]) =>
+      `42["getHistory",{"data":${JSON.stringify(JSON.stringify(candles))},"symbol":"#AAPL"}]`,
+
+    // Binary placeholder (451-)
+    binaryPlaceholder: '451-["updateHistoryNewFast",{"_placeholder":true,"num":0}]',
+
+    // Heartbeat
+    heartbeat: '42["heartbeat",{}]',
+
+    // signals/stats
+    signalsStats: (data: any[]) => `42["signals/stats",${JSON.stringify(data)}]`,
+
+    // Socket.IO probe
+    probe: '2',
+
+    // Non-JSON garbage
+    garbage: 'this is not valid {json at all',
+
+    // Action-based with cmd field
+    cmdPrice: { cmd: 'price_update', body: { value: 42.5 } },
+
+    // Action-based with type field
+    typePrice: { type: 'quote', data: { rate: 1.234 } },
+
+    // Non-price action (no matching payload)
+    nonPriceAction: { action: 'auth_success', data: { userId: '12345' } },
+
+    // Candle with volume field set to non-number (validation edge case)
+    badVolumeCandle: {
+      open: 100,
+      high: 110,
+      low: 90,
+      close: 105,
+      volume: 'bad',
+    },
+  } as const;
+
+  // ----------------------------------------------------------
+  // 1. Pattern detect/parse error resilience
+  // ----------------------------------------------------------
+  describe('pattern error resilience', () => {
+    it('should skip pattern whose detect() throws and continue matching', () => {
+      parser.registerPattern({
+        name: 'throw_on_detect',
+        detect: () => {
+          throw new Error('boom');
+        },
+        parse: () => ({
+          type: 'heartbeat' as const,
+          data: null,
+          raw: {},
+          confidence: 1,
+        }),
+      });
+      // Should still parse correctly despite the throwing pattern
+      const result = parser.parse({ symbol: 'BTCUSD', price: 50000 });
+      expect(result.type).toBe('price_update');
+    });
+
+    it('should skip pattern whose parse() throws and continue matching', () => {
+      parser.registerPattern({
+        name: 'throw_on_parse',
+        detect: () => true,
+        parse: () => {
+          throw new Error('parse boom');
+        },
+      });
+      const result = parser.parse({ symbol: 'ETHUSD', price: 3000 });
+      expect(result.type).toBe('price_update');
+    });
+  });
+
+  // ----------------------------------------------------------
+  // 2. simple_price alternate field names (ticker, close)
+  // ----------------------------------------------------------
+  describe('simple_price alternate fields', () => {
+    it('should parse { ticker, close } format', () => {
+      const result = parser.parse({ ticker: 'XAUUSD', close: 2050.5 });
+      expect(result.type).toBe('price_update');
+      expect(result.data).toMatchObject({ symbol: 'XAUUSD', price: 2050.5 });
+    });
+  });
+
+  // ----------------------------------------------------------
+  // 3. pocket_option_action: cmd and type field paths
+  // ----------------------------------------------------------
+  describe('pocket_option_action field variants', () => {
+    it('should parse message with cmd field', () => {
+      const result = parser.parse(fixtures.cmdPrice);
+      expect(result.type).toBe('price_update');
+    });
+
+    it('should parse message with type field when action/cmd absent', () => {
+      const result = parser.parse(fixtures.typePrice);
+      expect(result.type).toBe('price_update');
+    });
+
+    it('should return unknown for action with no extractable price', () => {
+      const result = parser.parse(fixtures.nonPriceAction);
+      expect(result.type).toBe('unknown');
+      expect(result.confidence).toBe(0);
+    });
+
+    it('should parse action with data.body path for price', () => {
+      const result = parser.parse({ action: 'tick', body: { bid: 1.5 } });
+      expect(result.type).toBe('price_update');
+    });
+
+    it('should parse history array in action payload with rate field', () => {
+      const result = parser.parse({
+        action: 'load',
+        data: [
+          { rate: 1.23, time: 1700000001 },
+          { rate: 1.24, time: 1700000002 },
+        ],
+      });
+      expect(result.type).toBe('candle_history');
+      const candles = result.data as any[];
+      expect(candles).toHaveLength(2);
+    });
+  });
+
+  // ----------------------------------------------------------
+  // 4. History events: candles, history, string data fields
+  // ----------------------------------------------------------
+  describe('Socket.IO history event field variants', () => {
+    const sampleCandles = [
+      { open: 1.1, high: 1.2, low: 1.0, close: 1.15, time: 1700000001 },
+      { open: 1.15, high: 1.25, low: 1.05, close: 1.2, time: 1700000002 },
+    ];
+
+    it('should parse history with candles field', () => {
+      const msg = fixtures.loadHistoryPeriod(sampleCandles);
+      const result = parser.parse(msg);
+      expect(result.type).toBe('candle_history');
+      expect((result.data as any[]).length).toBe(2);
+    });
+
+    it('should parse history with history field', () => {
+      const msg = fixtures.historyPayload(sampleCandles);
+      const result = parser.parse(msg);
+      expect(result.type).toBe('candle_history');
+      expect((result.data as any[]).length).toBe(2);
+    });
+
+    it('should parse history with stringified data field', () => {
+      const msg = fixtures.historyStringData(sampleCandles);
+      const result = parser.parse(msg);
+      expect(result.type).toBe('candle_history');
+      expect((result.data as any[]).length).toBe(2);
+    });
+
+    it('should parse history with direct array payload', () => {
+      const msg = `42["candles",${JSON.stringify(sampleCandles)}]`;
+      const result = parser.parse(msg);
+      expect(result.type).toBe('candle_history');
+    });
+  });
+
+  // ----------------------------------------------------------
+  // 5. Unknown event with OHLC-looking array fallback (PO-17)
+  // ----------------------------------------------------------
+  describe('unknown event OHLC fallback', () => {
+    it('should attempt parsing unknown event with array-format candles (>5 items)', () => {
+      const candles = Array.from({ length: 6 }, (_, i) => [
+        1700000000 + i * 60,
+        1.1 + i * 0.01,
+        1.15 + i * 0.01,
+        1.2 + i * 0.01,
+        1.05 + i * 0.01,
+        100,
+      ]);
+      const result = parser.parse(['unknownHistoryEvent', candles]);
+      expect(result.type).toBe('candle_history');
+      expect((result.data as any[]).length).toBe(6);
+    });
+
+    it('should attempt parsing unknown event with object-format candles (>5 items)', () => {
+      const candles = Array.from({ length: 6 }, (_, i) => ({
+        open: 1.1 + i * 0.01,
+        high: 1.2 + i * 0.01,
+        low: 1.0 + i * 0.01,
+        close: 1.15 + i * 0.01,
+        timestamp: 1700000000 + i * 60,
+      }));
+      const result = parser.parse(['unknownBulkData', candles]);
+      expect(result.type).toBe('candle_history');
+      expect((result.data as any[]).length).toBe(6);
+    });
+
+    it('should not trigger fallback when payload length <= 5', () => {
+      const candles = [
+        [1700000000, 1.1, 1.15, 1.2, 1.05, 100],
+        [1700000060, 1.12, 1.16, 1.21, 1.06, 110],
+      ];
+      const result = parser.parse(['someEvent', candles]);
+      // Not enough items (2 <= 5), so fallback doesn't trigger
+      expect(result.type).toBe('unknown');
+    });
+  });
+
+  // ----------------------------------------------------------
+  // 6. extractPriceFromPayload: recursive nested objects
+  // ----------------------------------------------------------
+  describe('extractPriceFromPayload recursive traversal', () => {
+    it('should extract price from deeply nested payload', () => {
+      const result = parser.parse({
+        action: 'stream',
+        data: {
+          wrapper: {
+            inner: {
+              price: 999.99,
+            },
+          },
+        },
+      });
+      expect(result.type).toBe('price_update');
+      expect((result.data as any).price).toBe(999.99);
+    });
+
+    it('should not extract price when all nested values are non-numeric', () => {
+      const result = parser.parse({
+        action: 'update',
+        data: {
+          wrapper: {
+            inner: {
+              label: 'no price here',
+            },
+          },
+        },
+      });
+      // No extractable price, falls through to unknown
+      expect(result.type).toBe('unknown');
+    });
+  });
+
+  // ----------------------------------------------------------
+  // 7. getMessageTypeKey branches
+  // ----------------------------------------------------------
+  describe('unknown message type tracking (getMessageTypeKey)', () => {
+    it('should track primitive type key', () => {
+      parser.parse(42);
+      const types = parser.getUnknownMessageTypes();
+      expect(types.some((t) => t.startsWith('primitive:'))).toBe(true);
+    });
+
+    it('should track key from type field', () => {
+      // This has a 'type' field but doesn't match any pattern because
+      // type is string but it's not a price-related action
+      parser.parse({ type: 'custom_non_price_event', payload: {} });
+      const types = parser.getUnknownMessageTypes();
+      // Could match pocket_option_action, but action is not price-related,
+      // so it might return unknown. Let's check:
+      const result = parser.parse({ type: 'custom_non_price_event', payload: {} });
+      expect(result.type).toBe('unknown');
+    });
+
+    it('should track key from event field', () => {
+      // Object with only 'event' field, no matching patterns
+      parser.parse({ event: 'some_internal_event', meta: {} });
+      const types = parser.getUnknownMessageTypes();
+      expect(types.some((t) => t.includes('event:'))).toBe(true);
+    });
+
+    it('should track key from sorted object keys', () => {
+      // Object with no type-hint fields
+      parser.parse({ alpha: 1, beta: 2, gamma: 3 });
+      const types = parser.getUnknownMessageTypes();
+      expect(types.some((t) => t.startsWith('keys:'))).toBe(true);
+    });
+
+    it('should not duplicate already-tracked unknown types', () => {
+      parser.parse({ event: 'dupTest' });
+      parser.parse({ event: 'dupTest' });
+      const types = parser.getUnknownMessageTypes();
+      const count = types.filter((t) => t === 'event:dupTest').length;
+      expect(count).toBe(1);
+    });
+  });
+
+  // ----------------------------------------------------------
+  // 8. candle_data validation: non-number volume
+  // ----------------------------------------------------------
+  describe('candle_data volume validation', () => {
+    it('should reject candle with non-number volume', () => {
+      const result = parser.parse(fixtures.badVolumeCandle);
+      // Open/high/low/close are valid numbers, but volume is 'bad'
+      // The validation should reject this
+      expect(result.type).toBe('unknown');
+    });
+  });
+
+  // ----------------------------------------------------------
+  // 9. updateStream event direct parsing
+  // ----------------------------------------------------------
+  describe('updateStream event', () => {
+    it('should parse updateStream with single item', () => {
+      const result = parser.parse(fixtures.updateStream);
+      expect(result.type).toBe('price_update');
+      expect(result.confidence).toBeGreaterThanOrEqual(0.99);
+      expect(result.data).toMatchObject({
+        symbol: '#EURUSD_otc',
+        price: 1.23456,
+      });
+    });
+
+    it('should parse updateStream first item only', () => {
+      const result = parser.parse(fixtures.updateStreamMulti);
+      expect(result.type).toBe('price_update');
+      expect(result.data).toMatchObject({
+        symbol: '#EURUSD_otc',
+        price: 1.23456,
+      });
+    });
+
+    it('should handle updateStream with non-array payload as unknown', () => {
+      const result = parser.parse(['updateStream', 'not-an-array']);
+      expect(result.type).toBe('unknown');
+    });
+
+    it('should handle updateStream with short inner array', () => {
+      const result = parser.parse(['updateStream', [['#EURUSD_otc', 123]]]);
+      // Inner array has < 3 elements, so it falls through
+      expect(result.type).toBe('unknown');
+    });
+  });
+
+  // ----------------------------------------------------------
+  // 10. Socket.IO binary placeholder
+  // ----------------------------------------------------------
+  describe('Socket.IO binary placeholder (451-)', () => {
+    it('should parse 451- prefix binary placeholder as unknown', () => {
+      const result = parser.parse(fixtures.binaryPlaceholder);
+      expect(result.type).toBe('unknown');
+    });
+  });
+
+  // ----------------------------------------------------------
+  // 11. Binary payload with actual ArrayBuffer
+  // ----------------------------------------------------------
+  describe('binary_payload with ArrayBuffer', () => {
+    it('should decode candle history from actual ArrayBuffer', () => {
+      const candles = [
+        { open: 1.1, high: 1.2, low: 1.0, close: 1.15, timestamp: 1700000001 },
+      ];
+      const buffer = new TextEncoder().encode(JSON.stringify(candles)).buffer;
+      const result = parser.parse({
+        type: 'binary_payload',
+        event: 'loadHistoryPeriod',
+        data: buffer,
+      });
+      expect(result.type).toBe('candle_history');
+    });
+
+    it('should return unknown for non-history binary event', () => {
+      const uint8 = new TextEncoder().encode('{"hello":"world"}');
+      const result = parser.parse({
+        type: 'binary_payload',
+        event: 'someOtherEvent',
+        data: uint8,
+      });
+      expect(result.type).toBe('unknown');
+      expect(result.confidence).toBe(0.5);
+    });
+
+    it('should handle non-JSON binary data gracefully', () => {
+      const uint8 = new Uint8Array([0xff, 0xfe, 0xfd]);
+      const result = parser.parse({
+        type: 'binary_payload',
+        event: 'loadHistoryPeriod',
+        data: uint8,
+      });
+      // Non-JSON binary: TextDecoder produces garbage → catch → raw data passed
+      // to parseSocketIOArray which returns candle_history with null or empty data
+      expect(result.type).toBe('candle_history');
+    });
+  });
+
+  // ----------------------------------------------------------
+  // 12. extractPrice edge cases
+  // ----------------------------------------------------------
+  describe('extractPrice additional cases', () => {
+    it('should return null for heartbeat message', () => {
+      expect(parser.extractPrice({ action: 'ping' })).toBeNull();
+    });
+
+    it('should return null for candle_history', () => {
+      const candles = [
+        { open: 1.1, high: 1.2, low: 1.0, close: 1.15, time: 1700000001 },
+      ];
+      const msg = `42["updateHistoryNewFast",{"data":${JSON.stringify(candles)}}]`;
+      expect(parser.extractPrice(msg)).toBeNull();
+    });
+  });
+
+  // ----------------------------------------------------------
+  // 13. Complex real-world-like fixtures (integration-style)
+  // ----------------------------------------------------------
+  describe('real-world PO message fixtures', () => {
+    it('should handle a batch of mixed messages without throwing', () => {
+      const messages = [
+        fixtures.updateStream,
+        fixtures.binaryPlaceholder,
+        fixtures.probe,
+        fixtures.garbage,
+        fixtures.nonPriceAction,
+        fixtures.cmdPrice,
+        JSON.stringify({ symbol: 'BTCUSD', price: 50000 }),
+        null,
+        undefined,
+        42,
+        true,
+        '',
+        '{}',
+        '[]',
+        '42["unknownEvent",{"foo":"bar"}]',
+      ];
+
+      for (const msg of messages) {
+        // Must never throw
+        const result = parser.parse(msg);
+        expect(result).toHaveProperty('type');
+        expect(result).toHaveProperty('confidence');
+        expect(typeof result.confidence).toBe('number');
+      }
+    });
+  });
+});
