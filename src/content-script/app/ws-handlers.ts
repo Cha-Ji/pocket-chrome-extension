@@ -14,6 +14,7 @@ import { tickImbalanceFadeStrategy, TIF60Config } from '../tick-strategies';
 import { normalizeSymbol, normalizeTimestampMs } from '../../lib/utils/normalize';
 import { ContentScriptContext } from './context';
 import { handleNewSignal } from './trade-lifecycle';
+import { getEnvInstrumentation } from '../../lib/instrumentation';
 
 // ============================================================
 // TIF-60 Integration
@@ -230,6 +231,14 @@ function setupWebSocketHandler(ctx: ContentScriptContext): void {
   });
 
   ctx.wsInterceptor.onMessage((message: WebSocketMessage) => {
+    // Environment instrumentation: record message schema (no-op when disabled)
+    getEnvInstrumentation().recordWSMessage(
+      message.parsed,
+      message.text,
+      message.text?.length ?? 0,
+      message.rawType === 'string' ? 'text' : message.rawType === 'binary' ? 'binary' : 'unknown',
+    );
+
     if (message.parsed && Array.isArray(message.parsed)) {
       const event = message.parsed[0];
       if (event === 'load_history' || event === 'history' || event === 'candles') {
