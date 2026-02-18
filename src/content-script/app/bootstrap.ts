@@ -25,6 +25,7 @@ import { createLogger } from '../../lib/logger';
 import { getSelectorHealthcheck } from '../../lib/platform/adapters/pocket-option/selector-healthcheck';
 import { detectEnvironment } from '../../lib/platform/adapters/pocket-option/selectors';
 import { getSelectorResolver } from '../selector-resolver';
+import { installEnvDebugConsoleAPI } from '../../lib/instrumentation';
 
 const safetyLog = createLogger('Safety');
 
@@ -113,6 +114,10 @@ export async function initialize(ctx: ContentScriptContext): Promise<void> {
     console.log('[PO] [6] Background monitors started');
 
     AutoMiner.init(ctx.payoutMonitor);
+
+    // Install environment debug console API (window.pqEnvDebug)
+    // All instrumentation is OFF by default — zero overhead unless enabled
+    installEnvDebugConsoleAPI();
 
     ctx.isInitialized = true;
     console.log('[PO] [SUCCESS] Initialized successfully');

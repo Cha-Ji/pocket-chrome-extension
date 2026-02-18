@@ -52,6 +52,7 @@ const MODULE_COLORS: Record<string, string> = {
   UI: '#4af',
   Safety: '#f44',
   AutoTrader: '#fa0',
+  EnvDebug: '#0fc',
 };
 
 // Default configuration

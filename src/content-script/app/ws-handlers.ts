@@ -14,6 +14,7 @@ import { tickImbalanceFadeStrategy, TIF60Config } from '../tick-strategies';
 import { normalizeSymbol, normalizeTimestampMs } from '../../lib/utils/normalize';
 import { ContentScriptContext } from './context';
 import { handleNewSignal } from './trade-lifecycle';
+import { getEnvInstrumentation } from '../../lib/instrumentation';
 
 // ============================================================
 // TIF-60 Integration
@@ -230,6 +231,14 @@ function setupWebSocketHandler(ctx: ContentScriptContext): void {
   });
 
   ctx.wsInterceptor.onMessage((message: WebSocketMessage) => {
+    // Environment instrumentation: record message schema (no-op when disabled)
+    getEnvInstrumentation().recordWSMessage(
+      message.parsed,
+      message.text,
+      message.text?.length ?? 0,
+      message.rawType === 'string' ? 'text' : message.rawType === 'binary' ? 'binary' : 'unknown',
+    );
+
     // Feed WS messages to AccountVerifier for demo/real detection (#52)
     // P2 review fix: Prefer parsed payload over raw frame. Socket.IO frames
     // (e.g. "451-[...]") are rejected by WsDecoder.detectFromString because
