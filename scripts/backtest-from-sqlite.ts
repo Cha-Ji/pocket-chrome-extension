@@ -38,6 +38,7 @@ const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../data/market-data
 /** 결과 리포트 저장 경로 */
 const REPORT_DIR = path.join(__dirname, '../data/results')
 const REPORT_PATH = path.join(REPORT_DIR, 'sqlite-backtest-report.md')
+const REPORT_JSON_PATH = path.join(REPORT_DIR, 'sqlite-backtest-report-latest.json')
 
 /** SignalGeneratorV2 초기화에 필요한 최소 캔들 수 */
 const INIT_CANDLE_COUNT = 50
@@ -95,6 +96,85 @@ interface StrategyStats {
   count: number
   wins: number
   losses: number
+}
+
+interface AggregatedStats {
+  byStrategy: Record<string, StrategyStats>
+  byRegime: Record<string, StrategyStats>
+}
+
+interface SqliteBacktestJsonReport {
+  generatedAt: string
+  startedAt: string
+  elapsedSec: number
+  dataSource: string
+  summary: {
+    assetCount: number
+    testedAssets: number
+    skippedAssets: number
+    totalTicks: number
+    totalCandles: number
+    totalSignals: number
+    wins: number
+    losses: number
+    overallWinRate: number | null
+    status: 'TARGET MET' | 'BELOW TARGET' | 'N/A'
+  }
+  assets: Array<{
+    symbol: string
+    totalTicks: number
+    totalCandles: number
+    coverageDays: number
+    totalSignals: number
+    wins: number
+    losses: number
+    winRate: number | null
+    dataSource: string
+  }>
+  byStrategy: Array<{
+    name: string
+    count: number
+    wins: number
+    losses: number
+    winRate: number | null
+  }>
+  byRegime: Array<{
+    name: string
+    count: number
+    wins: number
+    losses: number
+    winRate: number | null
+  }>
+}
+
+function parseWinRate(winRate: string): number | null {
+  if (!winRate || winRate === 'N/A') {
+    return null
+  }
+  const numeric = Number.parseFloat(winRate.replace('%', '').trim())
+  return Number.isFinite(numeric) ? numeric : null
+}
+
+function aggregateStats(allResults: BacktestResult[]): AggregatedStats {
+  const byStrategy: Record<string, StrategyStats> = {}
+  const byRegime: Record<string, StrategyStats> = {}
+
+  allResults.forEach(r => {
+    Object.entries(r.byStrategy).forEach(([key, stats]) => {
+      if (!byStrategy[key]) byStrategy[key] = { count: 0, wins: 0, losses: 0 }
+      byStrategy[key].count += stats.count
+      byStrategy[key].wins += stats.wins
+      byStrategy[key].losses += stats.losses
+    })
+    Object.entries(r.byRegime).forEach(([key, stats]) => {
+      if (!byRegime[key]) byRegime[key] = { count: 0, wins: 0, losses: 0 }
+      byRegime[key].count += stats.count
+      byRegime[key].wins += stats.wins
+      byRegime[key].losses += stats.losses
+    })
+  })
+
+  return { byStrategy, byRegime }
 }
 
 // ============================================================
@@ -553,23 +633,7 @@ function generateMarkdownReport(
   lines.push('')
 
   // 전략/레짐 통계
-  const globalStrategy: Record<string, StrategyStats> = {}
-  const globalRegime: Record<string, StrategyStats> = {}
-
-  allResults.forEach(r => {
-    Object.entries(r.byStrategy).forEach(([key, stats]) => {
-      if (!globalStrategy[key]) globalStrategy[key] = { count: 0, wins: 0, losses: 0 }
-      globalStrategy[key].count += stats.count
-      globalStrategy[key].wins += stats.wins
-      globalStrategy[key].losses += stats.losses
-    })
-    Object.entries(r.byRegime).forEach(([key, stats]) => {
-      if (!globalRegime[key]) globalRegime[key] = { count: 0, wins: 0, losses: 0 }
-      globalRegime[key].count += stats.count
-      globalRegime[key].wins += stats.wins
-      globalRegime[key].losses += stats.losses
-    })
-  })
+  const { byStrategy: globalStrategy, byRegime: globalRegime } = aggregateStats(allResults)
 
   if (Object.keys(globalStrategy).length > 0) {
     lines.push('## 전략별 성과')
@@ -838,7 +902,67 @@ async function main(): Promise<void> {
 
     const report = generateMarkdownReport(allResults, `${dataSource}/${dataSourceType}`, startTime)
     fs.writeFileSync(REPORT_PATH, report, 'utf-8')
+
+    const { byStrategy, byRegime } = aggregateStats(allResults)
+    const endedAt = new Date()
+    const elapsedSec = Number(((endedAt.getTime() - startTime.getTime()) / 1000).toFixed(1))
+    const parsedWinRate = parseWinRate(overallWinRate)
+
+    const jsonReport: SqliteBacktestJsonReport = {
+      generatedAt: endedAt.toISOString(),
+      startedAt: startTime.toISOString(),
+      elapsedSec,
+      dataSource: `${dataSource}/${dataSourceType}`,
+      summary: {
+        assetCount: allResults.length,
+        testedAssets: testable.length,
+        skippedAssets: skipped.length,
+        totalTicks: allResults.reduce((sum, r) => sum + r.totalTicks, 0),
+        totalCandles: allResults.reduce((sum, r) => sum + r.totalCandles, 0),
+        totalSignals,
+        wins: totalWins,
+        losses: totalLosses,
+        overallWinRate: parsedWinRate,
+        status: parsedWinRate === null
+          ? 'N/A'
+          : parsedWinRate >= 52.1
+            ? 'TARGET MET'
+            : 'BELOW TARGET',
+      },
+      assets: allResults.map(r => ({
+        symbol: normalizeSymbol(r.symbol),
+        totalTicks: r.totalTicks,
+        totalCandles: r.totalCandles,
+        coverageDays: Number(r.coverageDays.toFixed(1)),
+        totalSignals: r.totalSignals,
+        wins: r.wins,
+        losses: r.losses,
+        winRate: parseWinRate(r.winRate),
+        dataSource: r.dataSource,
+      })),
+      byStrategy: Object.entries(byStrategy)
+        .sort((a, b) => b[1].count - a[1].count)
+        .map(([name, stats]) => ({
+          name,
+          count: stats.count,
+          wins: stats.wins,
+          losses: stats.losses,
+          winRate: stats.count > 0 ? Number(((stats.wins / stats.count) * 100).toFixed(1)) : null,
+        })),
+      byRegime: Object.entries(byRegime)
+        .sort((a, b) => b[1].count - a[1].count)
+        .map(([name, stats]) => ({
+          name,
+          count: stats.count,
+          wins: stats.wins,
+          losses: stats.losses,
+          winRate: stats.count > 0 ? Number(((stats.wins / stats.count) * 100).toFixed(1)) : null,
+        })),
+    }
+
+    fs.writeFileSync(REPORT_JSON_PATH, JSON.stringify(jsonReport, null, 2), 'utf-8')
     console.log(`\n[리포트] ${REPORT_PATH}`)
+    console.log(`[리포트] ${REPORT_JSON_PATH}`)
   } catch (error) {
     console.error('\n[경고] 리포트 저장 실패:', error)
   }

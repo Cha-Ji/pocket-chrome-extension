@@ -2,6 +2,27 @@
 
 **최종 업데이트:** 2026-02-18 KST
 
+## (2026-02-18) PO-136 — Binance 저장 데이터 듀얼 백테스트 + Telegram 상세 알림
+
+### 완료 항목
+- `scripts/backtest-from-sqlite.ts`에 JSON 산출물(`sqlite-backtest-report-latest.json`) 추가
+- 통합 실행 스크립트 `scripts/run-binance-backtests-and-notify.ts` 추가
+- `.env` 로딩 + Telegram 자격증명 검증 + 메시지 분할 전송 구현
+- 부분 실패 허용 정책 적용 (성공 결과 + 실패 stderr 요약 동시 전송)
+- 테스트 추가: `scripts/run-binance-backtests-and-notify.test.ts` (4 tests)
+
+### 테스트 결과
+- `npx vitest run scripts/run-binance-backtests-and-notify.test.ts` → 4 passed
+- `npm run type-check` → 0 errors
+
+### 다음 행동
+- 실제 `.env` 자격증명으로 `npm run backtest:binance:notify` 실행 검증
+- PR 생성 및 `Closes #136` 연결
+
+### 상세: `docs/issues/PO-136/`
+
+---
+
 ## (2026-02-18) Strategy Config Pipeline 1단계 — 전략 선택 자동화
 
 ### 완료 항목
