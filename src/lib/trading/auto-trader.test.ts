@@ -667,4 +667,97 @@ describe('AutoTrader', () => {
       expect(result.message).toBe('original error');
     });
   });
+
+  // ============================================================
+  // onError 콜백 예외 방어 — interval loop 안정성
+  // ============================================================
+
+  describe('onError 콜백 throw 시 interval loop 안정성', () => {
+    it('tick에서 에러 발생 + onError throw해도 isRunning/enabled 상태가 유지된다', async () => {
+      const { fetchCandles } = await import('../signals/signal-generator');
+      const fetchMock = fetchCandles as ReturnType<typeof vi.fn>;
+      fetchMock.mockRejectedValue(new Error('network down'));
+
+      // onError 콜백이 항상 throw
+      trader.setErrorCallback(() => {
+        throw new Error('consumer bug');
+      });
+
+      (trader as any).isRunning = true;
+      (trader as any).config.enabled = true;
+
+      // 첫 번째 tick — 에러 발생 + onError throw
+      await (trader as any).tick();
+
+      expect((trader as any).isRunning).toBe(true);
+      expect((trader as any).config.enabled).toBe(true);
+      expect(trader.getStats().isHalted).toBe(false);
+    });
+
+    it('onError가 throw해도 연속 tick이 정상 동작한다', async () => {
+      const { fetchCandles } = await import('../signals/signal-generator');
+      const fetchMock = fetchCandles as ReturnType<typeof vi.fn>;
+      fetchMock.mockRejectedValue(new Error('network down'));
+
+      let errorCallCount = 0;
+      trader.setErrorCallback(() => {
+        errorCallCount++;
+        throw new Error(`consumer bug #${errorCallCount}`);
+      });
+
+      (trader as any).isRunning = true;
+      (trader as any).config.enabled = true;
+
+      // 3회 연속 tick — 매번 에러 + onError throw
+      await (trader as any).tick();
+      await (trader as any).tick();
+      await (trader as any).tick();
+
+      // onError가 매 tick마다 호출됨 (throw에도 불구하고 loop 지속)
+      expect(errorCallCount).toBe(3);
+      expect((trader as any).isRunning).toBe(true);
+      expect((trader as any).config.enabled).toBe(true);
+    });
+
+    it('onError throw 후에도 stats(todayTrades 등)가 깨지지 않는다', async () => {
+      const { fetchCandles } = await import('../signals/signal-generator');
+      const fetchMock = fetchCandles as ReturnType<typeof vi.fn>;
+      fetchMock.mockRejectedValue(new Error('network down'));
+
+      const statsBefore = trader.getStats();
+
+      trader.setErrorCallback(() => {
+        throw new Error('consumer bug');
+      });
+
+      (trader as any).config.enabled = true;
+      await (trader as any).tick();
+
+      const statsAfter = trader.getStats();
+      // tick 에러는 거래 실행 전에 발생하므로 거래 통계 변경 없음
+      expect(statsAfter.todayTrades).toBe(statsBefore.todayTrades);
+      expect(statsAfter.todayWins).toBe(statsBefore.todayWins);
+      expect(statsAfter.todayLosses).toBe(statsBefore.todayLosses);
+      expect(statsAfter.todayProfit).toBe(statsBefore.todayProfit);
+      expect(statsAfter.isHalted).toBe(false);
+    });
+
+    it('onLog + onError 둘 다 throw해도 handleError가 정상 반환한다', () => {
+      trader.setLogCallback(() => {
+        throw new Error('log callback bug');
+      });
+      trader.setErrorCallback(() => {
+        throw new Error('error callback bug');
+      });
+
+      const result = (trader as any).handleError(
+        new Error('original error'),
+        'test',
+        ErrorCode.UNKNOWN,
+      );
+
+      expect(result).toBeInstanceOf(POError);
+      expect(result.message).toBe('original error');
+    });
+  });
 });
