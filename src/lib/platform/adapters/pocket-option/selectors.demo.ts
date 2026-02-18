@@ -4,13 +4,13 @@
 
 import type { DOMSelectors } from '../../../types';
 
-/** Pocket Option Demo mode DOM selectors */
+/** Pocket Option Demo mode DOM selectors (updated 2026-02-18) */
 export const PO_DEMO_SELECTORS: DOMSelectors = {
-  callButton: '.switch-state-block__item:first-child',
-  putButton: '.switch-state-block__item:last-child',
-  amountInput: '#put-call-buttons-chart-1 input[type="text"]',
+  callButton: '.btn-call',
+  putButton: '.btn-put',
+  amountInput: '#put-call-buttons-chart-1 input',
   expirationDisplay: '.block--expiration-inputs .value__val',
-  balanceDisplay: '.balance-info-block__value',
+  balanceDisplay: '.balance-info-block__balance',
   balanceLabel: '.balance-info-block__label',
   tickerSelector: '.chart-item .pair',
   chartContainer: '.chart-item',
@@ -18,17 +18,21 @@ export const PO_DEMO_SELECTORS: DOMSelectors = {
   demoIndicator: '.balance-info-block__label',
 };
 
-/** Demo-specific fallback chains (priority order) */
+/** Demo-specific fallback chains (priority order, updated 2026-02-18) */
 export const PO_DEMO_FALLBACKS: Record<string, string[]> = {
   callButton: [
-    '.switch-state-block__item:first-child',
     '.btn-call',
+    '.switch-state-block__item:first-child',
     '.trading-panel__buttons-item--up',
   ],
   putButton: [
-    '.switch-state-block__item:last-child',
     '.btn-put',
+    '.switch-state-block__item:last-child',
     '.trading-panel__buttons-item--down',
+  ],
+  amountInput: [
+    '#put-call-buttons-chart-1 input',
+    '[class*="amount"] input',
   ],
   priceDisplay: [
     '.chart-item .value__val',
@@ -37,8 +41,8 @@ export const PO_DEMO_FALLBACKS: Record<string, string[]> = {
     '[data-test="current-price"]',
   ],
   balanceDisplay: [
+    '.balance-info-block__balance',
+    'span.js-hd[data-hd-show]',
     '.balance-info-block__value',
-    '.user-balance',
-    '.header__balance-value',
   ],
 };

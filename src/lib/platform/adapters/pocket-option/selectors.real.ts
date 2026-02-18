@@ -11,9 +11,8 @@ import { PO_DEMO_SELECTORS, PO_DEMO_FALLBACKS } from './selectors.demo';
  */
 export const PO_REAL_SELECTORS: DOMSelectors = {
   ...PO_DEMO_SELECTORS,
-  // Override selectors that differ in Real mode here
-  // e.g. if Real mode uses a different balance display:
-  // balanceDisplay: '.real-balance__value',
+  // Real 환경에서도 동일한 셀렉터 사용 (명시적 선언)
+  balanceDisplay: '.balance-info-block__balance',
 };
 
 /**
@@ -22,5 +21,11 @@ export const PO_REAL_SELECTORS: DOMSelectors = {
  */
 export const PO_REAL_FALLBACKS: Record<string, string[]> = {
   ...PO_DEMO_FALLBACKS,
-  // Override fallback chains that differ in Real mode here
+  // Real 환경 전용 잔액 fallback (js-balance-real 클래스 포함)
+  balanceDisplay: [
+    '.balance-info-block__balance',
+    '.js-balance-real-USD',
+    'span.js-hd[data-hd-show]',
+    '.balance-info-block__value',
+  ],
 };
