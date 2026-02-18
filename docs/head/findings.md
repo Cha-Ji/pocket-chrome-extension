@@ -2,6 +2,8 @@
 
 ## 결정 사항
 
+- (2026-02-18) **PO-136 결정**: Binance 저장 데이터 백테스트는 JSON(`run-backtest-report.ts`) + SQLite(`backtest-from-sqlite.ts`)를 모두 실행하고 Telegram으로 상세 요약을 전송한다. 하나 실패 시 전체 중단하지 않고 부분 성공 알림을 보낸다.
+- (2026-02-18) **Telegram CLI 자격증명 규칙**: `.env`에서 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`를 우선 사용한다. 메시지는 4096자 제한을 고려해 3800자 기준 분할 전송한다.
 - (2026-01-26) Chrome Extension Manifest V3 + TypeScript 기반으로 구현
 - (2026-01-26) UI는 React + Tailwind CSS, Side Panel 중심으로 구성
 - (2026-01-26) 데이터 저장은 IndexedDB(Dexie.js)로 설계

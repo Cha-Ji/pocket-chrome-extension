@@ -22,6 +22,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\"",
     "type-check": "tsc --noEmit",
+    "backtest:binance:notify": "npx tsx scripts/run-binance-backtests-and-notify.ts",
     "collector": "npx tsx scripts/data-collector-server.ts",
     "collector:start": "pm2 start scripts/ecosystem.config.cjs",
     "collector:stop": "pm2 stop data-collector",
