@@ -1,69 +1,109 @@
-# 3-File 템플릿
+# BOARD/Wiki 템플릿
 
-아래 템플릿을 기본으로 생성하되, 작업 성격에 맞게 항목을 추가하라.
+현재 운영 기준은 `docs/BOARD.md` + `docs/wiki`(=`../pocket-chrome-extension.wiki`)이다.
+아래 템플릿은 필요한 항목만 최소 수정한다.
 
-## task_plan.md (The Map)
+## 1) BOARD Active Task 행 업데이트
+
+```markdown
+| 73 | codex-dev | feat/73-board-skill-update | reviewing | 3-file-pattern 스킬 BOARD 기준 정합성 검토 | 2026-02-18 23:40 |
+```
+
+규칙:
+- 자기 행만 수정한다.
+- Status는 `idle|researching|coding|testing|reviewing|blocked` 중 하나를 사용한다.
+- 작업 종료 시 `idle`로 되돌리거나 행을 정리한다.
+
+## 2) BOARD Recent Decisions 추가
+
+```markdown
+| 2026-02-18 | 3-file-pattern 스킬을 BOARD-first로 전환 | docs/head 제거 이후 문서 운영 기준과 스킬 지침 정합성 확보 |
+```
+
+규칙:
+- 새 항목을 맨 위에 추가한다.
+- 5개 초과 시 오래된 항목은 Wiki `[[Key-Decisions]]`로 이동한다.
+
+## 3) Team Inbox 메시지 append
+
+```markdown
+### [2026-02-18] From: Dev — BOARD 상태 갱신 필요
+Issue #73 처리 완료. QA 검증 요청.
+```
+
+규칙:
+- 상대 팀 inbox에 append 한다.
+- 처리 완료 후 수신 팀이 삭제한다.
+
+## 4) Wiki Worklog Daily 템플릿(요약)
+
+```markdown
+# Daily Worklog - 2026-02-18
+
+## Snapshot
+- Date: 2026-02-18
+- Owner: codex-dev
+- Branch: feat/73-board-skill-update
+- Primary Issue: #73
+
+## Highlights
+- 
+
+## Decisions
+- 
+
+## Next Actions
+- 
+
+## References
+- docs/BOARD.md
+```
+
+자동 생성 명령:
+- `npm run wiki:daily`
+- `npm run wiki:rollup`
+
+## 5) Worktree 브랜치 생성 템플릿 (항상 선행)
+
+```bash
+PROJECT=$(basename "$(git remote get-url origin)" .git)
+BRANCH="docs/137-worktree-pr-policy"
+SLUG=$(echo "$BRANCH" | sed 's|/|-|g')
+WT_PATH=~/worktrees/$PROJECT/$SLUG
+
+mkdir -p ~/worktrees/$PROJECT
+git worktree add "$WT_PATH" -b "$BRANCH"
+cd "$WT_PATH"
+```
+
+규칙:
+- 메인 체크아웃이 아닌 `WT_PATH`에서만 수정한다.
+- 완료 시 `git push -u origin <branch>` 후 PR을 생성한다.
+
+## 6) 레거시 3-file 예외 템플릿
+
+아래는 `docs/archive/` 복구/분석 작업처럼 예외 상황에서만 사용한다.
+
+### task_plan.md
 
 ```markdown
 # 작업 계획
-
-## 단계별 체크리스트
-
-- [ ] 조사 및 범위 확정
-- [ ] 구현 계획 수립
-- [ ] 코드 변경
-- [ ] 검증/테스트
-- [ ] 마무리 정리
+- [ ] 범위 확인
+- [ ] 작업 수행
+- [ ] 검증
 ```
 
-규칙:
-- 반드시 체크박스 형식 `- [ ]`, `- [x]`를 사용하라.
-- 완료 시 바로 체크로 업데이트하라.
-
-## findings.md (The Knowledge Base)
+### findings.md
 
 ```markdown
 # 발견사항
-
-## 결정 사항
-
-- (날짜) 결정 내용 요약
-
-## 제약/가정
-
-- (날짜) 제약 또는 가정
-
-## 핵심 정보
-
-- (날짜) 중요한 사실, API, 버전, 경로 등
-
-## 코드 스니펫
-
-````text
-// 필요한 경우 최소한의 예시만 기록
-````
+- (날짜) 핵심 사실
 ```
 
-규칙:
-- 동일 내용을 반복 기록하지 말고, 새로운 정보만 추가하라.
-- 나중에 다시 찾을 정보를 우선적으로 기록하라.
-
-## progress.md (The State)
+### progress.md
 
 ```markdown
 # 진행 로그
-
-## 2026-01-26
-
-- (최신) 현재 상태 요약
-- 다음 행동: 무엇을 할지 한 줄로 기록
-
-## 2026-01-25
-
-- (최신) 이전 상태 요약
-- 다음 행동: 무엇을 할지 한 줄로 기록
+- (최신) 현재 상태
+- 다음 행동: ...
 ```
-
-규칙:
-- 최신 항목이 위에 오도록 역순으로 기록하라.
-- 중단 시점의 상태와 즉시 다음 행동을 반드시 포함하라.
