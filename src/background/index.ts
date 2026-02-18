@@ -692,10 +692,46 @@ async function handleSelectorHealthcheckResult(
         }),
       );
 
-      // Force-stop active trading session when critical selectors are missing
-      if (backgroundStore.getState().tradingStatus.isRunning) {
+      // ── HALT ENFORCEMENT ──────────────────────────────────
+      // When healthcheck reports tradingHalted we MUST guarantee
+      // that the store reflects isRunning=false, regardless of
+      // whether the tab message succeeds.
+      //
+      // 1. Best-effort: try to send STOP_TRADING to the tab so
+      //    content-script tears down its trading loop.
+      // 2. Forced state: unconditionally set isRunning=false so
+      //    no new trades can be dispatched even if tab comms fail.
+      //
+      // This is idempotent — calling it when already stopped is
+      // a no-op at the store level (same value) and the tab
+      // message is fire-and-forget.
+      // ──────────────────────────────────────────────────────
+
+      const wasRunning = backgroundStore.getState().tradingStatus.isRunning;
+
+      if (wasRunning) {
         console.warn('[Background] Force-stopping trading due to selector healthcheck failure');
-        await stopTrading();
+
+        // Best-effort: notify the content-script tab
+        await ignoreError(
+          async () => {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tab?.id) {
+              await chrome.tabs.sendMessage(tab.id, { type: 'STOP_TRADING' });
+            }
+          },
+          { ...ctx, function: 'haltEnforcement.tabNotify' },
+          { logLevel: 'warn' },
+        );
+      }
+
+      // Forced state transition: guarantee isRunning=false
+      // even when stopTrading() would have thrown (no tab, etc.)
+      if (backgroundStore.getState().tradingStatus.isRunning) {
+        backgroundStore.setState((s) => ({
+          tradingStatus: { ...s.tradingStatus, isRunning: false },
+        }));
+        notifyStatusChange();
       }
     }
 
