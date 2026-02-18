@@ -8,6 +8,7 @@ import { Signal } from '../signals/types';
 import { SignalGenerator, fetchCandles } from '../signals/signal-generator';
 import { validateTradeAmount } from './validate-amount';
 import { loggers } from '../logger';
+import { POError, ErrorCode, errorHandler } from '../errors';
 
 export interface TradeExecution {
   signalId: string;
@@ -84,6 +85,7 @@ export class AutoTrader {
   private onExecute?: (execution: TradeExecution) => Promise<boolean>;
   private onResult?: (execution: TradeExecution) => void;
   private onLog?: (message: string, level: 'info' | 'success' | 'error' | 'warning') => void;
+  private onError?: (error: POError) => void;
 
   constructor(config: Partial<AutoTraderConfig> = {}) {
     this.config = {
@@ -233,6 +235,10 @@ export class AutoTrader {
     this.onLog = cb;
   }
 
+  setErrorCallback(cb: (error: POError) => void): void {
+    this.onError = cb;
+  }
+
   // ============================================================
   // Trading Logic
   // ============================================================
@@ -298,7 +304,7 @@ export class AutoTrader {
         await this.executeSignal(signal);
       }
     } catch (error) {
-      this.log(`Error in tick: ${error}`, 'error');
+      this.handleError(error, 'tick', ErrorCode.NETWORK_REQUEST_FAILED);
     }
   }
 
@@ -364,7 +370,14 @@ export class AutoTrader {
     });
 
     if (!amountValidation.valid) {
-      this.log(`거래 금액 검증 실패: ${amountValidation.reason} (원본값: ${rawAmount})`, 'error');
+      this.handleError(
+        new POError({
+          code: amountValidation.errorCode || ErrorCode.TRADE_INVALID_AMOUNT,
+          message: `거래 금액 검증 실패: ${amountValidation.reason} (원본값: ${rawAmount})`,
+          context: { module: 'lib/trading', function: 'executeSignal' },
+        }),
+        'executeSignal',
+      );
       return;
     }
 
@@ -398,9 +411,21 @@ export class AutoTrader {
     } else {
       // Live mode: execute via callback
       if (this.onExecute) {
-        const success = await this.onExecute(execution);
-        if (!success) {
-          this.log('❌ Trade execution failed', 'error');
+        try {
+          const success = await this.onExecute(execution);
+          if (!success) {
+            this.handleError(
+              new POError({
+                code: ErrorCode.TRADE_EXECUTION_FAILED,
+                message: 'Trade execution callback returned false',
+                context: { module: 'lib/trading', function: 'executeSignal' },
+              }),
+              'executeSignal',
+            );
+            return;
+          }
+        } catch (error) {
+          this.handleError(error, 'executeSignal', ErrorCode.TRADE_EXECUTION_FAILED);
           return;
         }
         this.log(`✅ [LIVE] ${signal.direction} $${amount} executed`, 'success');
@@ -473,7 +498,7 @@ export class AutoTrader {
 
       this.onResult?.(execution);
     } catch (error) {
-      this.log(`Error getting result: ${error}`, 'error');
+      this.handleError(error, 'simulateResult', ErrorCode.NETWORK_REQUEST_FAILED);
     }
   }
 
@@ -487,7 +512,7 @@ export class AutoTrader {
       this.generator.setHistory(this.config.symbol, candles);
       this.log(`📊 Loaded ${candles.length} candles`, 'info');
     } catch (error) {
-      this.log(`Failed to load history: ${error}`, 'error');
+      this.handleError(error, 'loadHistory', ErrorCode.NETWORK_REQUEST_FAILED);
     }
   }
 
@@ -517,6 +542,22 @@ export class AutoTrader {
 
   private saveStats(): void {
     // In a real implementation, save to storage
+  }
+
+  private handleError(error: unknown, fn: string, code?: ErrorCode): POError {
+    const poError = POError.from(
+      error,
+      { module: 'lib/trading', function: fn },
+      code,
+    );
+    errorHandler.handle(poError);
+    this.log(poError.toShortString(), 'error');
+    try {
+      this.onError?.(poError);
+    } catch (callbackError) {
+      loggers.autoTrader.error('[AutoTrader] onError callback threw:', callbackError);
+    }
+    return poError;
   }
 
   private log(message: string, level: 'info' | 'success' | 'error' | 'warning'): void {

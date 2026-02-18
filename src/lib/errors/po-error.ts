@@ -12,6 +12,7 @@ export type ErrorModule =
   | 'lib/indicators'
   | 'lib/backtest'
   | 'lib/signals'
+  | 'lib/trading'
   | 'lib/errors';
 
 /**
