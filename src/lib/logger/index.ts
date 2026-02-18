@@ -33,6 +33,7 @@ const MODULE_COLORS: Record<string, string> = {
   Parser: '#80f',
   Background: '#888',
   UI: '#4af',
+  Safety: '#f44',
 };
 
 // Default configuration
@@ -221,6 +222,7 @@ export const loggers = {
   background: new Logger('Background'),
   ui: new Logger('UI'),
   main: new Logger('Main'),
+  safety: new Logger('Safety'),
 };
 
 // Factory function for custom modules

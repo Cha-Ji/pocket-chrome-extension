@@ -20,6 +20,11 @@ export enum ErrorCode {
   DB_CONSTRAINT_VIOLATION = 'DB_CONSTRAINT_VIOLATION',
 
   // ============================================
+  // Safety Errors (3xx - Account Verification)
+  // ============================================
+  SAFETY_ACCOUNT_UNKNOWN = 'SAFETY_ACCOUNT_UNKNOWN',
+
+  // ============================================
   // Trading Errors (3xx)
   // ============================================
   TRADE_NOT_DEMO = 'TRADE_NOT_DEMO',
@@ -107,6 +112,9 @@ export const ERROR_SEVERITY_MAP: Record<ErrorCode, ErrorSeverity> = {
   [ErrorCode.DB_NOT_FOUND]: ErrorSeverity.INFO,
   [ErrorCode.DB_CONSTRAINT_VIOLATION]: ErrorSeverity.ERROR,
 
+  // Safety
+  [ErrorCode.SAFETY_ACCOUNT_UNKNOWN]: ErrorSeverity.CRITICAL,
+
   // Trading - 거래 관련은 대부분 CRITICAL
   [ErrorCode.TRADE_NOT_DEMO]: ErrorSeverity.CRITICAL,
   [ErrorCode.TRADE_EXECUTION_FAILED]: ErrorSeverity.CRITICAL,
@@ -166,6 +174,9 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.DB_DELETE_FAILED]: '데이터베이스 삭제 실패',
   [ErrorCode.DB_NOT_FOUND]: '데이터를 찾을 수 없음',
   [ErrorCode.DB_CONSTRAINT_VIOLATION]: '데이터베이스 제약 조건 위반',
+
+  // Safety
+  [ErrorCode.SAFETY_ACCOUNT_UNKNOWN]: '계정 타입 확인 불가 - 안전을 위해 거래 중단',
 
   // Trading
   [ErrorCode.TRADE_NOT_DEMO]: '데모 모드가 아닙니다 - 실제 거래 차단됨',

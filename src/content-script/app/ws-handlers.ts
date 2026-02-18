@@ -230,6 +230,9 @@ function setupWebSocketHandler(ctx: ContentScriptContext): void {
   });
 
   ctx.wsInterceptor.onMessage((message: WebSocketMessage) => {
+    // Feed WS messages to AccountVerifier for demo/real detection (#52)
+    ctx.accountVerifier?.feedWsMessage(message.raw ?? message.text ?? message.parsed);
+
     if (message.parsed && Array.isArray(message.parsed)) {
       const event = message.parsed[0];
       if (event === 'load_history' || event === 'history' || event === 'candles') {

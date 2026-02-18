@@ -5,12 +5,15 @@
 import { Signal } from '../../lib/signals/types';
 import { normalizeSymbol } from '../../lib/utils/normalize';
 import { evaluateSignalGates } from '../../lib/trading/signal-gate';
+import { createLogger } from '../../lib/logger';
 import {
   ContentScriptContext,
   PendingTrade,
   TRADE_COOLDOWN_MS,
   SETTLEMENT_GRACE_MS,
 } from './context';
+
+const safetyLog = createLogger('Safety');
 
 /**
  * Evaluate all signal gates and execute if allowed.
@@ -39,6 +42,15 @@ export async function handleNewSignal(ctx: ContentScriptContext, signal: Signal)
 
 export async function executeSignal(ctx: ContentScriptContext, signal: Signal): Promise<void> {
   if (!ctx.tradeExecutor) return;
+
+  // [#52] Account Verification Gate: block trades when account type is not DEMO
+  if (ctx.accountVerifier) {
+    const verifyCheck = ctx.accountVerifier.isTradeAllowed();
+    if (!verifyCheck.allowed) {
+      safetyLog.error(`Trade blocked by account verifier: ${verifyCheck.reason}`);
+      return;
+    }
+  }
 
   // [#46] Race Condition Guard: 동시 거래 실행 방지
   if (ctx.isExecutingTrade) {

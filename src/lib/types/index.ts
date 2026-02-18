@@ -331,6 +331,13 @@ export interface MessagePayloadMap {
   // Error Handling
   GET_ERROR_STATS: undefined;
   GET_ERROR_HISTORY: { limit?: number };
+  // Account Verification (#52)
+  ACCOUNT_VERIFY_ALERT: {
+    level: 'info' | 'warn' | 'critical';
+    message: string;
+    accountType: AccountType;
+    source: string;
+  };
 }
 
 /** All valid message type strings */

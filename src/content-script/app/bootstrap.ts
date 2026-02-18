@@ -15,6 +15,15 @@ import { AutoMiner } from '../auto-miner';
 import { ContentScriptContext } from './context';
 import { setupAllHandlers } from './ws-handlers';
 import { getSystemStatus } from './message-handler';
+import {
+  AccountVerifier,
+  DomDecoder,
+  WsDecoder,
+  LoggerAlertChannel,
+} from '../../lib/safety/account-verifier';
+import { createLogger } from '../../lib/logger';
+
+const safetyLog = createLogger('Safety');
 
 export async function initialize(ctx: ContentScriptContext): Promise<void> {
   if (ctx.isInitialized) return;
@@ -45,6 +54,35 @@ export async function initialize(ctx: ContentScriptContext): Promise<void> {
       ctx.telegramService = null;
     }
     ctx.wsInterceptor = getWebSocketInterceptor();
+
+    // Account Verifier (#52): decoder chain + periodic re-verification
+    const alertChannel = new LoggerAlertChannel();
+    alertChannel.setBroadcast((level, message) => {
+      try {
+        const lastResult = ctx.accountVerifier?.getLastResult();
+        chrome.runtime.sendMessage({
+          type: 'ACCOUNT_VERIFY_ALERT',
+          payload: {
+            level,
+            message,
+            accountType: lastResult?.type ?? 'UNKNOWN',
+            source: lastResult?.source ?? 'fallback',
+          },
+        }).catch(() => {});
+      } catch { /* extension context may be lost */ }
+    });
+
+    ctx.accountVerifier = new AccountVerifier({
+      decoders: [new DomDecoder(), new WsDecoder()],
+      alertChannel,
+      reverifyIntervalMs: 30_000,
+      isTradingArmed: () => ctx.tradingConfig.enabled,
+      onHalt: (reason) => {
+        safetyLog.error(`Trading halted: ${reason}`);
+        ctx.tradingConfig.enabled = false;
+      },
+    });
+
     console.log('[PO] [4] Modules initialized');
 
     setupAllHandlers(ctx);
@@ -55,6 +93,7 @@ export async function initialize(ctx: ContentScriptContext): Promise<void> {
     ctx.payoutMonitor.start(30000);
     ctx.indicatorReader.start();
     ctx.wsInterceptor.start();
+    ctx.accountVerifier?.start();
     console.log('[PO] [6] Background monitors started');
 
     AutoMiner.init(ctx.payoutMonitor);
