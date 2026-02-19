@@ -64,7 +64,7 @@ module.exports = {
         PO_URL: process.env.PO_URL || 'https://pocketoption.com',
         PO_SYMBOL: process.env.PO_SYMBOL || 'EURUSD',
         // Allow overriding headless from the shell: PO_HEADLESS=0 pm2 start ...
-        PO_HEADLESS: process.env.PO_HEADLESS || '1',
+        PO_HEADLESS: '0',
         PO_USER_DATA_DIR: process.env.PO_USER_DATA_DIR,
         PO_MEM_RESTART_MB: process.env.PO_MEM_RESTART_MB || '2500',
         PO_MEM_CHECK_EVERY_MS: process.env.PO_MEM_CHECK_EVERY_MS || '15000',
