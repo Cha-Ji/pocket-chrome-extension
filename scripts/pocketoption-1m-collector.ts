@@ -144,8 +144,7 @@ async function setupTickBridge(page: Page, onTick: (t: Tick) => Promise<void>) {
     await onTick(tick)
   })
 
-  // Inject observer
-  await page.addInitScript(({ selectors, symbol }) => {
+  const inject = ({ selectors, symbol }: { selectors: string[]; symbol: string }) => {
     function findPriceEl(): Element | null {
       for (const sel of selectors) {
         const el = document.querySelector(sel)
@@ -183,7 +182,13 @@ async function setupTickBridge(page: Page, onTick: (t: Tick) => Promise<void>) {
     }
 
     attach()
-  }, { selectors: PRICE_SELECTORS, symbol: SYMBOL })
+  }
+
+  // 1) For future navigations
+  await page.addInitScript(inject, { selectors: PRICE_SELECTORS, symbol: SYMBOL })
+
+  // 2) Also inject immediately for the current page (important: we already navigated)
+  await page.evaluate(inject, { selectors: PRICE_SELECTORS, symbol: SYMBOL })
 }
 
 function startMemoryGuard(): NodeJS.Timeout {
