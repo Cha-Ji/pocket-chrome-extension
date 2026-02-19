@@ -204,10 +204,25 @@ async function main(): Promise<void> {
   const context = await launchContext()
   const page = await context.newPage()
 
+  // Pipe page console/errors to Node logs (crucial for headless debugging)
+  page.on('console', (msg) => {
+    const text = msg.text()
+    if (text?.includes('[PO][collector]')) {
+      console.log(text)
+    }
+  })
+  page.on('pageerror', (err) => console.error('[PO][pageerror]', err))
+  page.on('requestfailed', (req) => console.error('[PO][requestfailed]', req.url(), req.failure()?.errorText))
+
+  console.log(`[PO][collector] starting (headless=${HEADLESS ? '1' : '0'}) url=${PO_URL}`)
+
   // Basic navigation
   await page.goto(PO_URL, { waitUntil: 'domcontentloaded' })
 
-  // TODO: optional: auto-navigate to trading page, select SYMBOL.
+  // Best-effort: wait a bit for UI
+  await page.waitForTimeout(2000)
+
+  // NOTE: optional: auto-navigate to trading page, select SYMBOL.
   // For now, user should open the trading page + choose the asset once,
   // then the persistent session keeps it.
 
@@ -228,6 +243,11 @@ async function main(): Promise<void> {
     console.error('[PO][collector] page closed; exiting to restart')
     process.exit(0)
   })
+
+  // Heartbeat
+  setInterval(() => {
+    console.log(`[PO][collector] heartbeat rssMB=${(process.memoryUsage().rss / 1024 / 1024).toFixed(0)}`)
+  }, 60_000)
 
   // Avoid Node exiting
   // eslint-disable-next-line no-constant-condition
