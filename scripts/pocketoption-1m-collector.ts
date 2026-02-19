@@ -144,51 +144,59 @@ async function setupTickBridge(page: Page, onTick: (t: Tick) => Promise<void>) {
     await onTick(tick)
   })
 
-  const inject = ({ selectors, symbol }: { selectors: string[]; symbol: string }) => {
-    function findPriceEl(): Element | null {
-      for (const sel of selectors) {
-        const el = document.querySelector(sel)
-        if (el) return el
-      }
-      return null
-    }
+  // IMPORTANT:
+  // - Do NOT pass a Function object to addInitScript/evaluate when running via tsx/esbuild,
+  //   because the transpiler may inject helpers (e.g. __name) that don't exist in the page.
+  // - Use plain JS string instead.
+  const script = `
+    (() => {
+      const selectors = ${JSON.stringify(PRICE_SELECTORS)};
+      const symbol = ${JSON.stringify(SYMBOL)};
 
-    function parsePrice(text: string): number | null {
-      const cleaned = text.replace(/[^0-9.]/g, '')
-      const v = Number.parseFloat(cleaned)
-      return Number.isFinite(v) ? v : null
-    }
-
-    function attach() {
-      const el = findPriceEl()
-      if (!el) {
-        console.log('[PO][collector] price element not found; retrying...')
-        setTimeout(attach, 1000)
-        return
+      function findPriceEl() {
+        for (const sel of selectors) {
+          const el = document.querySelector(sel);
+          if (el) return el;
+        }
+        return null;
       }
 
-      const push = () => {
-        const txt = (el as HTMLElement).innerText || el.textContent || ''
-        const price = parsePrice(txt.trim())
-        if (price == null) return
-        // @ts-ignore
-        window.po_onTick({ symbol, ts: Date.now(), price })
+      function parsePrice(text) {
+        const cleaned = String(text || '').replace(/[^0-9.]/g, '');
+        const v = Number.parseFloat(cleaned);
+        return Number.isFinite(v) ? v : null;
       }
 
-      const obs = new MutationObserver(() => push())
-      obs.observe(el, { childList: true, subtree: true, characterData: true })
-      push()
-      console.log('[PO][collector] observer attached')
-    }
+      function attach() {
+        const el = findPriceEl();
+        if (!el) {
+          console.log('[PO][collector] price element not found; retrying...');
+          setTimeout(attach, 1000);
+          return;
+        }
 
-    attach()
-  }
+        const push = () => {
+          const txt = (el.innerText || el.textContent || '').trim();
+          const price = parsePrice(txt);
+          if (price == null) return;
+          window.po_onTick({ symbol, ts: Date.now(), price });
+        };
+
+        const obs = new MutationObserver(() => push());
+        obs.observe(el, { childList: true, subtree: true, characterData: true });
+        push();
+        console.log('[PO][collector] observer attached');
+      }
+
+      attach();
+    })();
+  `
 
   // 1) For future navigations
-  await page.addInitScript(inject, { selectors: PRICE_SELECTORS, symbol: SYMBOL })
+  await page.addInitScript({ content: script })
 
-  // 2) Also inject immediately for the current page (important: we already navigated)
-  await page.evaluate(inject, { selectors: PRICE_SELECTORS, symbol: SYMBOL })
+  // 2) Also inject immediately for the current page
+  await page.evaluate(script)
 }
 
 function startMemoryGuard(): NodeJS.Timeout {
