@@ -11,6 +11,7 @@
  *   HEADLESS       - "false"이면 GUI 모드 (기본: true)
  *   OFFSET         - offset 초 단위 (기본: 300000)
  *   MAX_DAYS       - 수집 기간 일 (기본: 90)
+ *   MAX_CONCURRENT_SYMBOLS - 동시 고정심볼 수집 개수(기본: 1)
  *   REQUEST_DELAY  - 요청 딜레이 ms (기본: 200)
  *   MINER_SYMBOL   - 고정 수집 심볼(지정 시 payout/순회 로직 우회)
  *   MINER_SYMBOLS  - 고정 수집 심볼 목록(쉼표 구분, 52개 심볼 수집용)
@@ -43,11 +44,22 @@ const EXTENSION_PATH = path.join(PROJECT_ROOT, 'dist');
 // 영구 프로필 디렉토리 — 세션(쿠키) 유지용
 const DEFAULT_PROFILE_DIR = path.join(os.homedir(), '.pocket-quant', 'chrome-profile');
 
+function parseEnvInt(raw: string | undefined, fallback: number, minimum = 1): number {
+  const parsed = parseInt(raw ?? '', 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(minimum, parsed);
+}
+
 const CONFIG = {
   headless: process.env.HEADLESS !== 'false',
   offset: parseInt(process.env.OFFSET || '300000', 10),
   maxDays: parseInt(process.env.MAX_DAYS || '90', 10),
   requestDelay: parseInt(process.env.REQUEST_DELAY || '200', 10),
+  maxConcurrentSymbols: parseEnvInt(
+    process.env.MAX_CONCURRENT_SYMBOLS || process.env.MAX_CONCURRENT,
+    1,
+    1,
+  ),
   targetSymbols: parseTargetSymbols(process.env.MINER_SYMBOLS || ''),
   targetSymbol: normalizeEnvSymbol(process.env.MINER_SYMBOL || process.env.PO_SYMBOL || ''),
   profileDir: process.env.PROFILE_DIR || DEFAULT_PROFILE_DIR,
@@ -63,13 +75,23 @@ function normalizeEnvSymbol(raw: string): string {
   return raw
     .trim()
     .toUpperCase()
-    .replace(/\s+/g, '-')
+    .replace(/[_\s]+/g, '-')
     .replace(/#/g, '')
-    .replace(/[^A-Z0-9-]/g, '');
+    .replace(/[^A-Z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 function parseTargetSymbols(raw: string): string[] {
-  return [...new Set(raw.split(',').map((item) => normalizeEnvSymbol(item)).filter(Boolean))];
+  if (!raw) return [];
+  return [
+    ...new Set(
+      raw
+        .split(/[,\n]+/)
+        .map((item) => normalizeEnvSymbol(item))
+        .filter(Boolean),
+    ),
+  ];
 }
 
 // ── 유틸리티 ────────────────────────────────────────────
@@ -133,7 +155,29 @@ async function launchBrowser(): Promise<{ context: BrowserContext; extensionId: 
   // Extension ID 감지
   let background = context.serviceWorkers()[0];
   if (!background) {
-    background = await context.waitForEvent('serviceworker', { timeout: 15_000 });
+    try {
+      background = await context.waitForEvent('serviceworker', { timeout: 15_000 });
+    } catch {
+      // 일부 환경에서 serviceWorker 이벤트가 즉시 감지되지 않음.
+      // 페이지 기반 fallback으로 확장 ID를 추출해 진행한다.
+      const fallbackTimeoutMs = 30_000;
+      const deadline = Date.now() + fallbackTimeoutMs;
+      while (Date.now() < deadline) {
+        const extensionPage = context
+          .pages()
+          .find((p) => p.url().startsWith('chrome-extension://'));
+        if (extensionPage) {
+          const match = extensionPage.url().match(/^chrome-extension:\/\/([^/]+)/);
+          if (match?.[1]) {
+            const extensionId = match[1];
+            log(`Extension loaded (fallback page): ${extensionId}`);
+            return { context, extensionId };
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      throw new Error('확장 프로그램 service worker/페이지가 감지되지 않았습니다.');
+    }
   }
   const extensionId = background.url().split('/')[2];
   log(`Extension loaded: ${extensionId}`);
@@ -172,7 +216,11 @@ async function getExtensionPage(context: BrowserContext, extensionId: string): P
   return extPage;
 }
 
-async function sendExtensionMessage(context: BrowserContext, extensionId: string, message: any): Promise<any> {
+async function sendExtensionMessage(
+  context: BrowserContext,
+  extensionId: string,
+  message: any,
+): Promise<any> {
   const ep = await getExtensionPage(context, extensionId);
   return ep.evaluate(async (msg) => {
     return new Promise<any>((resolve, reject) => {
@@ -202,6 +250,7 @@ async function configureMiner(context: BrowserContext, extensionId: string): Pro
     maxDaysBack: CONFIG.maxDays,
     offsetSeconds: CONFIG.offset,
     requestDelayMs: CONFIG.requestDelay,
+    maxConcurrentSymbols: CONFIG.maxConcurrentSymbols,
     targetSymbol,
     targetSymbols,
   };
@@ -260,7 +309,7 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
     const extensionId = browser.extensionId;
 
     // 3. PO 데모 페이지 이동
-    page = context.pages()[0] || await context.newPage();
+    page = context.pages()[0] || (await context.newPage());
     cdp = await page.context().newCDPSession(page);
     await cdp.send('Performance.enable');
 
@@ -314,7 +363,9 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
       // Test 1: PO 페이지 (Main World) — CORS 제한 예상
       const mainWorldResult = await page.evaluate(async () => {
         try {
-          const res = await fetch('http://localhost:3001/health', { signal: AbortSignal.timeout(5000) });
+          const res = await fetch('http://localhost:3001/health', {
+            signal: AbortSignal.timeout(5000),
+          });
           const body = await res.text();
           return { ok: res.ok, status: res.status, body: body.substring(0, 200) };
         } catch (e: any) {
@@ -331,7 +382,9 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
       const ep = await getExtensionPage(context, extensionId);
       const extResult = await ep.evaluate(async () => {
         try {
-          const res = await fetch('http://localhost:3001/health', { signal: AbortSignal.timeout(5000) });
+          const res = await fetch('http://localhost:3001/health', {
+            signal: AbortSignal.timeout(5000),
+          });
           const body = await res.text();
           return { ok: res.ok, status: res.status, body: body.substring(0, 200) };
         } catch (e: any) {
@@ -433,10 +486,18 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
     // 정리
     extPage = null;
     if (cdp) {
-      try { await cdp.detach(); } catch { /* ignore */ }
+      try {
+        await cdp.detach();
+      } catch {
+        /* ignore */
+      }
     }
     if (context) {
-      try { await context.close(); } catch { /* ignore */ }
+      try {
+        await context.close();
+      } catch {
+        /* ignore */
+      }
     }
   }
 }
@@ -453,7 +514,7 @@ async function main(): Promise<void> {
   log('='.repeat(60));
   log('Headless Collector 시작');
   log(
-    `설정: targetSymbol=${CONFIG.targetSymbols.length > 0 ? CONFIG.targetSymbols[0] : CONFIG.targetSymbol || 'auto'}, targetSymbols=${CONFIG.targetSymbols.length}개, maxDays=${CONFIG.maxDays}, offset=${CONFIG.offset}, delay=${CONFIG.requestDelay}ms`,
+    `설정: targetSymbol=${CONFIG.targetSymbols.length > 0 ? CONFIG.targetSymbols[0] : CONFIG.targetSymbol || 'auto'}, targetSymbols=${CONFIG.targetSymbols.length}개, maxDays=${CONFIG.maxDays}, offset=${CONFIG.offset}, delay=${CONFIG.requestDelay}ms, maxConcurrentSymbols=${CONFIG.maxConcurrentSymbols}`,
   );
   log(`메모리 임계값: ${CONFIG.maxMemoryMB}MB, 세션: ${CONFIG.sessionHours}시간`);
   log(`headless: ${CONFIG.headless} (Extension은 항상 headed 모드 필요)`);
@@ -469,7 +530,9 @@ async function main(): Promise<void> {
     const durationMin = Math.round(result.duration / 60000);
 
     log('─'.repeat(40));
-    log(`세션 #${sessionNum} 종료: ${result.reason} (${durationMin}분, +${result.candlesCollected.toLocaleString()} 캔들)`);
+    log(
+      `세션 #${sessionNum} 종료: ${result.reason} (${durationMin}분, +${result.candlesCollected.toLocaleString()} 캔들)`,
+    );
 
     // 서버 통계 출력
     const stats = await getCandleStats();

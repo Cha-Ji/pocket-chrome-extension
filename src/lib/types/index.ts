@@ -285,6 +285,7 @@ export interface MessagePayloadMap {
     offsetSeconds?: number;
     maxDaysBack?: number;
     requestDelayMs?: number;
+    maxConcurrentSymbols?: number;
     targetSymbols?: string[];
     targetSymbol?: string;
   };
