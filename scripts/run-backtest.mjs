@@ -12,11 +12,33 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const DATA_DIR = path.join(__dirname, '..', 'data')
 const RESULTS_DIR = path.join(DATA_DIR, 'results')
-const DOCS_DIR = path.join(__dirname, '..', 'docs')
+const WIKI_DIR = process.env.WIKI_DIR || path.join(__dirname, '..', '..', 'pocket-chrome-extension.wiki')
+const WIKI_APPEND = process.env.WIKI_APPEND !== '0'
+const WIKI_WORKLOG_FILE = path.join(WIKI_DIR, 'Worklog', 'Backtest-Reports.md')
 
 // Ensure directories
 if (!fs.existsSync(RESULTS_DIR)) {
   fs.mkdirSync(RESULTS_DIR, { recursive: true })
+}
+
+function appendReportToWiki(title, markdownContent) {
+  if (!WIKI_APPEND) {
+    console.log('[Runner] Wiki append 생략 (WIKI_APPEND=0)')
+    return
+  }
+
+  try {
+    const worklogDir = path.dirname(WIKI_WORKLOG_FILE)
+    fs.mkdirSync(worklogDir, { recursive: true })
+
+    const now = new Date().toISOString()
+    const entry = `\n\n## ${now} - ${title}\n\n${markdownContent}\n`
+    fs.appendFileSync(WIKI_WORKLOG_FILE, entry)
+    console.log(`[Runner] Wiki Worklog 업데이트 완료: ${WIKI_WORKLOG_FILE}`)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[Runner] Wiki Worklog 업데이트 실패: ${message}`)
+  }
 }
 
 // =============================================
@@ -533,15 +555,8 @@ async function main() {
   const mdPath = path.join(RESULTS_DIR, 'extended-backtest-report.md')
   fs.writeFileSync(mdPath, mdReport)
   console.log(`[Runner] Markdown 저장: ${mdPath}`)
-  
-  // Update findings.md
-  const findingsPath = path.join(DOCS_DIR, 'findings.md')
-  if (fs.existsSync(findingsPath)) {
-    const existing = fs.readFileSync(findingsPath, 'utf-8')
-    const updated = existing + `\n\n---\n\n` + mdReport
-    fs.writeFileSync(findingsPath, updated)
-    console.log(`[Runner] findings.md 업데이트 완료`)
-  }
+
+  appendReportToWiki('run-backtest 결과', mdReport)
   
   // Print summary
   console.log('\n========================================')

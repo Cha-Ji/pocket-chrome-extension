@@ -24,6 +24,7 @@
 ## Blocked / Needs Attention
 
 - **docs 정리 미완료 항목** (다음 세션에서 이어서):
+  - [x] 3-file 정책 마이그레이션 완료: 스킬/스크립트 경로 정합화 + `docs:policy:check` 추가
   - [ ] `docs/archive/` 내 불필요 파일 최종 검토 후 삭제 여부 결정
   - [ ] `~/.claude/CLAUDE.md` (글로벌)와 프로젝트 `CLAUDE.md` 이중 관리 문제 — 하나로 통합 검토
   - [ ] Wiki `Home.md`의 Phase 상태 최신화 (Phase 3~4 세부 체크박스 갱신)

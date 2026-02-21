@@ -62,6 +62,7 @@ Issue #73 처리 완료. QA 검증 요청.
 자동 생성 명령:
 - `npm run wiki:daily`
 - `npm run wiki:rollup`
+- `npm run docs:policy:check` (archive 밖 3-file 및 구 경로 참조 검사)
 
 ## 5) 레거시 3-file 예외 템플릿
 
