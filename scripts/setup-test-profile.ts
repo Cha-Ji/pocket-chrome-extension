@@ -3,7 +3,7 @@
  * =============================
  *
  * Playwright용 Chrome 프로파일을 생성합니다.
- * 브라우저가 열리면 PO 데모 계정에 로그인하세요.
+ * 브라우저가 열리면 PO 계정(기본: real URL)에 로그인하세요.
  * 로그인 완료 후 콘솔에서 Enter를 누르면 프로파일이 저장됩니다.
  *
  * 사용법: npx tsx scripts/setup-test-profile.ts
@@ -62,11 +62,12 @@ async function main() {
   })
 
   const page = context.pages()[0] || await context.newPage()
-  await page.goto('https://pocketoption.com/en/cabinet/demo-quick-high-low/')
+  const poUrl = process.env.PO_URL || 'https://pocketoption.com/en/cabinet/quick-high-low/'
+  await page.goto(poUrl)
 
   console.log('')
   console.log('════════════════════════════════════════════════')
-  console.log('  브라우저에서 PO 데모 계정에 로그인하세요.')
+  console.log(`  브라우저에서 PO 계정에 로그인하세요. (${poUrl})`)
   console.log('  로그인 후 거래 화면이 보이면 Enter를 누르세요.')
   console.log('════════════════════════════════════════════════')
   console.log('')

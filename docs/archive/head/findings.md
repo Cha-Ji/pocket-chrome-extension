@@ -2,6 +2,7 @@
 
 ## 결정 사항
 
+- (2026-02-21) **백테스트 데이터 충분성 수정**: `isPayoutData()` 필터가 `source='history'` 데이터를 ticks 테이블에서 제외하는 근본 원인 수정. history 소스는 payout 필터를 우회. `--source-mode` / `--allow-payout` CLI 옵션으로 디버깅 가능
 - (2026-01-26) Chrome Extension Manifest V3 + TypeScript 기반으로 구현
 - (2026-01-26) UI는 React + Tailwind CSS, Side Panel 중심으로 구성
 - (2026-01-26) 데이터 저장은 IndexedDB(Dexie.js)로 설계

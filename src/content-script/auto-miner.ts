@@ -24,6 +24,7 @@ interface AssetMiningProgress {
   newestTimestamp: number; // 가장 새로운 캔들 시점 (초)
   requestCount: number;
   isComplete: boolean;
+  assetId?: string; // 현재 자산에 대해 확정된 WS asset ID
 }
 
 interface MiningState {
@@ -39,6 +40,7 @@ interface MiningState {
   pendingRequest: boolean;
   retryCount: number;
   startedAt: number; // 채굴 시작 시간 (ms)
+  assetIdCache: Map<string, string>; // asset name -> ws asset ID 캐시
 }
 
 const DEFAULT_CONFIG: BulkMiningConfig = {
@@ -69,6 +71,7 @@ const minerState: MiningState = {
   pendingRequest: false,
   retryCount: 0,
   startedAt: 0,
+  assetIdCache: new Map(),
 };
 
 let rotationTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -80,25 +83,156 @@ let payoutMonitorRef: PayoutMonitor | null = null;
 // 자산 ID 결정 헬퍼
 // ============================================================
 
-function resolveAssetId(): string {
-  // 1순위: WS 메시지에서 캡처된 asset ID (수신 updateStream 또는 TM ws.send() 후킹)
+const ASSET_NAME_STOP_WORDS = new Set([
+  'OTC',
+  'INC',
+  'LTD',
+  'PLC',
+  'CORP',
+  'CORPORATION',
+  'COMPANY',
+  'CO',
+  'HOLDINGS',
+  'HOLDING',
+  'TECHNOLOGIES',
+  'TECHNOLOGY',
+]);
+
+const ASSET_ID_MATCH_THRESHOLD = 0.55;
+
+function toAssetCacheKey(assetName: string): string {
+  return assetName.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+function normalizeAssetIdForMatch(assetId: string): string {
+  return assetId
+    .toUpperCase()
+    .replace(/^#/, '')
+    .replace(/[_-]OTC$/i, '')
+    .replace(/[^A-Z0-9]/g, '');
+}
+
+function normalizeAssetNameTokens(assetName: string): string[] {
+  return assetName
+    .toUpperCase()
+    .replace(/\u00a0/g, ' ')
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((t) => !ASSET_NAME_STOP_WORDS.has(t));
+}
+
+function makeBigrams(text: string): Set<string> {
+  if (text.length < 2) return new Set([text]);
+  const out = new Set<string>();
+  for (let i = 0; i < text.length - 1; i++) {
+    out.add(text.slice(i, i + 2));
+  }
+  return out;
+}
+
+function diceCoefficient(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const aBigrams = makeBigrams(a);
+  const bBigrams = makeBigrams(b);
+  let overlap = 0;
+  for (const g of aBigrams) {
+    if (bBigrams.has(g)) overlap++;
+  }
+  return (2 * overlap) / (aBigrams.size + bBigrams.size);
+}
+
+function commonPrefixLength(a: string, b: string): number {
+  const len = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < len && a[i] === b[i]) i++;
+  return i;
+}
+
+function scoreAssetIdForAssetName(assetId: string, assetName: string): number {
+  const id = normalizeAssetIdForMatch(assetId);
+  if (!id) return 0;
+  const tokens = normalizeAssetNameTokens(assetName);
+  if (tokens.length === 0) return 0;
+
+  let best = 0;
+  for (const token of tokens) {
+    if (!token) continue;
+    if (id === token || id.includes(token) || token.includes(id)) {
+      best = Math.max(best, 1);
+      continue;
+    }
+    const dice = diceCoefficient(id, token);
+    const prefixBoost = Math.min(commonPrefixLength(id, token), 4) * 0.1;
+    best = Math.max(best, Math.min(1, dice + prefixBoost));
+  }
+  return best;
+}
+
+function pickBestAssetId(
+  targetAssetName: string,
+  candidates: string[],
+): { assetId: string; score: number } | null {
+  let best: { assetId: string; score: number } | null = null;
+  for (const candidate of candidates) {
+    const score = scoreAssetIdForAssetName(candidate, targetAssetName);
+    if (!best || score > best.score) {
+      best = { assetId: candidate, score };
+    }
+  }
+  return best;
+}
+
+function resolveAssetId(targetAssetName?: string): string {
   const interceptor = getWebSocketInterceptor();
-  const trackedId = interceptor.getActiveAssetId();
-  if (trackedId) {
-    log.info(`📋 Asset ID (WS tracked): ${trackedId}`);
-    return trackedId;
+  const assetName = targetAssetName || minerState.currentAsset || '';
+
+  if (assetName) {
+    const cacheKey = toAssetCacheKey(assetName);
+    const cached = minerState.assetIdCache.get(cacheKey);
+    if (cached) {
+      log.info(`📋 Asset ID (CACHE): ${cached}`);
+      return cached;
+    }
+
+    const recent = interceptor.getRecentAssetIds(30_000);
+    const matched = pickBestAssetId(assetName, recent);
+    if (matched && matched.score >= ASSET_ID_MATCH_THRESHOLD) {
+      minerState.assetIdCache.set(cacheKey, matched.assetId);
+      log.info(`📋 Asset ID (WS matched): ${matched.assetId} (score=${matched.score.toFixed(2)})`);
+      return matched.assetId;
+    }
   }
 
-  // 2순위: DOM에서 asset ID 추출 (PO 페이지의 data 속성)
+  // WS 메시지에서 캡처된 최신값(보수적 fallback)
+  const trackedId = interceptor.getActiveAssetId();
+  if (trackedId) {
+    if (assetName) {
+      const trackedScore = scoreAssetIdForAssetName(trackedId, assetName);
+      if (trackedScore >= ASSET_ID_MATCH_THRESHOLD) {
+        log.info(`📋 Asset ID (WS tracked): ${trackedId}`);
+        return trackedId;
+      }
+      log.warn(
+        `⚠️ WS tracked asset ID mismatch (asset=${assetName}, id=${trackedId}, score=${trackedScore.toFixed(2)})`,
+      );
+    } else {
+      log.info(`📋 Asset ID (WS tracked): ${trackedId}`);
+      return trackedId;
+    }
+  }
+
+  // DOM에서 asset ID 추출
   const domId = extractAssetIdFromDOM();
   if (domId) {
     log.info(`📋 Asset ID (DOM): ${domId}`);
     return domId;
   }
 
-  // 3순위: 이름 기반 fallback (정확하지 않을 수 있음!)
-  const asset = minerState.currentAsset || '';
-  const fallbackId = asset
+  // 이름 기반 fallback (정확하지 않을 수 있음)
+  const fallbackId = assetName
     .toUpperCase()
     .replace(/\s+OTC$/i, '_otc')
     .replace(/\s+/g, '_');
@@ -111,17 +245,29 @@ function resolveAssetId(): string {
 
 /**
  * [Fix 5] 자산 전환 후 WS 수신 메시지에서 asset ID가 캡처될 때까지 대기
- * updateStream 등의 수신 메시지에서 자동 추적되므로, 짧은 시간 대기하면 캡처됨
+ * 최근 후보 중 "현재 목표 자산명"과 가장 잘 맞는 ID를 선택한다.
  */
-async function waitForAssetId(timeoutMs = 5000, intervalMs = 500): Promise<string | null> {
+async function waitForAssetId(
+  targetAssetName: string,
+  timeoutMs = 6000,
+  intervalMs = 500,
+): Promise<string | null> {
   const interceptor = getWebSocketInterceptor();
   const deadline = Date.now() + timeoutMs;
+
   while (Date.now() < deadline) {
-    const id = interceptor.getActiveAssetId();
-    if (id) return id;
+    const matched = pickBestAssetId(targetAssetName, interceptor.getRecentAssetIds(20_000));
+    if (matched && matched.score >= ASSET_ID_MATCH_THRESHOLD) {
+      return matched.assetId;
+    }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
-  return interceptor.getActiveAssetId();
+
+  const finalMatch = pickBestAssetId(targetAssetName, interceptor.getRecentAssetIds(90_000));
+  if (finalMatch && finalMatch.score >= 0.45) {
+    return finalMatch.assetId;
+  }
+  return null;
 }
 
 /** DOM에서 PO의 실제 asset ID를 추출 시도 */
@@ -288,6 +434,9 @@ export const AutoMiner = {
   },
 
   async mineAsset(assetName: string) {
+    // 이전 자산의 잔류 ID가 다음 자산 요청에 섞이지 않도록 초기화
+    getWebSocketInterceptor().clearAssetTracking();
+
     let switched = false;
     for (let attempt = 1; attempt <= MAX_SWITCH_RETRIES; attempt++) {
       switched = (await payoutMonitorRef?.switchAsset(assetName)) ?? false;
@@ -340,9 +489,9 @@ export const AutoMiner = {
     minerState.retryCount = 0;
 
     // [Fix 5] 자산 전환 후 WS 수신 메시지에서 asset ID가 캡처될 때까지 대기
-    // updateStream이 오면 interceptor가 자동으로 lastAssetId를 업데이트함
+    // 최근 후보 중 target과 가장 잘 맞는 ID를 선택
     log.info(`⏳ 자산 로딩 및 WS asset ID 캡처 대기 중...`);
-    const capturedId = await waitForAssetId(6000, 500);
+    const capturedId = await waitForAssetId(assetName, 6000, 500);
     if (capturedId) {
       log.info(`✅ WS asset ID 캡처 성공: ${capturedId}`);
     } else {
@@ -360,7 +509,21 @@ export const AutoMiner = {
         newestTimestamp: 0,
         requestCount: 0,
         isComplete: false,
+        assetId: undefined,
       });
+    }
+    const progress = minerState.progress.get(assetName);
+    if (progress) {
+      if (capturedId) {
+        progress.assetId = capturedId;
+        minerState.assetIdCache.set(toAssetCacheKey(assetName), capturedId);
+      } else {
+        const cached = minerState.assetIdCache.get(toAssetCacheKey(assetName));
+        if (cached) {
+          progress.assetId = cached;
+          log.info(`📋 Asset ID (CACHE reuse): ${cached}`);
+        }
+      }
     }
 
     // 첫 요청 시작 (응답 기반 연쇄 요청)
@@ -376,7 +539,11 @@ export const AutoMiner = {
     if (!progress) return;
 
     const { config } = minerState;
-    const assetId = resolveAssetId();
+    const assetId = progress.assetId || resolveAssetId(minerState.currentAsset);
+    progress.assetId = assetId;
+    if (minerState.currentAsset) {
+      minerState.assetIdCache.set(toAssetCacheKey(minerState.currentAsset), assetId);
+    }
 
     // 시간 기준점: 첫 요청이면 현재 시간, 이후에는 가장 오래된 캔들 기준
     const timeBase =
@@ -422,6 +589,16 @@ export const AutoMiner = {
 
     const progress = minerState.progress.get(minerState.currentAsset);
     if (!progress) return;
+
+    const symbolFromResponse = candles?.[0]?.symbol;
+    if (
+      symbolFromResponse &&
+      symbolFromResponse !== 'CURRENT' &&
+      symbolFromResponse !== 'UNKNOWN'
+    ) {
+      progress.assetId = String(symbolFromResponse);
+      minerState.assetIdCache.set(toAssetCacheKey(minerState.currentAsset), progress.assetId);
+    }
 
     // 빈 응답 또는 극소량 → 해당 자산 데이터 끝
     if (!candles || candles.length < 10) {

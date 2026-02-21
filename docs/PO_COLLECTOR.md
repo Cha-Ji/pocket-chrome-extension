@@ -35,10 +35,10 @@ npm run po:collector
 ```
 
 ## 환경변수
-- `PO_URL` (default: https://pocketoption.com/en/cabinet/demo-quick-high-low/)
+- `PO_URL` (default: https://pocketoption.com/en/cabinet/quick-high-low/)
 - `PO_SYMBOL` (default: EURUSD)
 - `PO_HEADLESS` (default: 1)
-- `PO_USER_DATA_DIR` (default: ./data/po-session)
+- `PO_USER_DATA_DIR` (default: ~/.pocket-quant/chrome-profile)
 - `PO_MEM_RESTART_MB` (default: 2500)
 - `PO_MEM_CHECK_EVERY_MS` (default: 15000)
 - `COLLECTOR_URL` (default: http://127.0.0.1:3001)

@@ -28,6 +28,8 @@ class WebSocketInterceptor {
 
   // [PO-17] 실시간 자산 코드 추적
   private lastAssetId: string | null = null;
+  private assetIdHistory: Array<{ assetId: string; timestamp: number }> = [];
+  private static readonly MAX_ASSET_ID_HISTORY = 100;
 
   private static instance: WebSocketInterceptor | null = null;
 
@@ -100,11 +102,24 @@ class WebSocketInterceptor {
       // TM ws.send() 후킹에서 캡처된 발신 메시지의 asset ID
       const asset = event.data.data?.asset;
       if (asset) {
-        this.lastAssetId = asset;
+        this.trackAssetId(String(asset));
         loggers.ws.info(`Asset ID captured (outgoing): ${asset}`);
       }
     } else if (event.data.type === 'bridge-ready') {
       loggers.ws.info('Main World Bridge Connected');
+    }
+  }
+
+  private trackAssetId(assetId: string): void {
+    const normalized = assetId.trim();
+    if (!normalized) return;
+    this.lastAssetId = normalized;
+    this.assetIdHistory.push({ assetId: normalized, timestamp: Date.now() });
+    if (this.assetIdHistory.length > WebSocketInterceptor.MAX_ASSET_ID_HISTORY) {
+      this.assetIdHistory.splice(
+        0,
+        this.assetIdHistory.length - WebSocketInterceptor.MAX_ASSET_ID_HISTORY,
+      );
     }
   }
 
@@ -230,7 +245,7 @@ class WebSocketInterceptor {
       if (symbol && symbol !== 'CURRENT' && symbol !== 'UNKNOWN') {
         const assetId = String(symbol);
         if (assetId !== this.lastAssetId) {
-          this.lastAssetId = assetId;
+          this.trackAssetId(assetId);
           loggers.ws.debug(`Asset ID tracked (stream): ${assetId}`);
         }
       }
@@ -243,7 +258,7 @@ class WebSocketInterceptor {
       if (assetMatch) {
         const assetId = assetMatch[1];
         if (assetId !== this.lastAssetId) {
-          this.lastAssetId = assetId;
+          this.trackAssetId(assetId);
           loggers.ws.debug(`Asset ID tracked (raw): ${assetId}`);
         }
       }
@@ -252,6 +267,32 @@ class WebSocketInterceptor {
 
   getActiveAssetId(): string | null {
     return this.lastAssetId;
+  }
+
+  getRecentAssetIds(maxAgeMs = 15_000): string[] {
+    const now = Date.now();
+    const seen = new Set<string>();
+    const result: string[] = [];
+
+    for (let i = this.assetIdHistory.length - 1; i >= 0; i--) {
+      const item = this.assetIdHistory[i];
+      if (now - item.timestamp > maxAgeMs) break;
+      if (!seen.has(item.assetId)) {
+        seen.add(item.assetId);
+        result.push(item.assetId);
+      }
+    }
+
+    if (this.lastAssetId && !seen.has(this.lastAssetId)) {
+      result.unshift(this.lastAssetId);
+    }
+
+    return result;
+  }
+
+  clearAssetTracking(): void {
+    this.lastAssetId = null;
+    this.assetIdHistory = [];
   }
 }
 

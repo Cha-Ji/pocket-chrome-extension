@@ -38,7 +38,7 @@ type Candle = {
   source: 'pocketoption-dom'
 }
 
-const PO_URL = process.env.PO_URL || 'https://pocketoption.com/en/cabinet/demo-quick-high-low/'
+const PO_URL = process.env.PO_URL || 'https://pocketoption.com/en/cabinet/quick-high-low/'
 const SYMBOL = process.env.PO_SYMBOL || 'EURUSD'
 const HEADLESS = (process.env.PO_HEADLESS ?? '1') !== '0'
 const DEFAULT_PROFILE_DIR = path.join(os.homedir(), '.pocket-quant', 'chrome-profile')

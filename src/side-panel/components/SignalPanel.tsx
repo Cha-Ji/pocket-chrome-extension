@@ -1,6 +1,7 @@
 import { Signal } from '../../lib/signals/types';
 import { formatMoney, formatPercent, formatNumber } from '../utils/format';
 import { useSignalStatus } from '../hooks/useSignalStatus';
+import { TRADE_EXECUTION_LOCK } from '../../lib/trading/execution-lock';
 
 interface SignalPanelProps {
   onSignal?: (signal: Signal) => void;
@@ -101,13 +102,16 @@ export function SignalPanel({ onSignal }: SignalPanelProps) {
         </button>
         <button
           onClick={toggleTrading}
+          disabled={TRADE_EXECUTION_LOCK.locked && !status?.config.enabled}
           className={`flex-1 font-medium py-2 px-4 rounded-lg transition ${
             status?.config.enabled
               ? 'bg-red-500 hover:bg-red-600 text-white'
-              : 'bg-pocket-green hover:bg-pocket-green/80 text-white'
+              : 'bg-pocket-green hover:bg-pocket-green/80 text-white disabled:bg-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed'
           }`}
         >
-          {status?.config.enabled ? '⏹️ Stop' : '▶️ Start'} Trading
+          {TRADE_EXECUTION_LOCK.locked && !status?.config.enabled
+            ? '🔒 Trading Locked'
+            : `${status?.config.enabled ? '⏹️ Stop' : '▶️ Start'} Trading`}
         </button>
         <button
           onClick={toggleAutoRefresh}
@@ -120,6 +124,12 @@ export function SignalPanel({ onSignal }: SignalPanelProps) {
           {autoRefresh ? '⏸️' : '🔁'}
         </button>
       </div>
+
+      {TRADE_EXECUTION_LOCK.locked && (
+        <div className="text-xs text-yellow-300 text-center">
+          {TRADE_EXECUTION_LOCK.reason}
+        </div>
+      )}
 
       {status?.config.enabled && (
         <div className="text-xs text-green-400 text-center animate-pulse">

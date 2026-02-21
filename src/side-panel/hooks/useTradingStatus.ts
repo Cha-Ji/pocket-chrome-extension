@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { TradingStatus } from '../../lib/types';
 import { sendRuntimeMessage, onRuntimeMessage } from '../infrastructure/extension-client';
+import { TRADE_EXECUTION_LOCK } from '../../lib/trading/execution-lock';
 
 const initialStatus: TradingStatus = {
   isRunning: false,
@@ -36,6 +37,9 @@ export function useTradingStatus() {
   }, []);
 
   const startTrading = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
+    if (TRADE_EXECUTION_LOCK.locked) {
+      return { success: false, error: TRADE_EXECUTION_LOCK.reason };
+    }
     setIsLoading(true);
     try {
       const response = (await sendRuntimeMessage('START_TRADING')) as {

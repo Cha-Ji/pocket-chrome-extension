@@ -1,7 +1,7 @@
 /**
  * Headless Collector — Playwright 기반 자동 데이터 수집 오케스트레이터 (#141)
  *
- * Extension을 로드한 Chromium 브라우저로 PO 데모 페이지에 접속하여
+ * Extension을 로드한 Chromium 브라우저로 PO 거래 페이지(기본: real)에 접속하여
  * AutoMiner를 통해 캔들 데이터를 수집 서버(localhost:3001)로 전송합니다.
  *
  * 4시간 주기 또는 메모리 임계값 초과 시 graceful restart를 수행하여
@@ -47,7 +47,7 @@ const CONFIG = {
   maxDays: parseInt(process.env.MAX_DAYS || '90', 10),
   requestDelay: parseInt(process.env.REQUEST_DELAY || '200', 10),
   profileDir: process.env.PROFILE_DIR || DEFAULT_PROFILE_DIR,
-  poUrl: process.env.PO_URL || 'https://pocketoption.com/en/cabinet/demo-quick-high-low/',
+  poUrl: process.env.PO_URL || 'https://pocketoption.com/en/cabinet/quick-high-low/',
   collectorUrl: process.env.COLLECTOR_URL || 'http://localhost:3001',
   maxMemoryMB: parseInt(process.env.MAX_MEMORY_MB || '1500', 10),
   sessionHours: parseFloat(process.env.SESSION_HOURS || '4'),
@@ -241,6 +241,24 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
     cdp = await page.context().newCDPSession(page);
     await cdp.send('Performance.enable');
 
+    // 브라우저 콘솔 로그 캡처 (디버깅용)
+    page.on('console', (msg) => {
+      const text = msg.text();
+      // WS 훅, Extension content script, DataSender 관련 로그만 출력
+      if (
+        text.includes('[PO-Spy]') ||
+        text.includes('[PO]') ||
+        text.includes('[AutoMiner]') ||
+        text.includes('[DataSender]') ||
+        text.includes('Miner') ||
+        text.includes('ws-send') ||
+        text.includes('WebSocket')
+      ) {
+        log(`[browser] ${text}`);
+      }
+    });
+    page.on('pageerror', (err) => logError(`[pageerror] ${err.message}`));
+
     log(`PO 페이지 이동: ${CONFIG.poUrl}`);
     await page.goto(CONFIG.poUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
@@ -267,6 +285,40 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
     // Extension 초기화 대기 (Content Script가 DOM 파싱 시작할 시간)
     log('Extension 초기화 대기 중...');
     await page.waitForTimeout(5_000);
+
+    // 디버깅: PO 페이지(Main World) vs Extension 페이지에서 localhost:3001 접근 테스트
+    try {
+      // Test 1: PO 페이지 (Main World) — CORS 제한 예상
+      const mainWorldResult = await page.evaluate(async () => {
+        try {
+          const res = await fetch('http://localhost:3001/health', { signal: AbortSignal.timeout(5000) });
+          const body = await res.text();
+          return { ok: res.ok, status: res.status, body: body.substring(0, 200) };
+        } catch (e: any) {
+          return { ok: false, error: e.message || String(e) };
+        }
+      });
+      log(`[DEBUG] PO Main World→localhost:3001: ${JSON.stringify(mainWorldResult)}`);
+    } catch (e) {
+      logError(`[DEBUG] PO Main World 테스트 실패: ${e}`);
+    }
+
+    // Test 2: Extension 페이지 (host_permissions 적용)
+    try {
+      const ep = await getExtensionPage(context, extensionId);
+      const extResult = await ep.evaluate(async () => {
+        try {
+          const res = await fetch('http://localhost:3001/health', { signal: AbortSignal.timeout(5000) });
+          const body = await res.text();
+          return { ok: res.ok, status: res.status, body: body.substring(0, 200) };
+        } catch (e: any) {
+          return { ok: false, error: e.message || String(e) };
+        }
+      });
+      log(`[DEBUG] Extension Page→localhost:3001: ${JSON.stringify(extResult)}`);
+    } catch (e) {
+      logError(`[DEBUG] Extension Page 테스트 실패: ${e}`);
+    }
 
     // Xvfb 환경 감지 — 렌더링 불필요하므로 메모리 최적화 자동 적용
     // XVFB_MODE=1은 xvfb-collect.sh에서 설정됨 (:0 WSLg와 구별)

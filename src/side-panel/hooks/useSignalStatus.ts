@@ -64,7 +64,14 @@ export function useSignalStatus(onSignal?: (signal: Signal) => void) {
   const toggleTrading = useCallback(async () => {
     try {
       const type = status?.config.enabled ? 'STOP_TRADING_V2' : 'START_TRADING_V2';
-      await sendMessage(type);
+      const result = (await sendMessage(type)) as {
+        success?: boolean;
+        error?: string;
+      } | null;
+      if (result?.success === false) {
+        setError(result.error || 'Trading is locked by safety policy.');
+        return;
+      }
       await fetchStatus();
     } catch {
       setError('Failed to toggle trading');

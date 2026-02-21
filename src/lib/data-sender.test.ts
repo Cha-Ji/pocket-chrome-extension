@@ -267,6 +267,33 @@ describe('DataSender', () => {
       expect(body.candles[0].source).toBe('history');
     });
 
+    it('대용량 payload는 청크로 분할 전송한다', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ count: 2000 }),
+      });
+
+      const largeCandles: CandleLike[] = Array.from({ length: 4100 }, (_, i) => ({
+        symbol: 'AAPL',
+        timestamp: 1700000000000 + i * 60000,
+        open: 100 + i * 0.01,
+        high: 101 + i * 0.01,
+        low: 99 + i * 0.01,
+        close: 100.5 + i * 0.01,
+      }));
+
+      await DataSender.sendHistory(largeCandles);
+
+      expect(fetch).toHaveBeenCalledTimes(3);
+
+      const firstBody = JSON.parse((fetch as any).mock.calls[0][1].body);
+      const secondBody = JSON.parse((fetch as any).mock.calls[1][1].body);
+      const thirdBody = JSON.parse((fetch as any).mock.calls[2][1].body);
+      expect(firstBody.candles).toHaveLength(2000);
+      expect(secondBody.candles).toHaveLength(2000);
+      expect(thirdBody.candles).toHaveLength(100);
+    });
+
     it('symbol을 대문자로 변환하고 공백을 하이픈으로 바꾼다', async () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,

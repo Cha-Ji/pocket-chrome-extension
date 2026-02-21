@@ -60,7 +60,7 @@ module.exports = {
 
       env: {
         NODE_ENV: 'production',
-        PO_URL: process.env.PO_URL || 'https://pocketoption.com/en/cabinet/demo-quick-high-low/',
+        PO_URL: process.env.PO_URL || 'https://pocketoption.com/en/cabinet/quick-high-low/',
         PO_SYMBOL: process.env.PO_SYMBOL || 'EURUSD',
         PO_HEADLESS: '1',
         PO_MEM_RESTART_MB: process.env.PO_MEM_RESTART_MB || '2500',

@@ -410,6 +410,50 @@ describe('WebSocketInterceptor', () => {
       dispatchBridge(makeBridgeEvent({ type: 'ws-asset-change', data: {} }));
       expect(interceptor.getActiveAssetId()).toBeNull();
     });
+
+    it('should keep recent asset IDs in newest-first unique order', () => {
+      const interceptor = getWebSocketInterceptor();
+      interceptor.start();
+
+      dispatchBridge(
+        makeBridgeEvent({
+          type: 'ws-asset-change',
+          data: { asset: '#AAPL_otc' },
+        }),
+      );
+      dispatchBridge(
+        makeBridgeEvent({
+          type: 'ws-asset-change',
+          data: { asset: 'CITI_otc' },
+        }),
+      );
+      dispatchBridge(
+        makeBridgeEvent({
+          type: 'ws-asset-change',
+          data: { asset: '#AAPL_otc' },
+        }),
+      );
+
+      expect(interceptor.getRecentAssetIds(60_000)).toEqual(['#AAPL_otc', 'CITI_otc']);
+    });
+
+    it('should clear tracked asset IDs', () => {
+      const interceptor = getWebSocketInterceptor();
+      interceptor.start();
+
+      dispatchBridge(
+        makeBridgeEvent({
+          type: 'ws-asset-change',
+          data: { asset: '#EURUSD_otc' },
+        }),
+      );
+      expect(interceptor.getActiveAssetId()).toBe('#EURUSD_otc');
+      expect(interceptor.getRecentAssetIds(60_000)).toEqual(['#EURUSD_otc']);
+
+      interceptor.clearAssetTracking();
+      expect(interceptor.getActiveAssetId()).toBeNull();
+      expect(interceptor.getRecentAssetIds(60_000)).toEqual([]);
+    });
   });
 
   // ----------------------------------------------------------
