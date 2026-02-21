@@ -132,41 +132,70 @@ async function getMemoryUsageMB(cdp: CDPSession): Promise<number> {
   return 0;
 }
 
-// ── AutoMiner 제어 (page.evaluate) ──────────────────────
+// ── AutoMiner 제어 (Extension 페이지 경유) ──────────────
 
-async function sendExtensionMessage(page: Page, message: any): Promise<any> {
-  return page.evaluate(async (msg) => {
-    return new Promise<any>((resolve) => {
-      chrome.runtime.sendMessage(msg, (res: any) => resolve(res));
+// Extension의 Side Panel 페이지를 열어서 chrome.runtime.sendMessage 호출
+// (PO 페이지의 Main World에서는 chrome.runtime 접근 불가)
+let extPage: Page | null = null;
+
+async function getExtensionPage(context: BrowserContext, extensionId: string): Promise<Page> {
+  if (extPage && !extPage.isClosed()) return extPage;
+  extPage = await context.newPage();
+  await extPage.goto(`chrome-extension://${extensionId}/src/side-panel/index.html`, {
+    waitUntil: 'domcontentloaded',
+  });
+  log('Extension 메시지 채널 (Side Panel 페이지) 열림');
+  return extPage;
+}
+
+async function sendExtensionMessage(context: BrowserContext, extensionId: string, message: any): Promise<any> {
+  const ep = await getExtensionPage(context, extensionId);
+  return ep.evaluate(async (msg) => {
+    return new Promise<any>((resolve, reject) => {
+      // Miner/Memory 메시지는 Content Script에서 처리 → 탭으로 직접 전송
+      chrome.tabs.query({ url: '*://pocketoption.com/*' }, (tabs) => {
+        const tab = tabs[0];
+        if (!tab?.id) {
+          reject(new Error('PO 탭을 찾을 수 없음'));
+          return;
+        }
+        chrome.tabs.sendMessage(tab.id, msg, (res: any) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          resolve(res);
+        });
+      });
     });
   }, message);
 }
 
-async function configureMiner(page: Page): Promise<void> {
+async function configureMiner(context: BrowserContext, extensionId: string): Promise<void> {
   const config = {
     maxDaysBack: CONFIG.maxDays,
     offsetSeconds: CONFIG.offset,
     requestDelayMs: CONFIG.requestDelay,
   };
-  const result = await sendExtensionMessage(page, {
+  const result = await sendExtensionMessage(context, extensionId, {
     type: 'SET_MINER_CONFIG',
     payload: config,
   });
   log(`Miner config set: maxDays=${CONFIG.maxDays}, offset=${CONFIG.offset}, delay=${CONFIG.requestDelay}ms → ${JSON.stringify(result)}`);
 }
 
-async function startMiner(page: Page): Promise<void> {
-  const result = await sendExtensionMessage(page, { type: 'START_AUTO_MINER' });
+async function startMiner(context: BrowserContext, extensionId: string): Promise<void> {
+  const result = await sendExtensionMessage(context, extensionId, { type: 'START_AUTO_MINER' });
   log(`Miner started: ${JSON.stringify(result)}`);
 }
 
-async function stopMiner(page: Page): Promise<void> {
-  const result = await sendExtensionMessage(page, { type: 'STOP_AUTO_MINER' });
+async function stopMiner(context: BrowserContext, extensionId: string): Promise<void> {
+  const result = await sendExtensionMessage(context, extensionId, { type: 'STOP_AUTO_MINER' });
   log(`Miner stopped: ${JSON.stringify(result)}`);
 }
 
-async function getMinerStatus(page: Page): Promise<any> {
-  return sendExtensionMessage(page, { type: 'GET_MINER_STATUS' });
+async function getMinerStatus(context: BrowserContext, extensionId: string): Promise<any> {
+  return sendExtensionMessage(context, extensionId, { type: 'GET_MINER_STATUS' });
 }
 
 // ── 단일 수집 세션 ─────────────────────────────────────
@@ -198,6 +227,7 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
     // 2. 브라우저 + Extension 로드
     const browser = await launchBrowser();
     context = browser.context;
+    const extensionId = browser.extensionId;
 
     // 3. PO 데모 페이지 이동
     page = context.pages()[0] || await context.newPage();
@@ -211,9 +241,18 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
     log('Extension 초기화 대기 중...');
     await page.waitForTimeout(10_000);
 
+    // Xvfb 환경 감지 — 렌더링 불필요하므로 메모리 최적화 자동 적용
+    if (process.env.DISPLAY && process.env.DISPLAY.startsWith(':')) {
+      await sendExtensionMessage(context, extensionId, {
+        type: 'SET_MEMORY_CONFIG',
+        payload: { chartHidden: true, autoReloadEnabled: true, reloadIntervalMinutes: 120 },
+      });
+      log('Xvfb 모드: 차트 숨김 + 자동 리로드(2h) 활성화');
+    }
+
     // 4. Miner 설정 + 시작
-    await configureMiner(page);
-    await startMiner(page);
+    await configureMiner(context, extensionId);
+    await startMiner(context, extensionId);
 
     // 5. 모니터링 루프
     let lastStatus: any = null;
@@ -226,7 +265,7 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
       const elapsed = Date.now() - sessionStart;
       if (elapsed >= sessionMaxMs) {
         log(`⏰ 세션 시간 ${CONFIG.sessionHours}시간 초과 → graceful restart`);
-        await stopMiner(page);
+        await stopMiner(context, extensionId);
         const currentHealth = await checkCollectorHealth();
         return {
           reason: 'timeout',
@@ -240,7 +279,7 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
 
       // Miner 상태 조회
       try {
-        lastStatus = await getMinerStatus(page);
+        lastStatus = await getMinerStatus(context, extensionId);
       } catch (e) {
         logError(`Miner 상태 조회 실패 (page crash?): ${e}`);
         return {
@@ -264,7 +303,7 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
       // 메모리 임계값 초과
       if (memMB > CONFIG.maxMemoryMB) {
         log(`⚠️ 메모리 ${memMB}MB > ${CONFIG.maxMemoryMB}MB → graceful restart`);
-        await stopMiner(page);
+        await stopMiner(context, extensionId);
         const currentHealth = await checkCollectorHealth();
         return {
           reason: 'memory',
@@ -289,6 +328,7 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
     };
   } finally {
     // 정리
+    extPage = null;
     if (cdp) {
       try { await cdp.detach(); } catch { /* ignore */ }
     }
@@ -306,6 +346,7 @@ async function main(): Promise<void> {
   log(`설정: maxDays=${CONFIG.maxDays}, offset=${CONFIG.offset}, delay=${CONFIG.requestDelay}ms`);
   log(`메모리 임계값: ${CONFIG.maxMemoryMB}MB, 세션: ${CONFIG.sessionHours}시간`);
   log(`headless: ${CONFIG.headless} (Extension은 항상 headed 모드 필요)`);
+  log(`DISPLAY: ${process.env.DISPLAY || '(없음 — GUI 필요)'}`);
   log('='.repeat(60));
 
   let sessionNum = 1;
