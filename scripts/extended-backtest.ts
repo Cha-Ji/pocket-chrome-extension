@@ -13,6 +13,9 @@ import * as path from 'path'
 
 const DATA_DIR = path.join(__dirname, '..', 'data')
 const RESULTS_DIR = path.join(__dirname, '..', 'data', 'results')
+const WIKI_DIR = process.env.WIKI_DIR || path.join(__dirname, '..', '..', 'pocket-chrome-extension.wiki')
+const WIKI_APPEND = process.env.WIKI_APPEND !== '0'
+const WIKI_WORKLOG_FILE = path.join(WIKI_DIR, 'Worklog', 'Backtest-Reports.md')
 
 interface Candle {
   timestamp: number
@@ -43,6 +46,26 @@ interface StrategyConfig {
   id: string
   name: string
   params: Record<string, number>
+}
+
+function appendReportToWiki(title: string, markdownContent: string): void {
+  if (!WIKI_APPEND) {
+    console.log('[Runner] Wiki append 생략 (WIKI_APPEND=0)')
+    return
+  }
+
+  try {
+    const worklogDir = path.dirname(WIKI_WORKLOG_FILE)
+    fs.mkdirSync(worklogDir, { recursive: true })
+
+    const now = new Date().toISOString()
+    const entry = `\n\n## ${now} - ${title}\n\n${markdownContent}\n`
+    fs.appendFileSync(WIKI_WORKLOG_FILE, entry)
+    console.log(`[Runner] Wiki Worklog 업데이트 완료: ${WIKI_WORKLOG_FILE}`)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[Runner] Wiki Worklog 업데이트 실패: ${message}`)
+  }
 }
 
 // =============================================
@@ -606,14 +629,8 @@ async function main() {
   const markdown = generateMarkdownReport(report)
   fs.writeFileSync(mdPath, markdown)
   console.log(`[Runner] Markdown 저장: ${mdPath}`)
-  
-  // Also update findings.md
-  const findingsPath = path.join(__dirname, '..', 'docs', 'findings.md')
-  const findingsContent = fs.readFileSync(findingsPath, 'utf-8')
-  
-  const newFindings = findingsContent + `\n\n---\n\n## 📅 ${new Date().toISOString().split('T')[0]} - 확장 백테스트 결과\n\n${markdown}`
-  fs.writeFileSync(findingsPath, newFindings)
-  console.log(`[Runner] findings.md 업데이트 완료`)
+
+  appendReportToWiki('extended-backtest 결과', markdown)
   
   console.log('\n[Runner] 완료!')
 }

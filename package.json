@@ -42,7 +42,8 @@
     "wiki:rollup:weekly": "bash scripts/wiki-rollup.sh weekly",
     "wiki:rollup:monthly": "bash scripts/wiki-rollup.sh monthly",
     "wiki:rollup": "bash scripts/wiki-rollup.sh run",
-    "wiki:rollup:dry": "bash scripts/wiki-rollup.sh --dry-run run"
+    "wiki:rollup:dry": "bash scripts/wiki-rollup.sh --dry-run run",
+    "docs:policy:check": "bash scripts/check-docs-policy.sh"
   },
   "dependencies": {
     "dexie": "^4.0.10",
