@@ -230,9 +230,11 @@ app.post('/api/candle', (req, res) => {
     // 레거시 candles 테이블에도 저장 (하위 호환)
     insertLegacyCandle.run(symbol, interval, tsMs, open, high, low, close, volume || 0, source || 'realtime')
 
-    // 페이아웃 데이터가 아니면 ticks 테이블에도 저장
-    if (!isPayoutData({ open, high, low, close })) {
-      insertTick.run(symbol, tsMs, ohlcToPrice({ open, high, low, close }), source || 'realtime')
+    // ticks 테이블에도 저장
+    // history 소스는 명시적으로 요청한 가격 데이터이므로 payout 필터 우회
+    const effectiveSource = source || 'realtime'
+    if (effectiveSource === 'history' || !isPayoutData({ open, high, low, close })) {
+      insertTick.run(symbol, tsMs, ohlcToPrice({ open, high, low, close }), effectiveSource)
     }
 
     console.log(`[${new Date().toLocaleTimeString()}] Saved candle+tick: ${symbol} ${interval} @ ${tsMs}`)
@@ -306,8 +308,9 @@ app.post('/api/candles/bulk', (req, res) => {
           row.volume, row.source
         )
 
-        // 페이아웃 데이터가 아니면 ticks 테이블에도 저장
-        if (!isPayoutData(row)) {
+        // ticks 테이블에도 저장
+        // history 소스는 명시적으로 요청한 가격 데이터이므로 payout 필터 우회
+        if (row.source === 'history' || !isPayoutData(row)) {
           insertTick.run(row.symbol, tsMs, ohlcToPrice(row), row.source)
           tickCount++
         }

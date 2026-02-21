@@ -14,6 +14,7 @@ interface BulkMiningConfig {
   period: number; // 캔들 주기 (60 = 1분봉)
   maxDaysBack: number; // 최대 수집 일수
   requestDelayMs: number; // 응답 후 다음 요청까지 딜레이 (ms)
+  minPayout: number; // 채굴 대상 최소 페이아웃(%)
 }
 
 interface AssetMiningProgress {
@@ -45,6 +46,7 @@ const DEFAULT_CONFIG: BulkMiningConfig = {
   period: 60, // 1분봉
   maxDaysBack: 60, // 최대 60일 (#141 상향)
   requestDelayMs: 500, // 응답 후 500ms 대기
+  minPayout: 92, // 기본 92% 이상 페이아웃 자산만 채굴
 };
 
 const MAX_RETRIES = 3;
@@ -215,9 +217,23 @@ export const AutoMiner = {
   // ── 설정 변경 ──────────────────────────────────────────
 
   updateConfig(partial: Partial<BulkMiningConfig>) {
-    Object.assign(minerState.config, partial);
+    if (typeof partial.offsetSeconds === 'number' && Number.isFinite(partial.offsetSeconds)) {
+      minerState.config.offsetSeconds = Math.max(3600, Math.floor(partial.offsetSeconds));
+    }
+    if (typeof partial.period === 'number' && Number.isFinite(partial.period)) {
+      minerState.config.period = Math.max(60, Math.floor(partial.period));
+    }
+    if (typeof partial.maxDaysBack === 'number' && Number.isFinite(partial.maxDaysBack)) {
+      minerState.config.maxDaysBack = Math.max(1, Math.floor(partial.maxDaysBack));
+    }
+    if (typeof partial.requestDelayMs === 'number' && Number.isFinite(partial.requestDelayMs)) {
+      minerState.config.requestDelayMs = Math.max(100, Math.floor(partial.requestDelayMs));
+    }
+    if (typeof partial.minPayout === 'number' && Number.isFinite(partial.minPayout)) {
+      minerState.config.minPayout = Math.min(100, Math.max(0, partial.minPayout));
+    }
     log.info(
-      `Config updated: offset=${minerState.config.offsetSeconds}s, maxDays=${minerState.config.maxDaysBack}, delay=${minerState.config.requestDelayMs}ms`,
+      `Config updated: offset=${minerState.config.offsetSeconds}s, maxDays=${minerState.config.maxDaysBack}, delay=${minerState.config.requestDelayMs}ms, minPayout=${minerState.config.minPayout}%`,
     );
   },
 
@@ -252,7 +268,7 @@ export const AutoMiner = {
 
     const availableAssets = payoutMonitorRef
       .getAvailableAssets()
-      .filter((asset) => asset.payout >= 92)
+      .filter((asset) => asset.payout >= minerState.config.minPayout)
       .map((asset) => asset.name);
 
     log.info(
