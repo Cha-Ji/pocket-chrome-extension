@@ -9,17 +9,17 @@
 
 | ID | Owner | Branch | Status | Summary | Updated |
 |----|-------|--------|--------|---------|---------|
-| - | - | - | idle | (빈 슬롯) | - |
+| codex-headless-switch-20260221 | Codex | fix/backtest-data-sufficiency | idle | 완료: PM2 장기 실행 전환 완료(`data-collector`,`headless-collector` online), EURUSD 1m 적재 속도 기반 ETA 산정 | 2026-02-21 15:38 KST |
 
 ## Recent Decisions (최근 5개, 이전 항목은 Wiki [[Key-Decisions]]로 이동)
 
 | Date | Decision | Reason |
 |------|----------|--------|
+| 2026-02-21 | 기본 headless 수집 경로를 `pocketoption-1m-collector`로 통일 | extension 기반 `headless-collector`는 headed 강제라 창 팝업이 발생하고, 실제 headless 요구를 충족하지 못함 |
 | 2026-02-18 | Wiki Worklog 계층 아카이브 도입 (Daily→Weekly→Monthly) | BOARD는 실시간 상태만 유지하고 작업 이력은 wiki로 장기 보존 |
 | 2026-02-18 | `docs/head` 완전 흡수, BOARD 단일 운영 확정 | 핸드오프 진입점 단일화, 문서 중복/충돌 제거 |
 | 2026-02-18 | 에이전트 팀 구조 도입 (planning/dev/qa) | 멀티 에이전트 동시 작업을 위한 inbox 기반 소통 |
 | 2026-02-18 | 문서 하이브리드 전략 채택 | 메인 레포(BOARD.md+teams/)=실시간, Wiki=참조/아카이브 |
-| 2026-02-18 | 3-file-pattern 폐지 → BOARD.md 단일 상태판 | 155개→6개 축소, 세션 핸드오프 5파일→1파일 |
 
 ## Blocked / Needs Attention
 
