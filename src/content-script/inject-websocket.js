@@ -112,6 +112,12 @@
         _ws_instances.push(ws);
         var url = ws.url;
 
+        // 닫힌 WS 참조 제거 — GC 가능하도록 (#141)
+        ws.addEventListener('close', function() {
+            var idx = _ws_instances.indexOf(ws);
+            if (idx !== -1) _ws_instances.splice(idx, 1);
+        });
+
         // addEventListener 후킹 — 수신 메시지 가로채기
         var originalAdd = ws.addEventListener.bind(ws);
         ws.addEventListener = function(type, listener, options) {
@@ -174,6 +180,11 @@
 
         var payload = event.data.payload;
         var targetUrlPart = event.data.urlPart;
+
+        // lazy cleanup: 닫힌 WS 참조 제거 (#141)
+        for (var i = _ws_instances.length - 1; i >= 0; i--) {
+            if (_ws_instances[i].readyState === 3) _ws_instances.splice(i, 1);  // CLOSED=3
+        }
 
         var activeWs = _ws_instances.find(function(ws) {
             return ws.readyState === WebSocket.OPEN &&
