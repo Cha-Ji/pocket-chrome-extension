@@ -1,3 +1,5 @@
+import { TRADE_EXECUTION_LOCK } from '../../lib/trading/execution-lock';
+
 interface ControlPanelProps {
   isRunning: boolean;
   isLoading: boolean;
@@ -6,6 +8,8 @@ interface ControlPanelProps {
 }
 
 export function ControlPanel({ isRunning, isLoading, onStart, onStop }: ControlPanelProps) {
+  const startDisabled = isLoading || TRADE_EXECUTION_LOCK.locked;
+
   return (
     <div className="bg-pocket-dark rounded-lg p-4 space-y-3">
       <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">Controls</h2>
@@ -14,12 +18,16 @@ export function ControlPanel({ isRunning, isLoading, onStart, onStop }: ControlP
         {!isRunning ? (
           <button
             onClick={onStart}
-            disabled={isLoading}
+            disabled={startDisabled}
             className="flex-1 bg-pocket-green hover:bg-pocket-green/80 disabled:bg-gray-600 
                        text-white font-medium py-2 px-4 rounded-lg transition-colors
                        disabled:cursor-not-allowed"
           >
-            {isLoading ? 'Starting...' : '▶ Start Trading'}
+            {TRADE_EXECUTION_LOCK.locked
+              ? '🔒 Trading Locked'
+              : isLoading
+                ? 'Starting...'
+                : '▶ Start Trading'}
           </button>
         ) : (
           <button
@@ -33,6 +41,10 @@ export function ControlPanel({ isRunning, isLoading, onStart, onStop }: ControlP
           </button>
         )}
       </div>
+
+      {TRADE_EXECUTION_LOCK.locked && (
+        <div className="text-xs text-yellow-300">{TRADE_EXECUTION_LOCK.reason}</div>
+      )}
 
       {/* Quick Actions */}
       <div className="flex gap-2">

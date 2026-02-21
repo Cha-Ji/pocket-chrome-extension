@@ -7,6 +7,7 @@ import { generateLLMReport } from '../../lib/signals/signal-generator-v2';
 import { AutoMiner } from '../auto-miner';
 import { DataSender } from '../../lib/data-sender';
 import { ContentScriptContext } from './context';
+import { TRADE_EXECUTION_LOCK } from '../../lib/trading/execution-lock';
 
 // ============================================================
 // P1-3: Config validation
@@ -21,6 +22,16 @@ interface ConfigValidationResult {
 export function validateConfigUpdate(update: Partial<TradingConfigV2>): ConfigValidationResult {
   const errors: string[] = [];
   const sanitized = { ...update };
+
+  if (sanitized.enabled !== undefined) {
+    if (typeof sanitized.enabled !== 'boolean') {
+      errors.push(`enabled must be boolean (got ${typeof sanitized.enabled})`);
+      delete sanitized.enabled;
+    } else if (TRADE_EXECUTION_LOCK.locked && sanitized.enabled) {
+      errors.push('enabled=true is blocked by trade execution safety lock');
+      delete sanitized.enabled;
+    }
+  }
 
   if (sanitized.tradeAmount !== undefined) {
     if (typeof sanitized.tradeAmount !== 'number' || sanitized.tradeAmount <= 0) {
@@ -150,9 +161,16 @@ export async function handleMessage(
         console.warn('[PO] Config validation errors:', validation.errors);
       }
       ctx.tradingConfig = { ...ctx.tradingConfig, ...validation.sanitized };
+      if (TRADE_EXECUTION_LOCK.locked) {
+        ctx.tradingConfig.enabled = false;
+      }
       return { success: true, config: ctx.tradingConfig, validationErrors: validation.errors };
     }
     case 'START_TRADING_V2':
+      if (TRADE_EXECUTION_LOCK.locked) {
+        ctx.tradingConfig.enabled = false;
+        return { success: false, error: TRADE_EXECUTION_LOCK.reason, locked: true };
+      }
       ctx.tradingConfig.enabled = true;
       return { success: true };
     case 'STOP_TRADING_V2':

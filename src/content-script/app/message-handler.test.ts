@@ -63,8 +63,10 @@ describe('message-handler', () => {
     it('should handle START_TRADING_V2', async () => {
       expect(ctx.tradingConfig.enabled).toBe(false);
       const result = (await handleMessage(ctx, { type: 'START_TRADING_V2' } as any)) as any;
-      expect(result.success).toBe(true);
-      expect(ctx.tradingConfig.enabled).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.locked).toBe(true);
+      expect(result.error).toContain('disabled');
+      expect(ctx.tradingConfig.enabled).toBe(false);
     });
 
     it('should handle STOP_TRADING_V2', async () => {
@@ -174,6 +176,16 @@ describe('message-handler', () => {
       expect(result.validationErrors).toHaveLength(0);
       expect(ctx.tradingConfig.tradeAmount).toBe(50);
       expect(ctx.tradingConfig.minPayout).toBe(88);
+    });
+
+    it('should block enabling trading through SET_CONFIG_V2 when safety lock is active', async () => {
+      const result = (await handleMessage(ctx, {
+        type: 'SET_CONFIG_V2',
+        payload: { enabled: true },
+      } as any)) as any;
+      expect(result.success).toBe(true);
+      expect(result.validationErrors.join(' ')).toContain('blocked');
+      expect(ctx.tradingConfig.enabled).toBe(false);
     });
   });
 

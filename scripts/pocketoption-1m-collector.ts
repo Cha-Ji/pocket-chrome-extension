@@ -21,6 +21,7 @@
 
 import { chromium, type BrowserContext, type Page } from '@playwright/test'
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 
 type Tick = { symbol: string; ts: number; price: number }
@@ -37,11 +38,12 @@ type Candle = {
   source: 'pocketoption-dom'
 }
 
-const PO_URL = process.env.PO_URL || 'https://pocketoption.com'
+const PO_URL = process.env.PO_URL || 'https://pocketoption.com/en/cabinet/quick-high-low/'
 const SYMBOL = process.env.PO_SYMBOL || 'EURUSD'
 const HEADLESS = (process.env.PO_HEADLESS ?? '1') !== '0'
+const DEFAULT_PROFILE_DIR = path.join(os.homedir(), '.pocket-quant', 'chrome-profile')
 const USER_DATA_DIR =
-  process.env.PO_USER_DATA_DIR || path.resolve(process.cwd(), 'data', 'po-session')
+  process.env.PO_USER_DATA_DIR || DEFAULT_PROFILE_DIR
 
 const COLLECTOR_URL = process.env.COLLECTOR_URL || 'http://127.0.0.1:3001'
 
@@ -184,6 +186,9 @@ async function setupTickBridge(page: Page, onTick: (t: Tick) => Promise<void>) {
 
         const obs = new MutationObserver(() => push());
         obs.observe(el, { childList: true, subtree: true, characterData: true });
+        // Some PO UI updates do not trigger character-data mutations reliably.
+        // Keep a low-frequency polling fallback so 1m candle aggregation continues.
+        setInterval(push, 1000);
         push();
         console.log('[PO][collector] observer attached');
       }

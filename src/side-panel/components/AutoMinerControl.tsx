@@ -23,6 +23,10 @@ interface MinerStatus {
     offsetSeconds: number;
     maxDaysBack: number;
     requestDelayMs: number;
+    maxConcurrentSymbols?: number;
+    minPayout: number;
+    targetSymbols?: string[];
+    targetSymbol?: string;
   };
 }
 
@@ -35,7 +39,15 @@ const DEFAULT_STATUS: MinerStatus = {
   overallCandles: 0,
   elapsedSeconds: 0,
   candlesPerSecond: 0,
-  config: { offsetSeconds: 300000, maxDaysBack: 30, requestDelayMs: 500 },
+  config: {
+    offsetSeconds: 300000,
+    maxDaysBack: 120,
+    requestDelayMs: 300,
+    maxConcurrentSymbols: 1,
+    minPayout: 80,
+    targetSymbols: undefined,
+    targetSymbol: undefined,
+  },
 };
 
 function formatElapsed(seconds: number): string {
@@ -165,7 +177,15 @@ export function AutoMinerControl() {
       </button>
 
       <p className="text-xs text-gray-500 mt-2 text-center">
-        *92%+ 자산 자동 순회, 자산당 최대 {status.config?.maxDaysBack || 30}일 히스토리 수집
+        {status.config?.targetSymbols?.length
+          ? `🎯 고정심볼 수집 (${status.config.targetSymbols.length}개): ${status.config.targetSymbols[0]}${status.config.targetSymbols.length > 1 ? ` ...` : ''}`
+          : status.config?.targetSymbol
+            ? `🎯 고정심볼 수집: ${status.config.targetSymbol}`
+            : `*${status.config?.minPayout ?? 80}%+ 자산 자동 순회`}
+        {status.config?.maxConcurrentSymbols
+          ? `, 동시수집 ${status.config.maxConcurrentSymbols}개`
+          : ''}
+        , 자산당 최대 {status.config?.maxDaysBack || 120}일 히스토리 수집
       </p>
     </div>
   );

@@ -6,8 +6,20 @@ cd "$ROOT_DIR"
 
 fail=0
 
+hash_file() {
+  local target="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$target" | awk '{print $1}'
+  else
+    shasum -a 256 "$target" | awk '{print $1}'
+  fi
+}
+
 echo "[docs-policy] 1/3 archive 밖 3-file 금지"
-mapfile -t legacy_files < <(find . -type f \( -name 'task_plan.md' -o -name 'findings.md' -o -name 'progress.md' \) \
+legacy_files=()
+while IFS= read -r file; do
+  legacy_files+=("$file")
+done < <(find . -type f \( -name 'task_plan.md' -o -name 'findings.md' -o -name 'progress.md' \) \
   -not -path './docs/archive/*' \
   -not -path './node_modules/*' \
   -not -path './.git/*' \
@@ -52,10 +64,10 @@ for required_file in "$local_skill" "$local_tpl" "$global_skill" "$global_tpl"; 
 done
 
 if ((fail == 0)); then
-  local_skill_hash="$(sha256sum "$local_skill" | awk '{print $1}')"
-  global_skill_hash="$(sha256sum "$global_skill" | awk '{print $1}')"
-  local_tpl_hash="$(sha256sum "$local_tpl" | awk '{print $1}')"
-  global_tpl_hash="$(sha256sum "$global_tpl" | awk '{print $1}')"
+  local_skill_hash="$(hash_file "$local_skill")"
+  global_skill_hash="$(hash_file "$global_skill")"
+  local_tpl_hash="$(hash_file "$local_tpl")"
+  global_tpl_hash="$(hash_file "$global_tpl")"
 
   if [[ "$local_skill_hash" != "$global_skill_hash" ]]; then
     echo "[docs-policy] FAIL: SKILL.md가 local/global 간 불일치합니다."

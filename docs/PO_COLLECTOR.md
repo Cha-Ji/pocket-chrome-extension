@@ -22,16 +22,23 @@ npm run collector
 
 ### 2) PO 수집기 실행
 ```bash
+# 권장 (실제 headless)
+npm run collect:headless
+
+# 최초 로그인 필요 시 1회만
+npm run collect:visible
+
+# PM2
 npm run po:collector:start
 # 또는 단독 실행
 npm run po:collector
 ```
 
 ## 환경변수
-- `PO_URL` (default: https://pocketoption.com)
+- `PO_URL` (default: https://pocketoption.com/en/cabinet/quick-high-low/)
 - `PO_SYMBOL` (default: EURUSD)
 - `PO_HEADLESS` (default: 1)
-- `PO_USER_DATA_DIR` (default: ./data/po-session)
+- `PO_USER_DATA_DIR` (default: ~/.pocket-quant/chrome-profile)
 - `PO_MEM_RESTART_MB` (default: 2500)
 - `PO_MEM_CHECK_EVERY_MS` (default: 15000)
 - `COLLECTOR_URL` (default: http://127.0.0.1:3001)

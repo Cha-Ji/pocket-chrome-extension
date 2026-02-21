@@ -31,6 +31,7 @@ import { PORT_CHANNEL, RELAY_MESSAGE_TYPES, THROTTLE_CONFIG } from '../lib/port-
 import { loggers } from '../lib/logger';
 import { TickBuffer } from './tick-buffer';
 import { backgroundStore } from './store';
+import { TRADE_EXECUTION_LOCK } from '../lib/trading/execution-lock';
 import {
   handleTradeExecuted as tradeHandlerExecuted,
   handleFinalizeTrade as tradeHandlerFinalize,
@@ -333,6 +334,10 @@ async function handleMessage(
 
 async function startTrading(): Promise<{ success: boolean; error?: string }> {
   const ctx = { module: 'background' as const, function: 'startTrading' };
+
+  if (TRADE_EXECUTION_LOCK.locked) {
+    return { success: false, error: TRADE_EXECUTION_LOCK.reason };
+  }
 
   if (backgroundStore.getState().tradingStatus.isRunning) {
     return { success: false, error: 'Already running' };

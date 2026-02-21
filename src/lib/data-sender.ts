@@ -56,7 +56,8 @@ export function backoffWithJitter(attempt: number, baseMs = 1000): number {
 // Failed Chunk Queue
 // ============================================================
 
-const MAX_RETRY_QUEUE_SIZE = 5;
+const MAX_RETRY_QUEUE_SIZE = 25;
+const MAX_CANDLES_PER_BULK_REQUEST = 2000;
 
 interface QueuedChunk {
   bodyStr: string;
@@ -66,6 +67,15 @@ interface QueuedChunk {
 }
 
 const retryQueue: QueuedChunk[] = [];
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (items.length <= size) return [items];
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
 
 /** DataSender 전송 통계 */
 export interface DataSenderStats {
@@ -222,20 +232,32 @@ export const DataSender = {
       );
     }
 
-    // Count this as a send attempt (after validation passes)
-    senderStats.bulkSendCount++;
+    const chunks = chunkArray(mapped, MAX_CANDLES_PER_BULK_REQUEST);
+    if (chunks.length > 1) {
+      log.data(
+        `Split payload into ${chunks.length} chunks (max ${MAX_CANDLES_PER_BULK_REQUEST} candles/chunk)`,
+      );
+    }
 
-    const payload = { candles: mapped };
-    const bodyStr = JSON.stringify(payload);
-    log.data(
-      `Sending ${mapped.length} candles (${(bodyStr.length / 1024).toFixed(1)}KB) to ${SERVER_URL}/api/candles/bulk`,
-    );
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      if (!chunk || chunk.length === 0) continue;
 
-    const sent = await this._sendWithRetry(bodyStr, mapped[0].symbol, mapped.length, maxRetries);
+      // Count this as a send attempt (after validation passes)
+      senderStats.bulkSendCount++;
 
-    if (!sent) {
-      // Enqueue for later retry (bounded)
-      this._enqueueForRetry(bodyStr, mapped[0].symbol, mapped.length);
+      const payload = { candles: chunk };
+      const bodyStr = JSON.stringify(payload);
+      log.data(
+        `Sending chunk ${i + 1}/${chunks.length}: ${chunk.length} candles (${(bodyStr.length / 1024).toFixed(1)}KB)`,
+      );
+
+      const sent = await this._sendWithRetry(bodyStr, chunk[0].symbol, chunk.length, maxRetries);
+
+      if (!sent) {
+        // Enqueue for later retry (bounded)
+        this._enqueueForRetry(bodyStr, chunk[0].symbol, chunk.length);
+      }
     }
   },
 
@@ -249,7 +271,7 @@ export const DataSender = {
   async _sendWithRetry(
     bodyStr: string,
     symbol: string,
-    _candleCount: number,
+    candleCount: number,
     maxRetries: number,
   ): Promise<boolean> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -267,10 +289,14 @@ export const DataSender = {
 
         if (response.ok) {
           const result = await response.json();
+          const savedCount =
+            typeof result?.count === 'number' && Number.isFinite(result.count)
+              ? result.count
+              : candleCount;
           senderStats.bulkSuccessCount++;
-          senderStats.bulkTotalCandles += result.count;
+          senderStats.bulkTotalCandles += savedCount;
           senderStats.lastBulkSendAt = Date.now();
-          log.success(`Bulk saved: ${result.count} candles (symbol: ${symbol})`);
+          log.success(`Bulk saved: ${savedCount} candles (symbol: ${symbol})`);
           return true;
         }
 

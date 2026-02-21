@@ -1,6 +1,40 @@
 # Pocket Quant Trader - Progress
 
-**최종 업데이트:** 2026-02-18 KST
+**최종 업데이트:** 2026-02-21 KST
+
+## (2026-02-21) 백테스트 데이터 충분성 수정 — payout 필터 + CLI 옵션
+
+### 완료 항목
+- **[핵심] history 데이터 ticks 저장 허용**: `data-collector-server.ts`의 `/api/candle`, `/api/candles/bulk` 엔드포인트에서 `source='history'`인 데이터는 `isPayoutData()` 필터를 우회하여 ticks 테이블에 저장
+- **`--source-mode` CLI 옵션**: `backtest-from-sqlite.ts`에 `auto|legacy|ticks|cache` 소스 모드 추가. 기존 전역 소스 결정 문제를 우회하여 원하는 데이터 소스를 강제 선택 가능
+- **`--allow-payout` CLI 옵션**: legacy 경로의 `resampleTicks()` 호출에서 `filterPayout`을 CLI로 제어 가능 (`--allow-payout true`면 필터 해제)
+- **DB 진단 출력 강화**: 백테스트 시작 시 source별 행 수 + 심볼 수 표시
+- **TypeScript**: 0 errors
+- **테스트**: tick-resampler 33개 + data-sender 51개 통과
+
+### 변경 파일
+| 파일 | 변경 내용 |
+|------|----------|
+| `scripts/data-collector-server.ts` | `/api/candle`, `/api/candles/bulk`에서 history 소스 payout 필터 우회 |
+| `scripts/backtest-from-sqlite.ts` | `--source-mode`, `--allow-payout` CLI 옵션, DB 진단 출력, loadSymbols 개선 |
+| `docs/head/findings.md` | 결정사항 기록 |
+| `docs/head/progress.md` | 진행 로그 |
+
+### 검증 명령
+```bash
+# legacy 경로 강제 + payout 필터 해제
+npx tsx scripts/backtest-from-sqlite.ts --source history --source-mode legacy --allow-payout true
+
+# auto 모드 (기존 동작)
+npx tsx scripts/backtest-from-sqlite.ts
+```
+
+### 다음 행동
+- 실환경 데이터 수집 후 재확인: history 데이터가 ticks에 정상 저장되는지 검증
+- `loadSymbols()`를 심볼별 소스 자동 선택으로 개선 (장기)
+- `isPayoutData()` 휴리스틱 개선: 정수 여부 + 80~95 범위 추가 검사 (장기)
+
+---
 
 ## (2026-02-18) PO DOM 셀렉터 v1.1.0 업데이트 + 타이밍 수정
 

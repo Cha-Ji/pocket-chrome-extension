@@ -292,7 +292,17 @@ export class PayoutMonitor {
 
     // 현재 이미 해당 자산인지 확인
     if (this.isCurrentAsset(normalizedTarget)) {
-      log.info(`Already on ${assetName}`);
+      log.info(`Already on ${assetName} — reselecting once to refresh WS asset ID`);
+      // 이미 현재 자산이어도 한 번 재선택하면 changeSymbol WS 메시지가 발생해
+      // auto-miner가 정확한 asset ID를 캡처할 수 있다.
+      await this.openAssetPicker();
+      await this.wait(800);
+      const foundCurrent = await this.findAssetElement(normalizedTarget, 2, 500);
+      if (foundCurrent && !foundCurrent.inactive) {
+        await forceClick(foundCurrent.element);
+        await this.wait(600);
+      }
+      await this.closeAssetPicker();
       return true;
     }
 

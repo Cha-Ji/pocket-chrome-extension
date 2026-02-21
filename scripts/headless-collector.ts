@@ -1,7 +1,7 @@
 /**
  * Headless Collector — Playwright 기반 자동 데이터 수집 오케스트레이터 (#141)
  *
- * Extension을 로드한 Chromium 브라우저로 PO 데모 페이지에 접속하여
+ * Extension을 로드한 Chromium 브라우저로 PO 거래 페이지(기본: real)에 접속하여
  * AutoMiner를 통해 캔들 데이터를 수집 서버(localhost:3001)로 전송합니다.
  *
  * 4시간 주기 또는 메모리 임계값 초과 시 graceful restart를 수행하여
@@ -11,7 +11,10 @@
  *   HEADLESS       - "false"이면 GUI 모드 (기본: true)
  *   OFFSET         - offset 초 단위 (기본: 300000)
  *   MAX_DAYS       - 수집 기간 일 (기본: 90)
+ *   MAX_CONCURRENT_SYMBOLS - 동시 고정심볼 수집 개수(기본: 1)
  *   REQUEST_DELAY  - 요청 딜레이 ms (기본: 200)
+ *   MINER_SYMBOL   - 고정 수집 심볼(지정 시 payout/순회 로직 우회)
+ *   MINER_SYMBOLS  - 고정 수집 심볼 목록(쉼표 구분, 52개 심볼 수집용)
  *   PROFILE_DIR    - Chrome 프로필 경로 (기본: ~/.pocket-quant/chrome-profile/)
  *   PO_URL         - PO 페이지 URL
  *   LOGIN_TIMEOUT  - 로그인 대기 타임아웃 ms (기본: 120000)
@@ -41,19 +44,55 @@ const EXTENSION_PATH = path.join(PROJECT_ROOT, 'dist');
 // 영구 프로필 디렉토리 — 세션(쿠키) 유지용
 const DEFAULT_PROFILE_DIR = path.join(os.homedir(), '.pocket-quant', 'chrome-profile');
 
+function parseEnvInt(raw: string | undefined, fallback: number, minimum = 1): number {
+  const parsed = parseInt(raw ?? '', 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(minimum, parsed);
+}
+
 const CONFIG = {
   headless: process.env.HEADLESS !== 'false',
   offset: parseInt(process.env.OFFSET || '300000', 10),
   maxDays: parseInt(process.env.MAX_DAYS || '90', 10),
   requestDelay: parseInt(process.env.REQUEST_DELAY || '200', 10),
+  maxConcurrentSymbols: parseEnvInt(
+    process.env.MAX_CONCURRENT_SYMBOLS || process.env.MAX_CONCURRENT,
+    1,
+    1,
+  ),
+  targetSymbols: parseTargetSymbols(process.env.MINER_SYMBOLS || ''),
+  targetSymbol: normalizeEnvSymbol(process.env.MINER_SYMBOL || process.env.PO_SYMBOL || ''),
   profileDir: process.env.PROFILE_DIR || DEFAULT_PROFILE_DIR,
-  poUrl: process.env.PO_URL || 'https://pocketoption.com/en/cabinet/demo-quick-high-low/',
+  poUrl: process.env.PO_URL || 'https://pocketoption.com/en/cabinet/quick-high-low/',
   collectorUrl: process.env.COLLECTOR_URL || 'http://localhost:3001',
   maxMemoryMB: parseInt(process.env.MAX_MEMORY_MB || '1500', 10),
   sessionHours: parseFloat(process.env.SESSION_HOURS || '4'),
   monitorInterval: parseInt(process.env.MONITOR_INTERVAL || '30', 10),
   loginTimeoutMs: parseInt(process.env.LOGIN_TIMEOUT || '120000', 10),
 };
+
+function normalizeEnvSymbol(raw: string): string {
+  return raw
+    .trim()
+    .toUpperCase()
+    .replace(/[_\s]+/g, '-')
+    .replace(/#/g, '')
+    .replace(/[^A-Z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function parseTargetSymbols(raw: string): string[] {
+  if (!raw) return [];
+  return [
+    ...new Set(
+      raw
+        .split(/[,\n]+/)
+        .map((item) => normalizeEnvSymbol(item))
+        .filter(Boolean),
+    ),
+  ];
+}
 
 // ── 유틸리티 ────────────────────────────────────────────
 
@@ -116,7 +155,29 @@ async function launchBrowser(): Promise<{ context: BrowserContext; extensionId: 
   // Extension ID 감지
   let background = context.serviceWorkers()[0];
   if (!background) {
-    background = await context.waitForEvent('serviceworker', { timeout: 15_000 });
+    try {
+      background = await context.waitForEvent('serviceworker', { timeout: 15_000 });
+    } catch {
+      // 일부 환경에서 serviceWorker 이벤트가 즉시 감지되지 않음.
+      // 페이지 기반 fallback으로 확장 ID를 추출해 진행한다.
+      const fallbackTimeoutMs = 30_000;
+      const deadline = Date.now() + fallbackTimeoutMs;
+      while (Date.now() < deadline) {
+        const extensionPage = context
+          .pages()
+          .find((p) => p.url().startsWith('chrome-extension://'));
+        if (extensionPage) {
+          const match = extensionPage.url().match(/^chrome-extension:\/\/([^/]+)/);
+          if (match?.[1]) {
+            const extensionId = match[1];
+            log(`Extension loaded (fallback page): ${extensionId}`);
+            return { context, extensionId };
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      throw new Error('확장 프로그램 service worker/페이지가 감지되지 않았습니다.');
+    }
   }
   const extensionId = background.url().split('/')[2];
   log(`Extension loaded: ${extensionId}`);
@@ -155,7 +216,11 @@ async function getExtensionPage(context: BrowserContext, extensionId: string): P
   return extPage;
 }
 
-async function sendExtensionMessage(context: BrowserContext, extensionId: string, message: any): Promise<any> {
+async function sendExtensionMessage(
+  context: BrowserContext,
+  extensionId: string,
+  message: any,
+): Promise<any> {
   const ep = await getExtensionPage(context, extensionId);
   return ep.evaluate(async (msg) => {
     return new Promise<any>((resolve, reject) => {
@@ -179,16 +244,23 @@ async function sendExtensionMessage(context: BrowserContext, extensionId: string
 }
 
 async function configureMiner(context: BrowserContext, extensionId: string): Promise<void> {
+  const targetSymbols = CONFIG.targetSymbols;
+  const targetSymbol = targetSymbols.length > 0 ? targetSymbols[0] : CONFIG.targetSymbol;
   const config = {
     maxDaysBack: CONFIG.maxDays,
     offsetSeconds: CONFIG.offset,
     requestDelayMs: CONFIG.requestDelay,
+    maxConcurrentSymbols: CONFIG.maxConcurrentSymbols,
+    targetSymbol,
+    targetSymbols,
   };
   const result = await sendExtensionMessage(context, extensionId, {
     type: 'SET_MINER_CONFIG',
     payload: config,
   });
-  log(`Miner config set: maxDays=${CONFIG.maxDays}, offset=${CONFIG.offset}, delay=${CONFIG.requestDelay}ms → ${JSON.stringify(result)}`);
+  log(
+    `Miner config set: targetSymbol=${targetSymbol}, targetSymbols=${targetSymbols.length}개, maxDays=${CONFIG.maxDays}, offset=${CONFIG.offset}, delay=${CONFIG.requestDelay}ms → ${JSON.stringify(result)}`,
+  );
 }
 
 async function startMiner(context: BrowserContext, extensionId: string): Promise<void> {
@@ -237,9 +309,27 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
     const extensionId = browser.extensionId;
 
     // 3. PO 데모 페이지 이동
-    page = context.pages()[0] || await context.newPage();
+    page = context.pages()[0] || (await context.newPage());
     cdp = await page.context().newCDPSession(page);
     await cdp.send('Performance.enable');
+
+    // 브라우저 콘솔 로그 캡처 (디버깅용)
+    page.on('console', (msg) => {
+      const text = msg.text();
+      // WS 훅, Extension content script, DataSender 관련 로그만 출력
+      if (
+        text.includes('[PO-Spy]') ||
+        text.includes('[PO]') ||
+        text.includes('[AutoMiner]') ||
+        text.includes('[DataSender]') ||
+        text.includes('Miner') ||
+        text.includes('ws-send') ||
+        text.includes('WebSocket')
+      ) {
+        log(`[browser] ${text}`);
+      }
+    });
+    page.on('pageerror', (err) => logError(`[pageerror] ${err.message}`));
 
     log(`PO 페이지 이동: ${CONFIG.poUrl}`);
     await page.goto(CONFIG.poUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
@@ -267,6 +357,44 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
     // Extension 초기화 대기 (Content Script가 DOM 파싱 시작할 시간)
     log('Extension 초기화 대기 중...');
     await page.waitForTimeout(5_000);
+
+    // 디버깅: PO 페이지(Main World) vs Extension 페이지에서 localhost:3001 접근 테스트
+    try {
+      // Test 1: PO 페이지 (Main World) — CORS 제한 예상
+      const mainWorldResult = await page.evaluate(async () => {
+        try {
+          const res = await fetch('http://localhost:3001/health', {
+            signal: AbortSignal.timeout(5000),
+          });
+          const body = await res.text();
+          return { ok: res.ok, status: res.status, body: body.substring(0, 200) };
+        } catch (e: any) {
+          return { ok: false, error: e.message || String(e) };
+        }
+      });
+      log(`[DEBUG] PO Main World→localhost:3001: ${JSON.stringify(mainWorldResult)}`);
+    } catch (e) {
+      logError(`[DEBUG] PO Main World 테스트 실패: ${e}`);
+    }
+
+    // Test 2: Extension 페이지 (host_permissions 적용)
+    try {
+      const ep = await getExtensionPage(context, extensionId);
+      const extResult = await ep.evaluate(async () => {
+        try {
+          const res = await fetch('http://localhost:3001/health', {
+            signal: AbortSignal.timeout(5000),
+          });
+          const body = await res.text();
+          return { ok: res.ok, status: res.status, body: body.substring(0, 200) };
+        } catch (e: any) {
+          return { ok: false, error: e.message || String(e) };
+        }
+      });
+      log(`[DEBUG] Extension Page→localhost:3001: ${JSON.stringify(extResult)}`);
+    } catch (e) {
+      logError(`[DEBUG] Extension Page 테스트 실패: ${e}`);
+    }
 
     // Xvfb 환경 감지 — 렌더링 불필요하므로 메모리 최적화 자동 적용
     // XVFB_MODE=1은 xvfb-collect.sh에서 설정됨 (:0 WSLg와 구별)
@@ -358,10 +486,18 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
     // 정리
     extPage = null;
     if (cdp) {
-      try { await cdp.detach(); } catch { /* ignore */ }
+      try {
+        await cdp.detach();
+      } catch {
+        /* ignore */
+      }
     }
     if (context) {
-      try { await context.close(); } catch { /* ignore */ }
+      try {
+        await context.close();
+      } catch {
+        /* ignore */
+      }
     }
   }
 }
@@ -377,7 +513,9 @@ async function main(): Promise<void> {
 
   log('='.repeat(60));
   log('Headless Collector 시작');
-  log(`설정: maxDays=${CONFIG.maxDays}, offset=${CONFIG.offset}, delay=${CONFIG.requestDelay}ms`);
+  log(
+    `설정: targetSymbol=${CONFIG.targetSymbols.length > 0 ? CONFIG.targetSymbols[0] : CONFIG.targetSymbol || 'auto'}, targetSymbols=${CONFIG.targetSymbols.length}개, maxDays=${CONFIG.maxDays}, offset=${CONFIG.offset}, delay=${CONFIG.requestDelay}ms, maxConcurrentSymbols=${CONFIG.maxConcurrentSymbols}`,
+  );
   log(`메모리 임계값: ${CONFIG.maxMemoryMB}MB, 세션: ${CONFIG.sessionHours}시간`);
   log(`headless: ${CONFIG.headless} (Extension은 항상 headed 모드 필요)`);
   log(`DISPLAY: ${process.env.DISPLAY || '(없음 — GUI 필요)'}`);
@@ -392,7 +530,9 @@ async function main(): Promise<void> {
     const durationMin = Math.round(result.duration / 60000);
 
     log('─'.repeat(40));
-    log(`세션 #${sessionNum} 종료: ${result.reason} (${durationMin}분, +${result.candlesCollected.toLocaleString()} 캔들)`);
+    log(
+      `세션 #${sessionNum} 종료: ${result.reason} (${durationMin}분, +${result.candlesCollected.toLocaleString()} 캔들)`,
+    );
 
     // 서버 통계 출력
     const stats = await getCandleStats();

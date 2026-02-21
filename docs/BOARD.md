@@ -9,7 +9,7 @@
 
 | ID | Owner | Branch | Status | Summary | Updated |
 |----|-------|--------|--------|---------|---------|
-| - | - | - | idle | (빈 슬롯) | - |
+| codex-policy-sync-20260221 | Codex | fix/backtest-data-sufficiency | idle | PR #147 문서화 정책 + ~/.agents 동기화 완료 | 2026-02-21 16:05 KST |
 
 ## Recent Decisions (최근 5개, 이전 항목은 Wiki [[Key-Decisions]]로 이동)
 

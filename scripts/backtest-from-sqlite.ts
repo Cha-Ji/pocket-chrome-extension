@@ -9,6 +9,7 @@
 // 모든 timestamp는 ms 정수로 통일 (toEpochMs 사용).
 //
 // 실행: npx tsx scripts/backtest-from-sqlite.ts [--symbol AAPL] [--source history]
+//       [--source-mode auto|legacy|ticks|cache] [--allow-payout true]
 // ============================================================
 
 import * as fs from 'fs'
@@ -49,11 +50,15 @@ const RESAMPLE_INTERVAL_SEC = 60
 // CLI 옵션 파싱
 // ============================================================
 
+type SourceMode = 'auto' | 'legacy' | 'ticks' | 'cache'
+
 function parseCliArgs(): {
   symbol?: string
   source?: string
   start?: number
   end?: number
+  sourceMode: SourceMode
+  allowPayout: boolean
 } {
   const args = process.argv.slice(2)
   const opts: Record<string, string> = {}
@@ -65,11 +70,18 @@ function parseCliArgs(): {
     }
   }
 
+  const validSourceModes: SourceMode[] = ['auto', 'legacy', 'ticks', 'cache']
+  const sourceMode = validSourceModes.includes(opts['source-mode'] as SourceMode)
+    ? (opts['source-mode'] as SourceMode)
+    : 'auto'
+
   return {
     symbol: opts.symbol,
     source: opts.source,
     start: opts.start ? Number(opts.start) : undefined,
     end: opts.end ? Number(opts.end) : undefined,
+    sourceMode,
+    allowPayout: opts['allow-payout'] === 'true',
   }
 }
 
@@ -211,11 +223,14 @@ function loadFromTicksAndCache(
 /**
  * 레거시 candles 테이블에서 로드 → tick-resampler로 리샘플링.
  * ticks 테이블이 비어있을 때의 폴백 경로.
+ *
+ * @param allowPayout - true면 payout 필터를 끔 (filterPayout=false)
  */
 function loadFromLegacyCandles(
   db: Database.Database,
   symbol: string,
-  source: string
+  source: string,
+  allowPayout: boolean = false,
 ): { candles: Candle[]; tickCount: number } {
   const rows = db.prepare(
     `SELECT symbol, timestamp, open, high, low, close, volume, source
@@ -248,7 +263,7 @@ function loadFromLegacyCandles(
 
   const resampled = resampleTicks(tickRows, {
     intervalSeconds: RESAMPLE_INTERVAL_SEC,
-    filterPayout: true,
+    filterPayout: !allowPayout,
   })
 
   const candles: Candle[] = resampled.map(c => ({
@@ -265,13 +280,51 @@ function loadFromLegacyCandles(
 
 /**
  * DB에서 자산 목록을 조회한다.
- * 우선순위: candles_1m > ticks > candles(legacy)
+ *
+ * sourceMode 동작:
+ * - 'auto': 기존 우선순위 (candles_1m > ticks > candles_legacy)
+ * - 'cache': candles_1m 캐시만 사용
+ * - 'ticks': ticks 테이블만 사용
+ * - 'legacy': candles(legacy) 테이블만 사용
  */
-function loadSymbols(db: Database.Database, preferSource?: string): {
+function loadSymbols(
+  db: Database.Database,
+  preferSource?: string,
+  sourceMode: SourceMode = 'auto',
+): {
   symbols: string[]
   source: string
   dataSource: 'candles_1m' | 'ticks' | 'candles_legacy'
 } {
+  // sourceMode가 강제 지정되면 해당 소스만 탐색
+  if (sourceMode === 'cache') {
+    const cached = db.prepare(`SELECT DISTINCT symbol FROM candles_1m`).all() as { symbol: string }[]
+    return { symbols: cached.map(r => r.symbol), source: 'resampled', dataSource: 'candles_1m' }
+  }
+
+  if (sourceMode === 'ticks') {
+    const tickSource = preferSource || 'history'
+    const ticks = db.prepare(`SELECT DISTINCT symbol FROM ticks WHERE source = ?`).all(tickSource) as { symbol: string }[]
+    if (ticks.length > 0) {
+      return { symbols: ticks.map(r => r.symbol), source: tickSource, dataSource: 'ticks' }
+    }
+    // fallback to realtime ticks
+    const rtTicks = db.prepare(`SELECT DISTINCT symbol FROM ticks WHERE source = 'realtime'`).all() as { symbol: string }[]
+    return { symbols: rtTicks.map(r => r.symbol), source: 'realtime', dataSource: 'ticks' }
+  }
+
+  if (sourceMode === 'legacy') {
+    const legacySource = preferSource || 'history'
+    const legacy = db.prepare(`SELECT DISTINCT symbol FROM candles WHERE source = ?`).all(legacySource) as { symbol: string }[]
+    if (legacy.length > 0) {
+      return { symbols: legacy.map(r => r.symbol), source: legacySource, dataSource: 'candles_legacy' }
+    }
+    // fallback to realtime legacy
+    const rtLegacy = db.prepare(`SELECT DISTINCT symbol FROM candles WHERE source = 'realtime'`).all() as { symbol: string }[]
+    return { symbols: rtLegacy.map(r => r.symbol), source: 'realtime', dataSource: 'candles_legacy' }
+  }
+
+  // sourceMode === 'auto': 기존 우선순위 로직
   // 1순위: candles_1m 캐시
   const cachedSymbols = db.prepare(
     `SELECT DISTINCT symbol FROM candles_1m`
@@ -615,6 +668,10 @@ async function main(): Promise<void> {
   console.log('  SignalGeneratorV2 | 1분봉 | candles_1m 캐시 우선')
   console.log('='.repeat(60))
 
+  if (cliArgs.sourceMode !== 'auto' || cliArgs.allowPayout) {
+    console.log(`[옵션] source-mode=${cliArgs.sourceMode}, allow-payout=${cliArgs.allowPayout}`)
+  }
+
   // 1. DB 존재 확인
   if (!fs.existsSync(DB_PATH)) {
     console.error(`\n[오류] DB 파일을 찾을 수 없습니다: ${DB_PATH}`)
@@ -664,8 +721,29 @@ async function main(): Promise<void> {
   const totalCache = (db.prepare('SELECT COUNT(*) as cnt FROM candles_1m').get() as { cnt: number }).cnt
   console.log(`[DB] candles(legacy): ${totalLegacy.toLocaleString()} | ticks: ${totalTicks.toLocaleString()} | candles_1m(cache): ${totalCache.toLocaleString()}`)
 
+  // source별 상세 통계
+  const legacyBySource = db.prepare(`
+    SELECT source, COUNT(*) as cnt, COUNT(DISTINCT symbol) as symbols
+    FROM candles GROUP BY source ORDER BY cnt DESC
+  `).all() as Array<{ source: string; cnt: number; symbols: number }>
+
+  const ticksBySource = db.prepare(`
+    SELECT source, COUNT(*) as cnt, COUNT(DISTINCT symbol) as symbols
+    FROM ticks GROUP BY source ORDER BY cnt DESC
+  `).all() as Array<{ source: string; cnt: number; symbols: number }>
+
+  if (legacyBySource.length > 0 || ticksBySource.length > 0) {
+    console.log('[DB] source별 분포:')
+    for (const row of legacyBySource) {
+      console.log(`  candles[${row.source}]: ${row.cnt.toLocaleString()} rows, ${row.symbols} symbols`)
+    }
+    for (const row of ticksBySource) {
+      console.log(`  ticks[${row.source}]: ${row.cnt.toLocaleString()} rows, ${row.symbols} symbols`)
+    }
+  }
+
   // 3. 자산 목록 조회
-  const { symbols: allSymbols, source: dataSourceType, dataSource } = loadSymbols(db, cliArgs.source)
+  const { symbols: allSymbols, source: dataSourceType, dataSource } = loadSymbols(db, cliArgs.source, cliArgs.sourceMode)
 
   // CLI 필터 적용
   const symbols = cliArgs.symbol
@@ -705,28 +783,46 @@ async function main(): Promise<void> {
     let tickCount = 0
     let usedDataSource = ''
 
-    // 우선순위 1: candles_1m 캐시
-    if (dataSource === 'candles_1m') {
-      candles = loadFromCache(db, symbol, startTs, endTs)
-      usedDataSource = 'cache'
-    }
-
-    // 우선순위 2: ticks → resample → cache
-    if (candles.length === 0 && dataSource !== 'candles_legacy') {
-      // ticks에서 시도
-      const tickSource = dataSourceType
-      const tickResult = loadFromTicksAndCache(db, symbol, tickSource, startTs, endTs)
-      candles = tickResult.candles
-      tickCount = tickResult.tickCount
-      usedDataSource = tickCount > 0 ? 'ticks→cache' : 'cache'
-    }
-
-    // 우선순위 3: 레거시 candles
-    if (candles.length === 0) {
-      const legacyResult = loadFromLegacyCandles(db, symbol, dataSourceType)
+    if (cliArgs.sourceMode === 'legacy') {
+      // sourceMode=legacy: 레거시 candles만 사용
+      const legacyResult = loadFromLegacyCandles(db, symbol, dataSourceType, cliArgs.allowPayout)
       candles = legacyResult.candles
       tickCount = legacyResult.tickCount
       usedDataSource = 'legacy'
+    } else if (cliArgs.sourceMode === 'cache') {
+      // sourceMode=cache: candles_1m 캐시만 사용
+      candles = loadFromCache(db, symbol, startTs, endTs)
+      usedDataSource = 'cache'
+    } else if (cliArgs.sourceMode === 'ticks') {
+      // sourceMode=ticks: ticks 테이블만 사용
+      const tickResult = loadFromTicksAndCache(db, symbol, dataSourceType, startTs, endTs)
+      candles = tickResult.candles
+      tickCount = tickResult.tickCount
+      usedDataSource = tickCount > 0 ? 'ticks→cache' : 'cache'
+    } else {
+      // sourceMode=auto: 기존 우선순위
+      // 우선순위 1: candles_1m 캐시
+      if (dataSource === 'candles_1m') {
+        candles = loadFromCache(db, symbol, startTs, endTs)
+        usedDataSource = 'cache'
+      }
+
+      // 우선순위 2: ticks → resample → cache
+      if (candles.length === 0 && dataSource !== 'candles_legacy') {
+        const tickSource = dataSourceType
+        const tickResult = loadFromTicksAndCache(db, symbol, tickSource, startTs, endTs)
+        candles = tickResult.candles
+        tickCount = tickResult.tickCount
+        usedDataSource = tickCount > 0 ? 'ticks→cache' : 'cache'
+      }
+
+      // 우선순위 3: 레거시 candles
+      if (candles.length === 0) {
+        const legacyResult = loadFromLegacyCandles(db, symbol, dataSourceType, cliArgs.allowPayout)
+        candles = legacyResult.candles
+        tickCount = legacyResult.tickCount
+        usedDataSource = 'legacy'
+      }
     }
 
     if (candles.length === 0) {
