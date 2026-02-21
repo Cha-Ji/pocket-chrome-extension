@@ -97,6 +97,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Xvfb 실행 중 (PID: $XVFB_PID)"
 
 # ── Collector 실행 ─────────────────────────────────────
 export DISPLAY=":${DISPLAY_NUM}"
+export XVFB_MODE=1
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] DISPLAY=${DISPLAY} 로 headless-collector 시작"
 echo ""
 
