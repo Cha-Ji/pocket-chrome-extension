@@ -538,7 +538,6 @@ describe('WebSocketInterceptor', () => {
 
       expect(status.isListening).toBe(false);
       expect(status.analysisMode).toBe(true);
-      expect(status.messageCount).toBe(0);
     });
   });
 });

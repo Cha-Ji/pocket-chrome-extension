@@ -2,6 +2,20 @@
 
 **최종 업데이트:** 2026-02-18 KST
 
+## (2026-02-18) PO DOM 셀렉터 v1.1.0 업데이트 + 타이밍 수정
+
+### 완료 항목
+- **PR #124**: 4개 Critical 셀렉터 업데이트 (callButton, putButton, amountInput, balanceDisplay) + fallback 강화 + `SELECTOR_VERSION` 1.1.0
+- **PR #133**: 헬스체크 타이밍 수정 — `waitForElement('#put-call-buttons-chart-1')` 대기 후 실행
+
+### 발견사항
+- Real 환경에서 "Trading Halted" 발생 원인: SPA 렌더링 지연으로 `.btn-call`/`.btn-put`이 헬스체크 시점에 미렌더링
+- Demo/Real 트레이딩 UI 셀렉터는 동일, 잔액 하위 span 클래스만 다름 (`js-balance-demo-USD` vs `js-balance-real-USD`)
+- 상세: `docs/head/findings.md` > "PO DOM 셀렉터 v1.1.0" 섹션
+
+### 다음 행동
+- PR #133 머지 후 Real/Demo 양쪽에서 SelectorHealthcheck PASSED 확인
+
 ## (2026-02-18) Strategy Config Pipeline 1단계 — 전략 선택 자동화
 
 ### 완료 항목

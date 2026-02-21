@@ -44,6 +44,13 @@ export function evaluateTIF60(ctx: ContentScriptContext, rawTicker: string, pric
   if (now - lastEval < TIF60_THROTTLE_MS) return;
   tif60LastEval.set(ticker, now);
 
+  // 크기 제한: 100개 초과 시 오래된 절반 정리 (#141 메모리 누수 방지)
+  if (tif60LastEval.size > 100) {
+    const sorted = [...tif60LastEval.entries()].sort((a, b) => a[1] - b[1]);
+    const toRemove = sorted.slice(0, Math.floor(sorted.length / 2));
+    for (const [key] of toRemove) tif60LastEval.delete(key);
+  }
+
   const tickerTicks = ctx.candleCollector.getTicksByTicker(ticker);
   const candles = ctx.candleCollector.getCandles(ticker);
 

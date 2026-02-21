@@ -12,6 +12,33 @@
 - (2026-01-26) 브라우저 자동화 감지로 계정 제재 위험이 존재
 - (2026-01-26) DOM 구조 변경에 따라 셀렉터 유지보수 필요
 - (2026-01-26) 틱 데이터는 대용량이므로 주기적 정리/압축 필요
+- (2026-02-18) **Demo/Real DOM 구조 차이점**: 트레이딩 UI(버튼, 금액 입력)는 동일하나, 잔액 표시 클래스가 다름 (`js-balance-demo-USD` vs `js-balance-real-USD`). 아래 "PO DOM 셀렉터 v1.1.0" 참조
+- (2026-02-18) **SPA 렌더링 타이밍**: PO는 SPA이므로 `body` 준비 후에도 트레이딩 패널이 수 초 뒤에 렌더링됨. 헬스체크는 `#put-call-buttons-chart-1` 대기 후 실행해야 함
+
+## PO DOM 셀렉터 v1.1.0 (2026-02-18)
+
+PO DOM 구조 변경으로 셀렉터 전면 업데이트. `SELECTOR_VERSION` 1.0.0 → 1.1.0.
+
+### Demo/Real 공통 셀렉터
+| 요소 | 셀렉터 | 비고 |
+|------|--------|------|
+| CALL 버튼 | `.btn-call` | `<a class="btn btn-call">` |
+| PUT 버튼 | `.btn-put` | `<a class="btn btn-put">` |
+| 금액 입력 | `#put-call-buttons-chart-1 input` | type 속성 없음 |
+| 잔액 컨테이너 | `.balance-info-block__balance` | 하위 span에 실제 금액 |
+| 계정 라벨 | `.balance-info-block__label` | "QT Real" 또는 "QT Demo" |
+
+### Demo/Real 차이점 (잔액 하위 요소)
+| 환경 | 잔액 span 클래스 | Fallback |
+|------|-----------------|----------|
+| Demo | `span.js-hd.js-balance-demo-USD` | `.balance-info-block__balance` → `span.js-hd[data-hd-show]` → `.balance-info-block__value` |
+| Real | `span.js-hd.js-balance-real-USD` | `.balance-info-block__balance` → `.js-balance-real-USD` → `span.js-hd[data-hd-show]` → `.balance-info-block__value` |
+
+### 삭제/변경된 셀렉터 (v1.0.0 대비)
+- `.balance-info-block__value` → `.balance-info-block__balance` (클래스 변경)
+- `input[type="text"]` → `input` (type 속성 제거됨)
+- `.switch-state-block__item` → `.btn-call`/`.btn-put` (더 정확한 셀렉터로 교체)
+- `.is-chart-demo` → 미사용 가능성 (URL + 라벨로 demo 판별)
 
 ## 핵심 정보
 

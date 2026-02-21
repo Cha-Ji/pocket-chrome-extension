@@ -16,7 +16,6 @@ type MessageCallback = (message: WebSocketMessage) => void;
 type ConnectionCallback = (connection: WebSocketConnection) => void;
 
 class WebSocketInterceptor {
-  private messageBuffer: WebSocketMessage[] = [];
   private isListening = false;
   private analysisMode = true;
   private parser: WebSocketParser;
@@ -199,7 +198,6 @@ class WebSocketInterceptor {
     return {
       isListening: this.isListening,
       analysisMode: this.analysisMode,
-      messageCount: this.messageBuffer.length,
     };
   }
 

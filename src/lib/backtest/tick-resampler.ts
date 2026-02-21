@@ -68,6 +68,11 @@ export function isPayoutData(row: TickRow): boolean {
     return false;
   }
 
+  // payout은 항상 정수 (예: 82, 90, 92). FX 환율(0.86xxx) 오탐 방지
+  if (!Number.isInteger(open)) {
+    return false;
+  }
+
   // 0~100 범위인지 확인 (페이아웃 퍼센트)
   const inPayoutRange = open >= 0 && open <= 100;
 
