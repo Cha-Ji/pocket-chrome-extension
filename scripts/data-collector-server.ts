@@ -153,7 +153,8 @@ function ohlcToPrice(data: any): number {
 function isPayoutData(data: { open: number; high: number; low: number; close: number }): boolean {
   const { open, high, low, close } = data
   const allEqual = open === high && high === low && low === close
-  return allEqual && open >= 0 && open <= 100
+  // payout은 항상 정수 (예: 82, 90, 92). FX 환율(0.86xxx) 오탐 방지
+  return allEqual && Number.isInteger(open) && open >= 0 && open <= 100
 }
 
 // ============================================================
@@ -672,7 +673,7 @@ app.post('/api/migrate/candles-to-ticks', (req, res) => {
     const rows = db.prepare(`
       SELECT symbol, timestamp, close, source
       FROM candles
-      WHERE NOT (open = high AND high = low AND low = close AND open >= 0 AND open <= 100)
+      WHERE NOT (open = high AND high = low AND low = close AND open = CAST(open AS INTEGER) AND open >= 0 AND open <= 100)
     `).all() as Array<{
       symbol: string; timestamp: number; close: number; source: string
     }>

@@ -162,7 +162,7 @@ function main() {
     const allCandles = db.prepare(`
       SELECT symbol, timestamp, open, high, low, close, source
       FROM candles
-      WHERE NOT (open = high AND high = low AND low = close AND open >= 0 AND open <= 100)
+      WHERE NOT (open = high AND high = low AND low = close AND open = CAST(open AS INTEGER) AND open >= 0 AND open <= 100)
       ORDER BY symbol, timestamp
     `).all() as Array<{
       symbol: string; timestamp: number
