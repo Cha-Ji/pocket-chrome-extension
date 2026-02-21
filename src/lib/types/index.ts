@@ -285,6 +285,8 @@ export interface MessagePayloadMap {
     offsetSeconds?: number;
     maxDaysBack?: number;
     requestDelayMs?: number;
+    targetSymbols?: string[];
+    targetSymbol?: string;
   };
   // Candle DB (Content Script → Background)
   CANDLE_FINALIZED: {

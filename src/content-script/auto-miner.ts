@@ -15,6 +15,8 @@ interface BulkMiningConfig {
   maxDaysBack: number; // 최대 수집 일수
   requestDelayMs: number; // 응답 후 다음 요청까지 딜레이 (ms)
   minPayout: number; // 채굴 대상 최소 페이아웃(%)
+  targetSymbol?: string; // 고정 수집 심볼(미지정 시 기존 payout 기반 순회)
+  targetSymbols?: string[]; // 고정 수집 심볼 목록(미지정 시 기존 payout 기반 순회)
 }
 
 interface AssetMiningProgress {
@@ -25,6 +27,7 @@ interface AssetMiningProgress {
   requestCount: number;
   isComplete: boolean;
   assetId?: string; // 현재 자산에 대해 확정된 WS asset ID
+  fixedSeedTimestamp?: number; // 고정 심볼 모드에서 재시작 기준점 (초)
 }
 
 interface MiningState {
@@ -49,6 +52,8 @@ const DEFAULT_CONFIG: BulkMiningConfig = {
   maxDaysBack: 60, // 최대 60일 (#141 상향)
   requestDelayMs: 500, // 응답 후 500ms 대기
   minPayout: 92, // 기본 92% 이상 페이아웃 자산만 채굴
+  targetSymbol: undefined,
+  targetSymbols: undefined,
 };
 
 const MAX_RETRIES = 3;
@@ -78,6 +83,83 @@ let rotationTimeout: ReturnType<typeof setTimeout> | null = null;
 let responseTimeout: ReturnType<typeof setTimeout> | null = null;
 let statusPushInterval: ReturnType<typeof setInterval> | null = null;
 let payoutMonitorRef: PayoutMonitor | null = null;
+
+const LOCAL_COLLECTOR_URLS = ['http://localhost:3001', 'http://127.0.0.1:3001'];
+
+function normalizeTargetSymbol(symbol: string | undefined): string | undefined {
+  const normalized = normalizeCollectorSymbol(symbol || '');
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeTargetSymbols(value: string[] | string | undefined): string[] {
+  const rawItems = Array.isArray(value) ? value : (value ?? '').split(',');
+  const normalized = rawItems
+    .map((v) => normalizeTargetSymbol(v))
+    .filter((v): v is string => typeof v === 'string' && v.length > 0);
+  return [...new Set(normalized)];
+}
+
+function getConfiguredTargetSymbols(): string[] {
+  const explicitList = normalizeTargetSymbols(minerState.config.targetSymbols);
+  if (explicitList.length > 0) return explicitList;
+
+  const single = normalizeTargetSymbol(minerState.config.targetSymbol);
+  return single ? [single] : [];
+}
+
+function isTargetSymbol(assetName: string): boolean {
+  const normalized = normalizeTargetSymbol(assetName);
+  if (!normalized) return false;
+  const list = getConfiguredTargetSymbols();
+  return list.includes(normalized);
+}
+
+function normalizeCollectorSymbol(raw: string): string {
+  return raw
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '-')
+    .replace(/#/g, '')
+    .replace(/[^A-Z0-9-]/g, '');
+}
+
+function normalizeCollectorTimestamp(value: unknown): number {
+  if (typeof value === 'string') value = Number(value);
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 0;
+  return value > 9_999_999_999 ? Math.floor(value / 1000) : Math.floor(value);
+}
+
+async function fetchCollectorSeedTimestamp(symbol: string): Promise<number> {
+  const targetSymbol = normalizeCollectorSymbol(symbol);
+  if (!targetSymbol) return 0;
+
+  for (const baseUrl of LOCAL_COLLECTOR_URLS) {
+    try {
+      const endpoint = `${baseUrl}/api/candles/stats`;
+      const signal = (AbortSignal as any).timeout
+        ? (AbortSignal as any).timeout(4_000)
+        : undefined;
+      const res = await fetch(`${endpoint}?symbol=${encodeURIComponent(targetSymbol)}`, { signal });
+
+      if (!res.ok) continue;
+      const stats = (await res.json()) as unknown;
+      if (!Array.isArray(stats)) continue;
+
+      const match = stats.find((row: { symbol?: unknown; newest?: unknown }) => {
+        if (!row || typeof row !== 'object' || typeof row.symbol !== 'string') return false;
+        return normalizeCollectorSymbol(row.symbol) === targetSymbol;
+      });
+
+      if (match) {
+        return normalizeCollectorTimestamp(match.newest);
+      }
+    } catch {
+      // ignore and try next endpoint
+    }
+  }
+
+  return 0;
+}
 
 // ============================================================
 // 자산 ID 결정 헬퍼
@@ -378,8 +460,26 @@ export const AutoMiner = {
     if (typeof partial.minPayout === 'number' && Number.isFinite(partial.minPayout)) {
       minerState.config.minPayout = Math.min(100, Math.max(0, partial.minPayout));
     }
+    if ('targetSymbols' in partial) {
+      const list = normalizeTargetSymbols(partial.targetSymbols as string | string[] | undefined);
+      minerState.config.targetSymbols = list.length > 0 ? list : undefined;
+      if (list.length > 0) {
+        minerState.config.targetSymbol = undefined;
+      }
+    }
+    if ('targetSymbol' in partial) {
+      const single = normalizeTargetSymbol(partial.targetSymbol);
+      minerState.config.targetSymbol = single;
+      if (single) {
+        if (!minerState.config.targetSymbols?.includes(single)) {
+          minerState.config.targetSymbols = undefined;
+        }
+      } else if (!minerState.config.targetSymbols?.length) {
+        minerState.config.targetSymbols = undefined;
+      }
+    }
     log.info(
-      `Config updated: offset=${minerState.config.offsetSeconds}s, maxDays=${minerState.config.maxDaysBack}, delay=${minerState.config.requestDelayMs}ms, minPayout=${minerState.config.minPayout}%`,
+      `Config updated: offset=${minerState.config.offsetSeconds}s, maxDays=${minerState.config.maxDaysBack}, delay=${minerState.config.requestDelayMs}ms, minPayout=${minerState.config.minPayout}%, targetSymbol=${minerState.config.targetSymbol || 'auto'}, targetSymbols=${minerState.config.targetSymbols?.join(',') || 'none'}`,
     );
   },
 
@@ -392,6 +492,26 @@ export const AutoMiner = {
   scanAndMineNext() {
     if (!minerState.isActive || !payoutMonitorRef) return;
 
+    const fixedSymbols = getConfiguredTargetSymbols();
+
+    // 고정 심볼 모드: payout 필터를 우회하고 대상 심볼만 순회 채굴
+    if (fixedSymbols.length > 0) {
+      const nextTarget = fixedSymbols.find((symbol) => !minerState.completedAssets.has(symbol));
+      const targetToMine =
+        nextTarget ||
+        (() => {
+          minerState.completedAssets.clear();
+          return fixedSymbols[0];
+        })();
+
+      if (targetToMine) {
+        log.info(`🎯 Fixed target mode enabled: ${targetToMine}`);
+        void this.mineAsset(targetToMine);
+      }
+      return;
+    }
+
+    // 자동 순회 모드(payout 필터): 기존 동작 유지
     // 페이아웃 데이터 로딩 가드 — 데이터 없으면 적극적으로 수집 시도
     if (payoutMonitorRef.getAllAssets().length === 0) {
       minerState.payoutWaitAttempts++;
@@ -430,12 +550,13 @@ export const AutoMiner = {
     }
 
     log.info(`⛏️ Next Target: ${nextAsset}`);
-    this.mineAsset(nextAsset);
+    void this.mineAsset(nextAsset);
   },
 
   async mineAsset(assetName: string) {
     // 이전 자산의 잔류 ID가 다음 자산 요청에 섞이지 않도록 초기화
     getWebSocketInterceptor().clearAssetTracking();
+    const isFixedMode = isTargetSymbol(assetName);
 
     let switched = false;
     for (let attempt = 1; attempt <= MAX_SWITCH_RETRIES; attempt++) {
@@ -514,6 +635,20 @@ export const AutoMiner = {
     }
     const progress = minerState.progress.get(assetName);
     if (progress) {
+      progress.isComplete = false;
+
+      if (isFixedMode) {
+        const seed = await fetchCollectorSeedTimestamp(assetName);
+        progress.fixedSeedTimestamp = seed;
+        progress.requestCount = 0;
+        progress.oldestTimestamp = 0;
+        if (seed > 0) {
+          progress.newestTimestamp = seed;
+        }
+      } else {
+        progress.fixedSeedTimestamp = undefined;
+      }
+
       if (capturedId) {
         progress.assetId = capturedId;
         minerState.assetIdCache.set(toAssetCacheKey(assetName), capturedId);
@@ -545,9 +680,17 @@ export const AutoMiner = {
       minerState.assetIdCache.set(toAssetCacheKey(minerState.currentAsset), assetId);
     }
 
-    // 시간 기준점: 첫 요청이면 현재 시간, 이후에는 가장 오래된 캔들 기준
+    const fixedMode = Boolean(progress.fixedSeedTimestamp);
+    // 시간 기준점:
+    // - 과거 구간이 이미 진행 중이면 oldestTimestamp 기준으로 계속 후퇴
+    // - 고정 모드에서는 최신 시점(newestTimestamp)에서 시작해 이어쓰기 효율을 높임
+    // - 최초 요청은 현재 시각
     const timeBase =
-      progress.oldestTimestamp > 0 ? progress.oldestTimestamp : Math.floor(Date.now() / 1000);
+      progress.oldestTimestamp > 0
+        ? progress.oldestTimestamp
+        : fixedMode && progress.newestTimestamp > 0
+          ? progress.newestTimestamp
+          : Math.floor(Date.now() / 1000);
 
     // 최대 과거 한도 체크
     const maxPast = Math.floor(Date.now() / 1000) - config.maxDaysBack * 86400;
@@ -637,6 +780,16 @@ export const AutoMiner = {
       progress.newestTimestamp > 0 && progress.oldestTimestamp > 0
         ? ((progress.newestTimestamp - progress.oldestTimestamp) / 86400).toFixed(1)
         : '0';
+
+    if (progress.fixedSeedTimestamp && progress.oldestTimestamp <= progress.fixedSeedTimestamp) {
+      log.info(
+        `📊 ${minerState.currentAsset}: Fixed seed overlap reached (seed=${progress.fixedSeedTimestamp}), 완료 처리`,
+      );
+      progress.isComplete = true;
+      minerState.completedAssets.add(minerState.currentAsset);
+      this.scanAndMineNext();
+      return;
+    }
 
     log.info(
       `✅ ${minerState.currentAsset}: +${candles.length} (총 ${progress.totalCandles}개, ${daysCollected}일)`,

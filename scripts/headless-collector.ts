@@ -12,6 +12,8 @@
  *   OFFSET         - offset 초 단위 (기본: 300000)
  *   MAX_DAYS       - 수집 기간 일 (기본: 90)
  *   REQUEST_DELAY  - 요청 딜레이 ms (기본: 200)
+ *   MINER_SYMBOL   - 고정 수집 심볼(지정 시 payout/순회 로직 우회)
+ *   MINER_SYMBOLS  - 고정 수집 심볼 목록(쉼표 구분, 52개 심볼 수집용)
  *   PROFILE_DIR    - Chrome 프로필 경로 (기본: ~/.pocket-quant/chrome-profile/)
  *   PO_URL         - PO 페이지 URL
  *   LOGIN_TIMEOUT  - 로그인 대기 타임아웃 ms (기본: 120000)
@@ -46,6 +48,8 @@ const CONFIG = {
   offset: parseInt(process.env.OFFSET || '300000', 10),
   maxDays: parseInt(process.env.MAX_DAYS || '90', 10),
   requestDelay: parseInt(process.env.REQUEST_DELAY || '200', 10),
+  targetSymbols: parseTargetSymbols(process.env.MINER_SYMBOLS || ''),
+  targetSymbol: normalizeEnvSymbol(process.env.MINER_SYMBOL || process.env.PO_SYMBOL || ''),
   profileDir: process.env.PROFILE_DIR || DEFAULT_PROFILE_DIR,
   poUrl: process.env.PO_URL || 'https://pocketoption.com/en/cabinet/quick-high-low/',
   collectorUrl: process.env.COLLECTOR_URL || 'http://localhost:3001',
@@ -54,6 +58,19 @@ const CONFIG = {
   monitorInterval: parseInt(process.env.MONITOR_INTERVAL || '30', 10),
   loginTimeoutMs: parseInt(process.env.LOGIN_TIMEOUT || '120000', 10),
 };
+
+function normalizeEnvSymbol(raw: string): string {
+  return raw
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '-')
+    .replace(/#/g, '')
+    .replace(/[^A-Z0-9-]/g, '');
+}
+
+function parseTargetSymbols(raw: string): string[] {
+  return [...new Set(raw.split(',').map((item) => normalizeEnvSymbol(item)).filter(Boolean))];
+}
 
 // ── 유틸리티 ────────────────────────────────────────────
 
@@ -179,16 +196,22 @@ async function sendExtensionMessage(context: BrowserContext, extensionId: string
 }
 
 async function configureMiner(context: BrowserContext, extensionId: string): Promise<void> {
+  const targetSymbols = CONFIG.targetSymbols;
+  const targetSymbol = targetSymbols.length > 0 ? targetSymbols[0] : CONFIG.targetSymbol;
   const config = {
     maxDaysBack: CONFIG.maxDays,
     offsetSeconds: CONFIG.offset,
     requestDelayMs: CONFIG.requestDelay,
+    targetSymbol,
+    targetSymbols,
   };
   const result = await sendExtensionMessage(context, extensionId, {
     type: 'SET_MINER_CONFIG',
     payload: config,
   });
-  log(`Miner config set: maxDays=${CONFIG.maxDays}, offset=${CONFIG.offset}, delay=${CONFIG.requestDelay}ms → ${JSON.stringify(result)}`);
+  log(
+    `Miner config set: targetSymbol=${targetSymbol}, targetSymbols=${targetSymbols.length}개, maxDays=${CONFIG.maxDays}, offset=${CONFIG.offset}, delay=${CONFIG.requestDelay}ms → ${JSON.stringify(result)}`,
+  );
 }
 
 async function startMiner(context: BrowserContext, extensionId: string): Promise<void> {
@@ -429,7 +452,9 @@ async function main(): Promise<void> {
 
   log('='.repeat(60));
   log('Headless Collector 시작');
-  log(`설정: maxDays=${CONFIG.maxDays}, offset=${CONFIG.offset}, delay=${CONFIG.requestDelay}ms`);
+  log(
+    `설정: targetSymbol=${CONFIG.targetSymbols.length > 0 ? CONFIG.targetSymbols[0] : CONFIG.targetSymbol || 'auto'}, targetSymbols=${CONFIG.targetSymbols.length}개, maxDays=${CONFIG.maxDays}, offset=${CONFIG.offset}, delay=${CONFIG.requestDelay}ms`,
+  );
   log(`메모리 임계값: ${CONFIG.maxMemoryMB}MB, 세션: ${CONFIG.sessionHours}시간`);
   log(`headless: ${CONFIG.headless} (Extension은 항상 headed 모드 필요)`);
   log(`DISPLAY: ${process.env.DISPLAY || '(없음 — GUI 필요)'}`);
