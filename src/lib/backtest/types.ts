@@ -24,6 +24,9 @@ export type Direction = 'CALL' | 'PUT';
 /** Trade result */
 export type TradeResult = 'WIN' | 'LOSS' | 'TIE';
 
+/** How to handle trades that land in a data gap */
+export type GapTradeHandling = 'skip' | 'loss';
+
 /** Single backtest trade */
 export interface BacktestTrade {
   entryTime: number;
@@ -35,6 +38,7 @@ export interface BacktestTrade {
   payout: number; // percentage
   profit: number; // actual profit/loss amount
   strategySignal?: Record<string, number>; // indicator values at entry
+  isGapTrade?: boolean;
 }
 
 /** Strategy for handling gaps in candle data */
@@ -62,6 +66,9 @@ export interface BacktestConfig {
   gapStrategy?: GapHandlingStrategy; // default: 'skip'
   expectedIntervalMs?: number; // auto-detected if not set
   maxGapCandles?: number; // for 'split' strategy, default 10
+
+  // Gap trade handling
+  gapTradeHandling?: GapTradeHandling; // default: 'loss' (matches live trading)
 
   // Strategy
   strategyId: string;
@@ -112,6 +119,13 @@ export interface BacktestResult {
     invalidRemoved: number;
     gapStrategy: GapHandlingStrategy;
     warnings: string[];
+  };
+
+  // Gap trade statistics
+  gapTradeStats?: {
+    total: number;
+    skipped: number;
+    forcedLoss: number;
   };
 
   // Trade history
