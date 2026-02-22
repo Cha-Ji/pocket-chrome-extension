@@ -51,7 +51,15 @@ if ! command -v Xvfb &>/dev/null; then
   echo "❌ Xvfb가 설치되어 있지 않습니다."
   echo ""
   echo "설치 방법:"
-  echo "  sudo apt-get update && sudo apt-get install -y xvfb"
+  if command -v pacman &>/dev/null; then
+    echo "  sudo pacman -S xorg-server-xvfb"
+  elif command -v apt-get &>/dev/null; then
+    echo "  sudo apt-get update && sudo apt-get install -y xvfb"
+  elif command -v dnf &>/dev/null; then
+    echo "  sudo dnf install -y xorg-x11-server-Xvfb"
+  else
+    echo "  패키지 매니저에서 'xvfb' 또는 'xorg-server-xvfb'를 설치하세요."
+  fi
   echo ""
   exit 1
 fi
@@ -98,6 +106,10 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Xvfb 실행 중 (PID: $XVFB_PID)"
 # ── Collector 실행 ─────────────────────────────────────
 export DISPLAY=":${DISPLAY_NUM}"
 export XVFB_MODE=1
+# Wayland 세션에서 실행 시 Chromium이 Wayland 디스플레이로 연결하는 것을 방지
+# Xvfb는 X11이므로 WAYLAND_DISPLAY를 해제하고 X11 백엔드를 강제
+unset WAYLAND_DISPLAY
+export CHROMIUM_FLAGS="--ozone-platform=x11"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] DISPLAY=${DISPLAY} 로 headless-collector 시작"
 echo ""
 

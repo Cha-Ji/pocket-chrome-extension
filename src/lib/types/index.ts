@@ -285,6 +285,12 @@ export interface MessagePayloadMap {
     offsetSeconds?: number;
     maxDaysBack?: number;
     requestDelayMs?: number;
+    // 필터 override
+    minPayout?: number;
+    onlyOTC?: boolean;
+    // 인스턴스 파티셔닝
+    instanceId?: number;
+    numInstances?: number;
   };
   // Candle DB (Content Script → Background)
   CANDLE_FINALIZED: {
