@@ -19,6 +19,10 @@
  *   MAX_MEMORY_MB  - 메모리 임계값 MB (기본: 1500)
  *   SESSION_HOURS  - 세션 최대 시간 (기본: 4)
  *   MONITOR_INTERVAL - 모니터링 간격 초 (기본: 30)
+ *   MIN_PAYOUT     - 최소 페이아웃 % (기본: 50, 비OTC 포함)
+ *   ONLY_OTC       - "true"이면 OTC만 수집 (기본: false)
+ *   INSTANCE_ID    - 인스턴스 번호 0-based (병렬 수집용)
+ *   NUM_INSTANCES  - 총 인스턴스 수 (병렬 수집용)
  *
  * 사용법:
  *   npm run collect:headless
@@ -47,24 +51,32 @@ const CONFIG = {
   maxDays: parseInt(process.env.MAX_DAYS || '90', 10),
   requestDelay: parseInt(process.env.REQUEST_DELAY || '200', 10),
   profileDir: process.env.PROFILE_DIR || DEFAULT_PROFILE_DIR,
-  poUrl: process.env.PO_URL || 'https://pocketoption.com/en/cabinet/demo-quick-high-low/',
+  poUrl: process.env.PO_URL || 'https://pocketoption.com/en/cabinet/quick-high-low/',
   collectorUrl: process.env.COLLECTOR_URL || 'http://localhost:3001',
   maxMemoryMB: parseInt(process.env.MAX_MEMORY_MB || '1500', 10),
   sessionHours: parseFloat(process.env.SESSION_HOURS || '4'),
   monitorInterval: parseInt(process.env.MONITOR_INTERVAL || '30', 10),
   loginTimeoutMs: parseInt(process.env.LOGIN_TIMEOUT || '120000', 10),
+  // 비OTC 수집 활성화: 기본값 변경 (onlyOTC=false, minPayout=50)
+  minPayout: parseInt(process.env.MIN_PAYOUT || '50', 10),
+  onlyOTC: process.env.ONLY_OTC === 'true', // 기본: false (비OTC 포함)
+  // 멀티 인스턴스 파티셔닝
+  instanceId: process.env.INSTANCE_ID !== undefined ? parseInt(process.env.INSTANCE_ID, 10) : undefined,
+  numInstances: process.env.NUM_INSTANCES !== undefined ? parseInt(process.env.NUM_INSTANCES, 10) : undefined,
 };
 
 // ── 유틸리티 ────────────────────────────────────────────
 
+const INSTANCE_TAG = CONFIG.instanceId !== undefined ? `[I${CONFIG.instanceId}]` : '';
+
 function log(msg: string): void {
   const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
-  console.log(`[${ts}] ${msg}`);
+  console.log(`[${ts}]${INSTANCE_TAG} ${msg}`);
 }
 
 function logError(msg: string): void {
   const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
-  console.error(`[${ts}] ❌ ${msg}`);
+  console.error(`[${ts}]${INSTANCE_TAG} ❌ ${msg}`);
 }
 
 async function checkCollectorHealth(): Promise<{ ok: boolean; totalCandles: number }> {
@@ -95,6 +107,7 @@ async function getCandleStats(): Promise<Array<{ symbol: string; count: number; 
 // ── 브라우저 관리 ───────────────────────────────────────
 
 async function launchBrowser(): Promise<{ context: BrowserContext; extensionId: string }> {
+  const isXvfb = process.env.XVFB_MODE === '1';
   const args = [
     `--disable-extensions-except=${EXTENSION_PATH}`,
     `--load-extension=${EXTENSION_PATH}`,
@@ -102,6 +115,8 @@ async function launchBrowser(): Promise<{ context: BrowserContext; extensionId: 
     '--disable-blink-features=AutomationControlled',
     '--disable-dev-shm-usage',
     '--disable-gpu',
+    // Xvfb(X11) 환경에서 Wayland 대신 X11 백엔드 강제
+    ...(isXvfb ? ['--ozone-platform=x11'] : []),
   ];
 
   // headless + extension: Chromium의 new headless는 extension 미지원
@@ -179,16 +194,25 @@ async function sendExtensionMessage(context: BrowserContext, extensionId: string
 }
 
 async function configureMiner(context: BrowserContext, extensionId: string): Promise<void> {
-  const config = {
+  const config: Record<string, unknown> = {
     maxDaysBack: CONFIG.maxDays,
     offsetSeconds: CONFIG.offset,
     requestDelayMs: CONFIG.requestDelay,
+    minPayout: CONFIG.minPayout,
+    onlyOTC: CONFIG.onlyOTC,
   };
+  // 인스턴스 파티셔닝 (설정된 경우만)
+  if (CONFIG.instanceId !== undefined && CONFIG.numInstances !== undefined) {
+    config.instanceId = CONFIG.instanceId;
+    config.numInstances = CONFIG.numInstances;
+  }
   const result = await sendExtensionMessage(context, extensionId, {
     type: 'SET_MINER_CONFIG',
     payload: config,
   });
-  log(`Miner config set: maxDays=${CONFIG.maxDays}, offset=${CONFIG.offset}, delay=${CONFIG.requestDelay}ms → ${JSON.stringify(result)}`);
+  log(`Miner config set: maxDays=${CONFIG.maxDays}, offset=${CONFIG.offset}, delay=${CONFIG.requestDelay}ms, minPayout=${CONFIG.minPayout}, onlyOTC=${CONFIG.onlyOTC}` +
+    (CONFIG.instanceId !== undefined ? `, instance=${CONFIG.instanceId}/${CONFIG.numInstances}` : '') +
+    ` → ${JSON.stringify(result)}`);
 }
 
 async function startMiner(context: BrowserContext, extensionId: string): Promise<void> {
@@ -245,24 +269,55 @@ async function runSession(sessionNum: number): Promise<SessionResult> {
     await page.goto(CONFIG.poUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
     // 트레이딩 패널 렌더링 대기 (로그인 상태 확인)
+    // polling 방식: 페이지 네비게이션(리다이렉트/2FA 등)이 발생해도 안정적으로 대기
     log('트레이딩 패널 대기 중...');
     const tradingPanelSelector = '.btn-call, .btn-put';
-    try {
-      await page.waitForSelector(tradingPanelSelector, { timeout: CONFIG.loginTimeoutMs });
+    const loginDeadline = Date.now() + CONFIG.loginTimeoutMs;
+    let loggedIn = false;
+    let lastLogSec = 0;
+    while (Date.now() < loginDeadline) {
+      try {
+        const el = await page.waitForSelector(tradingPanelSelector, { timeout: 10_000 });
+        if (el) { loggedIn = true; break; }
+      } catch {
+        // 페이지 네비게이션 또는 셀렉터 미발견 — 계속 폴링
+        // waitForSelector가 즉시 실패할 수 있으므로 명시적 대기
+        await new Promise((r) => setTimeout(r, 3_000));
+      }
+      const remainSec = Math.round((loginDeadline - Date.now()) / 1000);
+      const elapsed = Math.round((CONFIG.loginTimeoutMs - remainSec * 1000) / 1000);
+      if (remainSec > 0 && elapsed - lastLogSec >= 30) {
+        lastLogSec = elapsed;
+        log(`로그인 대기 중... (남은 시간: ${remainSec}초, URL: ${page.url()})`);
+      }
+    }
+    if (loggedIn) {
       log('트레이딩 패널 감지 — 로그인 확인됨');
-    } catch {
-      // 트레이딩 패널이 안 보이면 로그인 안 된 상태
+    } else {
       const currentUrl = page.url();
       logError(`트레이딩 패널 미감지 (${CONFIG.loginTimeoutMs / 1000}초 타임아웃)`);
       logError(`현재 URL: ${currentUrl}`);
       logError('PO 로그인이 필요합니다. 아래 순서대로 진행하세요:');
       logError('  1. GUI 모드로 실행: npm run collect:visible');
-      logError('  2. 브라우저에서 PO 데모 계정 로그인');
+      logError('  2. 브라우저에서 PO 계정 로그인');
       logError('  3. 로그인 완료 후 Ctrl+C로 종료');
       logError('  4. 다시 실행: npm run collect:xvfb');
       logError(`  (프로필 저장 경로: ${CONFIG.profileDir})`);
       return { reason: 'error', duration: Date.now() - sessionStart, candlesCollected: 0 };
     }
+
+    // PO 페이지 콘솔 로그 캡처 (Content Script / WS 디버깅용)
+    page.on('console', (msg) => {
+      const text = msg.text();
+      // Extension 관련 로그 캡처 (PO- prefix 또는 주요 키워드)
+      if (text.includes('[PO') || text.includes('PO-')
+          || text.includes('📤') || text.includes('✅') || text.includes('⛏')
+          || text.includes('DataSender') || text.includes('History')
+          || text.includes('bridge') || text.includes('WebSocket')
+          || text.includes('pq-')) {
+        log(`[page] ${text.slice(0, 300)}`);
+      }
+    });
 
     // Extension 초기화 대기 (Content Script가 DOM 파싱 시작할 시간)
     log('Extension 초기화 대기 중...');
@@ -378,6 +433,10 @@ async function main(): Promise<void> {
   log('='.repeat(60));
   log('Headless Collector 시작');
   log(`설정: maxDays=${CONFIG.maxDays}, offset=${CONFIG.offset}, delay=${CONFIG.requestDelay}ms`);
+  log(`필터: minPayout=${CONFIG.minPayout}, onlyOTC=${CONFIG.onlyOTC}`);
+  if (CONFIG.instanceId !== undefined) {
+    log(`인스턴스: ${CONFIG.instanceId}/${CONFIG.numInstances}`);
+  }
   log(`메모리 임계값: ${CONFIG.maxMemoryMB}MB, 세션: ${CONFIG.sessionHours}시간`);
   log(`headless: ${CONFIG.headless} (Extension은 항상 headed 모드 필요)`);
   log(`DISPLAY: ${process.env.DISPLAY || '(없음 — GUI 필요)'}`);

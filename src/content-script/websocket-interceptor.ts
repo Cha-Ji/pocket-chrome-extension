@@ -142,17 +142,10 @@ class WebSocketInterceptor {
         loggers.ws.info(`History/Bulk Captured: ${candles.length} candles for ${symbol}`);
         this.historyCallbacks.forEach((cb) => cb(candles));
       }
-    } else if (
-      parsed &&
-      (parsed.type === 'candle_data' || parsed.type === 'price_update') &&
-      !Array.isArray(parsed.data)
-    ) {
-      // 단일 객체 대응
-      const candle = parsed.data as CandleData;
-      if (candle && candle.open && candle.close) {
-        this.historyCallbacks.forEach((cb) => cb([candle]));
-      }
     }
+    // 개별 candle_data/price_update는 historyCallbacks로 전달하지 않음.
+    // 개별 캔들이 AutoMiner의 pendingRequest를 소비하면
+    // 실제 벌크 히스토리 응답이 무시되는 문제를 방지.
 
     const priceUpdate = parsed ? this.parser.extractPrice(parsed.raw ?? parsed) : null;
     if (priceUpdate) {

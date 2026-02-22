@@ -517,6 +517,22 @@ describe('WebSocketParser - extended coverage', () => {
       });
       expect(result.type).toBe('unknown');
     });
+
+    it('parses JSON payload with trailing binary noise for history event', () => {
+      const payload = `{"asset":"AEDCNY_otc","period":60,"history":[[1771730000,1.2345,1.2346,1.2343,1.2344]]}`.concat(
+        '\u0000\u0000\u0000\u0000',
+      );
+      const uint8 = new TextEncoder().encode(payload);
+      const result = parser.parse({
+        type: 'binary_payload',
+        event: 'updateHistoryNewFast',
+        data: uint8,
+      });
+      expect(result.type).toBe('candle_history');
+      const candles = result.data as any[];
+      expect(candles).toHaveLength(1);
+      expect(candles[0].symbol).toBe('AEDCNY_otc');
+    });
   });
 
   describe('edge cases', () => {
@@ -970,16 +986,15 @@ describe('WebSocketParser - fixture-based coverage', () => {
       expect(result.confidence).toBe(0.5);
     });
 
-    it('should handle non-JSON binary data gracefully', () => {
+    it('should return unknown for non-JSON binary data (no valid candles)', () => {
       const uint8 = new Uint8Array([0xff, 0xfe, 0xfd]);
       const result = parser.parse({
         type: 'binary_payload',
         event: 'loadHistoryPeriod',
         data: uint8,
       });
-      // Non-JSON binary: TextDecoder produces garbage → catch → raw data passed
-      // to parseSocketIOArray which returns candle_history with null or empty data
-      expect(result.type).toBe('candle_history');
+      // Non-JSON binary: 유효한 캔들 파싱 불가 → unknown 반환 (빈 candle_history 방지)
+      expect(result.type).toBe('unknown');
     });
   });
 
@@ -1030,6 +1045,97 @@ describe('WebSocketParser - fixture-based coverage', () => {
         expect(result).toHaveProperty('confidence');
         expect(typeof result.confidence).toBe('number');
       }
+    });
+  });
+
+  // ----------------------------------------------------------
+  // 14. Standalone history response pattern
+  // ----------------------------------------------------------
+  describe('standalone_history_response', () => {
+    it('should parse {asset, history: [[...]]} format', () => {
+      const result = parser.parse({
+        asset: '#EURUSD_otc',
+        period: 60,
+        history: [
+          [1707100000, 1.085, 1.0855, 1.086, 1.084],
+          [1707100060, 1.0855, 1.086, 1.087, 1.085],
+        ],
+      });
+      expect(result.type).toBe('candle_history');
+      const candles = result.data as any[];
+      expect(candles).toHaveLength(2);
+      expect(candles[0].symbol).toBe('#EURUSD_otc');
+    });
+
+    it('should parse {symbol, candles: [{open,...}]} format', () => {
+      const result = parser.parse({
+        symbol: 'BTCUSD',
+        candles: [
+          { open: 50000, high: 50500, low: 49500, close: 50200, timestamp: 1700000001 },
+        ],
+      });
+      expect(result.type).toBe('candle_history');
+      const candles = result.data as any[];
+      expect(candles).toHaveLength(1);
+      expect(candles[0].symbol).toBe('BTCUSD');
+    });
+
+    it('should parse {asset, data: [...]} format (array data field)', () => {
+      const result = parser.parse({
+        asset: '#GBPUSD',
+        data: [
+          { open: 1.3, high: 1.31, low: 1.29, close: 1.305, time: 1700000001 },
+        ],
+      });
+      expect(result.type).toBe('candle_history');
+    });
+
+    it('should NOT match objects without asset/symbol identifier', () => {
+      const result = parser.parse({
+        history: [[1707100000, 1.085, 1.0855, 1.086, 1.084]],
+      });
+      // No asset or symbol → doesn't match standalone_history_response
+      expect(result.type).not.toBe('candle_history');
+    });
+
+    it('should return unknown for empty history array', () => {
+      const result = parser.parse({
+        asset: '#EURUSD_otc',
+        history: [],
+      });
+      expect(result.type).toBe('unknown');
+    });
+  });
+
+  // ----------------------------------------------------------
+  // 15. binary_payload validation (empty candles → unknown)
+  // ----------------------------------------------------------
+  describe('binary_payload candle validation', () => {
+    it('should return unknown when binary payload produces no valid candles', () => {
+      // JSON은 파싱 가능하지만 캔들 데이터가 아닌 경우 (빈 배열)
+      const payload = JSON.stringify([]);
+      const uint8 = new TextEncoder().encode(payload);
+      const result = parser.parse({
+        type: 'binary_payload',
+        event: 'updateHistoryNewFast',
+        data: uint8,
+      });
+      expect(result.type).toBe('unknown');
+      expect(result.confidence).toBeLessThan(0.5);
+    });
+
+    it('should return candle_history when binary payload has valid candles', () => {
+      const candles = [
+        { open: 1.085, high: 1.086, low: 1.084, close: 1.0855, timestamp: 1707100000 },
+      ];
+      const uint8 = new TextEncoder().encode(JSON.stringify(candles));
+      const result = parser.parse({
+        type: 'binary_payload',
+        event: 'updateHistoryNewFast',
+        data: uint8,
+      });
+      expect(result.type).toBe('candle_history');
+      expect(result.confidence).toBeGreaterThanOrEqual(0.95);
     });
   });
 });

@@ -34,6 +34,16 @@ export class PayoutMonitor {
   constructor(filter: PayoutFilter = DEFAULT_FILTER) {
     this.filter = filter;
   }
+
+  setFilter(partial: Partial<PayoutFilter>): void {
+    this.filter = { ...this.filter, ...partial };
+    log.info(`Filter updated: minPayout=${this.filter.minPayout}, onlyOTC=${this.filter.onlyOTC}`);
+  }
+
+  getFilter(): PayoutFilter {
+    return { ...this.filter };
+  }
+
   get isMonitoring(): boolean {
     return this._isMonitoring;
   }
@@ -501,6 +511,12 @@ export class PayoutMonitor {
 
 let payoutMonitorInstance: PayoutMonitor | null = null;
 export function getPayoutMonitor(): PayoutMonitor {
-  if (!payoutMonitorInstance) payoutMonitorInstance = new PayoutMonitor();
+  if (!payoutMonitorInstance) {
+    // Real 환경: OTC가 아닌 자산이 대부분이므로 onlyOTC를 비활성화
+    const isReal = !window.location.pathname.includes('demo');
+    payoutMonitorInstance = new PayoutMonitor(
+      isReal ? { minPayout: 50, onlyOTC: false } : DEFAULT_FILTER,
+    );
+  }
   return payoutMonitorInstance;
 }

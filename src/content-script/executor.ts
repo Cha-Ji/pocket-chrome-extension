@@ -18,14 +18,13 @@ import {
 import { validateTradeAmount } from '../lib/trading/validate-amount';
 
 export class TradeExecutor {
-  private selectors: DOMSelectors;
   private _isTrading = false;
   private tradingLoop: ReturnType<typeof setInterval> | null = null;
   private _allowLiveTrading = false; // MUST be explicitly enabled
   private resolver = getSelectorResolver();
 
-  constructor(selectors: DOMSelectors) {
-    this.selectors = selectors;
+  constructor(_selectors: DOMSelectors) {
+    // SelectorResolver가 환경별 셀렉터를 자동 관리하므로 직접 사용하지 않음
   }
 
   get isTrading(): boolean {
@@ -243,9 +242,9 @@ export class TradeExecutor {
    * Set trade amount
    */
   private async setTradeAmount(amount: number): Promise<void> {
-    const amountInput = document.querySelector(this.selectors.amountInput) as HTMLInputElement;
+    const amountInput = (await this.resolver.resolve('amountInput')) as HTMLInputElement | null;
     if (!amountInput) {
-      console.warn('[TradeExecutor] Amount input not found');
+      console.warn('[TradeExecutor] Amount input not found (even with fallbacks)');
       return;
     }
 

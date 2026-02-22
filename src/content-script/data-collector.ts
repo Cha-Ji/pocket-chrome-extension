@@ -6,17 +6,19 @@
 // ============================================================
 
 import { DOMSelectors, Tick } from '../lib/types';
+import { getSelectorResolver, SelectorResolver } from './selector-resolver';
 
 export class DataCollector {
-  private selectors: DOMSelectors;
+  private resolver: SelectorResolver;
   private observer: MutationObserver | null = null;
   private _isCollecting = false;
   private currentPrice: number | null = null;
   private priceHistory: Tick[] = [];
   private maxHistorySize = 5000;
 
-  constructor(selectors: DOMSelectors) {
-    this.selectors = selectors;
+  constructor(_selectors: DOMSelectors) {
+    // SelectorResolver가 환경별 셀렉터를 자동 관리하므로 직접 사용하지 않음
+    this.resolver = getSelectorResolver();
   }
 
   get isCollecting(): boolean {
@@ -80,12 +82,11 @@ export class DataCollector {
    * Setup MutationObserver for price changes
    * STUB: Actual selectors and logic TBD
    */
-  private setupPriceObserver(): void {
-    const priceElement = document.querySelector(this.selectors.priceDisplay);
+  private async setupPriceObserver(): Promise<void> {
+    const priceElement = await this.resolver.resolve('priceDisplay');
 
     if (!priceElement) {
-      console.warn('[DataCollector] Price element not found. Selectors may need updating.');
-      // In production, we would retry or notify the user
+      console.warn('[DataCollector] Price element not found (even with fallbacks). Selectors may need updating.');
       return;
     }
 
@@ -119,7 +120,9 @@ export class DataCollector {
     if (price === null) return;
 
     this.currentPrice = price;
-    this.recordTick(price);
+    this.recordTick(price).catch(() => {
+      // ticker resolve 실패 시 무시 — price는 이미 기록됨
+    });
   }
 
   /**
@@ -136,9 +139,9 @@ export class DataCollector {
   /**
    * Record a tick to history
    */
-  private recordTick(price: number): void {
+  private async recordTick(price: number): Promise<void> {
     const tick: Tick = {
-      ticker: this.getCurrentTicker(),
+      ticker: await this.getCurrentTicker(),
       timestamp: Date.now(),
       price,
     };
@@ -158,8 +161,8 @@ export class DataCollector {
    * Get current ticker symbol
    * STUB: Actual implementation TBD
    */
-  private getCurrentTicker(): string {
-    const tickerElement = document.querySelector(this.selectors.tickerSelector);
+  private async getCurrentTicker(): Promise<string> {
+    const tickerElement = await this.resolver.resolve('tickerSelector');
     return tickerElement?.textContent?.trim() || 'UNKNOWN';
   }
 

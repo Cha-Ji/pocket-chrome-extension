@@ -14,6 +14,89 @@ import type {
 } from './websocket-types';
 import { loggers } from '../lib/logger';
 
+const decodeTextFromBinary = (rawData: any): string | null => {
+  if (typeof rawData === 'string') return rawData;
+  if (rawData instanceof ArrayBuffer) {
+    return new TextDecoder().decode(new Uint8Array(rawData));
+  }
+  if (rawData instanceof Uint8Array) {
+    return new TextDecoder().decode(rawData);
+  }
+  if (ArrayBuffer.isView(rawData)) {
+    return new TextDecoder().decode(
+      new Uint8Array(rawData.buffer, rawData.byteOffset, rawData.byteLength),
+    );
+  }
+  // Cross-realm ArrayBuffer 대응: jsdom/iframe 등에서 instanceof 실패 시
+  // byteLength 프로퍼티가 있고 slice 메서드가 있으면 ArrayBuffer로 간주
+  if (rawData && typeof rawData.byteLength === 'number' && typeof rawData.slice === 'function') {
+    try {
+      return new TextDecoder().decode(new Uint8Array(rawData));
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
+
+const parseLeadingJson = (text: string): any | null => {
+  if (!text) return null;
+  const candidate = text.trimStart();
+  if (!candidate || (candidate[0] !== '{' && candidate[0] !== '[')) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < candidate.length; i += 1) {
+    const char = candidate[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === '{' || char === '[') {
+      depth += 1;
+      continue;
+    }
+
+    if (char === '}' || char === ']') {
+      depth -= 1;
+      if (depth === 0) {
+        try {
+          return JSON.parse(candidate.slice(0, i + 1));
+        } catch {
+          return null;
+        }
+      }
+      continue;
+    }
+  }
+
+  return null;
+};
+
+const parseSocketIOTextPayload = (text: string): any | null => {
+  const match = text.match(/^\d+[-]?([\[{].*)/s);
+  const jsonCandidate = match ? match[1] : text.trim();
+  return parseLeadingJson(jsonCandidate);
+};
+
 export type {
   PriceUpdate,
   CandleData,
@@ -30,6 +113,55 @@ interface MessagePattern {
   detect: (data: any) => boolean;
   parse: (data: any) => ParsedMessage;
 }
+
+// ============================================================
+// 히스토리 데이터 파싱 헬퍼 (모듈 레벨)
+// ============================================================
+
+/**
+ * 히스토리 데이터(배열) → CandleData[] 파싱
+ * 배열 형태([ts, o, c, h, l, v]) 및 객체 형태({open, high, ...}) 모두 지원
+ */
+const parseHistoryData = (data: any, symbol: string = 'CURRENT'): CandleData[] => {
+  if (!Array.isArray(data)) return [];
+  return data
+    .map((c: any) => {
+      let candle: CandleData;
+
+      if (Array.isArray(c)) {
+        candle = {
+          symbol,
+          timestamp: c[0],
+          open: c[1],
+          close: c[2] ?? c[1],
+          high: c[3] ?? c[1],
+          low: c[4] ?? c[1],
+          volume: c[5] || 0,
+        };
+      } else {
+        candle = {
+          symbol: c.symbol || c.asset || symbol,
+          timestamp: c.timestamp || c.time || c.t || Date.now(),
+          open: c.open ?? c.o ?? 0,
+          high: c.high ?? c.h ?? c.open ?? 0,
+          low: c.low ?? c.l ?? c.open ?? 0,
+          close: c.close ?? c.c ?? c.open ?? 0,
+          volume: c.volume ?? c.v ?? 0,
+        };
+      }
+      return candle;
+    })
+    .filter(
+      (c: CandleData) =>
+        c.timestamp != null &&
+        !isNaN(c.timestamp) &&
+        c.timestamp > 0 &&
+        c.open != null &&
+        !isNaN(c.open) &&
+        c.close != null &&
+        !isNaN(c.close),
+    );
+};
 
 // ============================================================
 // Parser Implementation
@@ -152,6 +284,8 @@ export class WebSocketParser {
       name: 'nested_data',
       detect: (data) => {
         if (typeof data !== 'object' || data === null) return false;
+        // binary_payload 객체는 전용 패턴(socketio_binary_payload)에서 처리
+        if (data.type === 'binary_payload') return false;
         return 'data' in data && typeof data.data === 'object';
       },
       parse: (data) => {
@@ -270,48 +404,6 @@ export class WebSocketParser {
           'candleHistory',
           'loadHistoryPeriod',
         ];
-
-        // 히스토리 데이터 파싱 헬퍼 함수
-        const parseHistoryData = (data: any, symbol: string = 'CURRENT'): CandleData[] => {
-          if (!Array.isArray(data)) return [];
-          return data
-            .map((c: any) => {
-              let candle: CandleData;
-
-              if (Array.isArray(c)) {
-                candle = {
-                  symbol,
-                  timestamp: c[0],
-                  open: c[1],
-                  close: c[2] ?? c[1],
-                  high: c[3] ?? c[1],
-                  low: c[4] ?? c[1],
-                  volume: c[5] || 0,
-                };
-              } else {
-                candle = {
-                  symbol: c.symbol || c.asset || symbol,
-                  timestamp: c.timestamp || c.time || c.t || Date.now(),
-                  open: c.open ?? c.o ?? 0,
-                  high: c.high ?? c.h ?? c.open ?? 0,
-                  low: c.low ?? c.l ?? c.open ?? 0,
-                  close: c.close ?? c.c ?? c.open ?? 0,
-                  volume: c.volume ?? c.v ?? 0,
-                };
-              }
-              return candle;
-            })
-            .filter(
-              (c: CandleData) =>
-                c.timestamp != null &&
-                !isNaN(c.timestamp) &&
-                c.timestamp > 0 &&
-                c.open != null &&
-                !isNaN(c.open) &&
-                c.close != null &&
-                !isNaN(c.close),
-            );
-        };
 
         // 히스토리 이벤트 처리
         if (historyEventNames.includes(eventName)) {
@@ -440,20 +532,9 @@ export class WebSocketParser {
       detect: (data) => data && data.type === 'binary_payload' && data.event && data.data,
       parse: (data) => {
         const { event, data: rawData } = data;
-        let decodedPayload: any = null;
-
-        try {
-          const text = new TextDecoder('utf-8').decode(
-            rawData instanceof ArrayBuffer ? rawData : rawData.buffer,
-          );
-          if (text.startsWith('{') || text.startsWith('[')) {
-            decodedPayload = JSON.parse(text);
-          } else {
-            decodedPayload = rawData;
-          }
-        } catch (e) {
-          decodedPayload = rawData;
-        }
+        const decodedText = decodeTextFromBinary(rawData);
+        const parsedPayload = decodedText != null ? parseLeadingJson(decodedText) : null;
+        const decodedPayload = parsedPayload !== null ? parsedPayload : rawData;
 
         const historyEvents = [
           'load_history',
@@ -465,11 +546,23 @@ export class WebSocketParser {
           'candleHistory',
         ];
         if (historyEvents.includes(event)) {
+          const result = parseSocketIOArray([event, decodedPayload], decodedPayload);
+          const candles = result.data as CandleData[];
+          // 실제로 유효한 캔들이 파싱된 경우에만 candle_history 반환
+          if (candles && Array.isArray(candles) && candles.length > 0) {
+            return {
+              type: 'candle_history',
+              data: candles,
+              raw: data,
+              confidence: 0.95,
+            };
+          }
+          // 파싱 실패 시 unknown 반환 (빈 candle_history 방지)
           return {
-            type: 'candle_history',
-            data: parseSocketIOArray([event, decodedPayload], decodedPayload).data as CandleData[],
+            type: 'unknown',
+            data: decodedPayload,
             raw: data,
-            confidence: 0.95,
+            confidence: 0.3,
           };
         }
 
@@ -479,6 +572,49 @@ export class WebSocketParser {
           raw: data,
           confidence: 0.5,
         };
+      },
+    });
+
+    // 패턴 11: 독립 히스토리 응답 객체
+    // Socket.IO 이벤트 래핑 없이 {asset/symbol, history/data/candles} 형태로 도착하는 경우
+    // (binary placeholder 미매칭, 직접 JSON 파싱 결과 등)
+    this.patterns.push({
+      name: 'standalone_history_response',
+      detect: (data) => {
+        if (typeof data !== 'object' || data === null || Array.isArray(data)) return false;
+        const hasIdentifier = 'asset' in data || 'symbol' in data;
+        const hasHistory = ('history' in data && Array.isArray(data.history)) ||
+          ('candles' in data && Array.isArray(data.candles));
+        const hasArrayData = 'data' in data && Array.isArray(data.data) && data.data.length > 0;
+        return hasIdentifier && (hasHistory || hasArrayData);
+      },
+      parse: (data) => {
+        const symbol = data.asset || data.symbol || 'CURRENT';
+        let historyData: any[] | null = null;
+
+        if (data.history && Array.isArray(data.history)) {
+          historyData = data.history;
+        } else if (data.candles && Array.isArray(data.candles)) {
+          historyData = data.candles;
+        } else if (Array.isArray(data.data)) {
+          historyData = data.data;
+        }
+
+        if (historyData && historyData.length > 0) {
+          const candles = parseHistoryData(historyData, symbol);
+          if (candles.length > 0) {
+            loggers.parser.info(
+              `Standalone history parsed: ${candles.length} candles for ${symbol}`,
+            );
+            return {
+              type: 'candle_history',
+              data: candles,
+              raw: data,
+              confidence: 0.85,
+            };
+          }
+        }
+        return { type: 'unknown', data: null, raw: data, confidence: 0 };
       },
     });
   }
@@ -502,14 +638,10 @@ export class WebSocketParser {
   parse(data: any): ParsedMessage {
     // 문자열이면 JSON 파싱 시도
     if (typeof data === 'string') {
-      let jsonStr = data;
-      // Socket.IO 프리픽스 제거: "42[...]" → "[...]", "451-[...]" → "[...]"
-      const m = data.match(/^\d+[-]?([\[{].*)/s);
-      if (m) jsonStr = m[1];
-
-      try {
-        data = JSON.parse(jsonStr);
-      } catch {
+      const parsedText = parseSocketIOTextPayload(data);
+      if (parsedText !== null) {
+        data = parsedText;
+      } else {
         return {
           type: 'unknown',
           data: null,

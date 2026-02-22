@@ -54,6 +54,7 @@ function parseCliArgs(): {
   source?: string
   start?: number
   end?: number
+  strategy?: string
 } {
   const args = process.argv.slice(2)
   const opts: Record<string, string> = {}
@@ -70,6 +71,7 @@ function parseCliArgs(): {
     source: opts.source,
     start: opts.start ? Number(opts.start) : undefined,
     end: opts.end ? Number(opts.end) : undefined,
+    strategy: opts.strategy,
   }
 }
 
@@ -349,7 +351,7 @@ function loadSymbols(db: Database.Database, preferSource?: string): {
 /**
  * 리샘플링된 캔들로 SignalGeneratorV2 백테스트를 실행한다.
  */
-function runBacktest(symbol: string, candles: Candle[]): BacktestResult & { candles: Candle[] } {
+function runBacktest(symbol: string, candles: Candle[], strategyFilter?: string): BacktestResult & { candles: Candle[] } {
   const generator = new SignalGeneratorV2({
     minConfidence: 0.6,
     useTrendFilter: true,
@@ -377,6 +379,11 @@ function runBacktest(symbol: string, candles: Candle[]): BacktestResult & { cand
     const signal = generator.addCandle(symbol, candle)
 
     if (signal) {
+      // 전략 필터 적용
+      if (strategyFilter && !signal.strategy.toLowerCase().includes(strategyFilter.toLowerCase())) {
+        continue
+      }
+
       // 다음 캔들 close로 승패 판정
       const entryPrice = candle.close
       const exitPrice = nextCandle.close
@@ -777,7 +784,7 @@ async function main(): Promise<void> {
 
   for (const asset of testable) {
     try {
-      const result = runBacktest(asset.symbol, asset.candles)
+      const result = runBacktest(asset.symbol, asset.candles, cliArgs.strategy)
       result.totalTicks = asset.tickCount
       result.coverageDays = asset.coverageDays
       result.dataSource = asset.usedDataSource

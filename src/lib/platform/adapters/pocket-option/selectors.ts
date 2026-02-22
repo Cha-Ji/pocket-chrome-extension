@@ -28,6 +28,7 @@ export { PO_REAL_SELECTORS, PO_REAL_FALLBACKS } from './selectors.real';
 // ─── Internal imports for logic ─────────────────────────────
 
 import type { PlatformEnvironment } from './selectors.common';
+import { PO_DOMAINS as PO_DOMAINS_INTERNAL } from './selectors.common';
 import { PO_DEMO_SELECTORS, PO_DEMO_FALLBACKS } from './selectors.demo';
 import { PO_REAL_SELECTORS, PO_REAL_FALLBACKS } from './selectors.real';
 
@@ -53,7 +54,16 @@ export const PO_SELECTOR_FALLBACKS: Record<string, string[]> = PO_DEMO_FALLBACKS
  */
 export function detectEnvironment(): PlatformEnvironment {
   // 1. URL check (most reliable)
-  const urlHasDemo = window.location.pathname.includes('demo');
+  // [#jsdom] hostname/pathname이 undefined일 수 있는 환경(jsdom, headless CI) 대비 가드
+  const hostname = window.location?.hostname ?? '';
+  const pathname = window.location?.pathname ?? '';
+  const urlHasDemo = pathname.includes('demo');
+  const hasQuickHighLowPath = pathname.includes('/quick-high-low');
+  const hasCabinetPath = pathname.includes('/cabinet/');
+  const isPocketOptionHost = PO_DOMAINS_INTERNAL.some((domain: string) =>
+    hostname.includes(domain),
+  );
+  const isTradingPage = hasQuickHighLowPath || hasCabinetPath;
 
   // 2. CSS class check
   const hasChartDemoClass = !!document.querySelector('.is-chart-demo');
@@ -66,6 +76,18 @@ export function detectEnvironment(): PlatformEnvironment {
   // Strong demo signals
   if (urlHasDemo) return 'demo';
   if (hasChartDemoClass && labelHasDemo) return 'demo';
+
+  // Strong real signal on trading page: no demo markers and we are on PO trading routes.
+  // This avoids transient `unknown` states when labels are not yet populated at init.
+  if (
+    isPocketOptionHost &&
+    isTradingPage &&
+    !urlHasDemo &&
+    !hasChartDemoClass &&
+    !labelHasDemo
+  ) {
+    return 'real';
+  }
 
   // Strong real signals: no demo indicators AND label has meaningful text
   if (!hasChartDemoClass && !labelHasDemo && labelText.length > 0) return 'real';
