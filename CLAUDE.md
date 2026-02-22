@@ -288,9 +288,15 @@ Content Script → (setTimeout) → FINALIZE_TRADE → Background → DB finaliz
 | 에이전트 상태판 | **메인 레포** `docs/BOARD.md` | 모든 에이전트가 즉시 접근 |
 | 팀간 소통 | **메인 레포** `docs/teams/{team}/inbox.md` | append-only 메시지 큐 |
 | 참조용 안정 문서 | **Wiki repo** `../pocket-chrome-extension.wiki` (또는 `docs/wiki` symlink) | 자주 안 바뀌는 문서의 단일 저장소 |
-| 작업 이력/회고 | **Wiki repo** `Worklog/` | Daily→Weekly→Monthly 계층 아카이브 |
+| 작업 이력/회고 | **Wiki repo** `Worklog/` | 프로젝트 공식 작업 이력 (Git Activity, PR, Issue, Decisions) |
+| 개인 작업 컨텍스트 | **개인 레포** `~/docs/context/` ([Cha-Ji/docs](https://github.com/Cha-Ji/docs)) | 트러블슈팅, 진행 체크리스트 등 개인 맥락. 프로젝트 무관. RAG 인덱싱 대상 |
 | 이슈 큐 (클라우드) | **메인 레포** `docs/issue-queue/` | 로컬 LLM이 처리 |
 | 과거 문서 아카이브 | **메인 레포** `docs/archive/` | 마이그레이션 중 임시 보관 (정리 대상) |
+
+**`~/docs/context/` vs Wiki `Worklog/` 경계**:
+- **`~/docs/context/`**: "나"의 작업 맥락. 증상/원인/해결 트러블슈팅, 환경 설정 기록, 할일 체크리스트. 프로젝트에 종속되지 않음. YAML front matter로 메타데이터 관리 (`date`, `type`, `project`, `tags`). 작성 규칙은 `~/docs/context/WRITING_GUIDE.md` 참조.
+- **Wiki `Worklog/`**: pocket-ext 프로젝트의 공식 작업 이력. Commits, PRs, Issues, Decisions 중심. 팀/에이전트 공유용.
+- **겹침 방지**: `~/docs/context/`의 내용 중 프로젝트 공식 기록으로 남길 것만 Wiki Worklog에 별도 작성. 둘 다에 같은 내용을 복사하지 않는다.
 
 **중요**: `docs/head/*`는 운영 중단. 새로운 상태/진행/결정 기록은 `docs/BOARD.md`만 사용한다.
 
