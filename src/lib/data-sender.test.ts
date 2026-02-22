@@ -15,7 +15,7 @@ vi.mock('./logger', () => ({
   },
 }));
 
-import { DataSender, isRetriableStatus, backoffWithJitter } from './data-sender';
+import { DataSender, isRetriableStatus, backoffWithJitter, BULK_CHUNK_SIZE } from './data-sender';
 import type { CandleLike } from './data-sender';
 
 // ============================================================
@@ -425,6 +425,101 @@ describe('DataSender', () => {
 
       const body = JSON.parse((fetch as any).mock.calls[0][1].body);
       expect(body.candles[0].symbol).toBe('GOOG');
+    });
+
+    it('BULK_CHUNK_SIZE 이하의 캔들은 단일 요청으로 전송한다', async () => {
+      DataSender._resetForTesting();
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ count: 10 }),
+      });
+
+      const candles: CandleLike[] = Array.from({ length: 10 }, (_, i) => ({
+        symbol: 'AAPL',
+        timestamp: 1700000000000 + i * 60000,
+        open: 175 + i,
+        high: 180 + i,
+        low: 170 + i,
+        close: 178 + i,
+      }));
+
+      await DataSender.sendHistory(candles);
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(DataSender.getStats().bulkSendCount).toBe(1);
+    });
+
+    it('BULK_CHUNK_SIZE 초과 시 여러 청크로 분할 전송한다', async () => {
+      DataSender._resetForTesting();
+      const chunkCount = 3;
+      const totalCandles = BULK_CHUNK_SIZE * 2 + 100; // 3 chunks
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ count: BULK_CHUNK_SIZE }),
+      });
+
+      const candles: CandleLike[] = Array.from({ length: totalCandles }, (_, i) => ({
+        symbol: 'BTCUSD',
+        timestamp: 1700000000000 + i * 60000,
+        open: 50000 + i,
+        high: 50500 + i,
+        low: 49500 + i,
+        close: 50200 + i,
+      }));
+
+      await DataSender.sendHistory(candles);
+
+      expect(fetch).toHaveBeenCalledTimes(chunkCount);
+      expect(DataSender.getStats().bulkSendCount).toBe(chunkCount);
+
+      // 각 청크의 캔들 수 검증
+      const bodies = (fetch as any).mock.calls.map(
+        (call: any[]) => JSON.parse(call[1].body).candles.length,
+      );
+      expect(bodies[0]).toBe(BULK_CHUNK_SIZE);
+      expect(bodies[1]).toBe(BULK_CHUNK_SIZE);
+      expect(bodies[2]).toBe(100);
+    });
+
+    it('청크 중 하나가 실패해도 나머지 청크는 계속 전송한다', async () => {
+      DataSender._resetForTesting();
+      const totalCandles = BULK_CHUNK_SIZE + 10; // 2 chunks
+
+      let callIndex = 0;
+      globalThis.fetch = vi.fn().mockImplementation(() => {
+        callIndex++;
+        if (callIndex === 1) {
+          // 첫 번째 청크 실패 (non-retriable)
+          return Promise.resolve({
+            ok: false,
+            status: 400,
+            text: () => Promise.resolve('Bad Request'),
+          });
+        }
+        // 두 번째 청크 성공
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ count: 10 }),
+        });
+      });
+
+      const candles: CandleLike[] = Array.from({ length: totalCandles }, (_, i) => ({
+        symbol: 'ETHUSD',
+        timestamp: 1700000000000 + i * 60000,
+        open: 3000 + i,
+        high: 3100 + i,
+        low: 2900 + i,
+        close: 3050 + i,
+      }));
+
+      await DataSender.sendHistory(candles, 0); // no retries
+
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(DataSender.getStats().bulkFailCount).toBe(1);
+      expect(DataSender.getStats().bulkSuccessCount).toBe(1);
+      // 실패한 청크가 retry queue에 추가됨
+      expect(DataSender.getStats().retryQueueSize).toBe(1);
     });
   });
 

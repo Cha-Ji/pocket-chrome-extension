@@ -58,6 +58,9 @@ export function backoffWithJitter(attempt: number, baseMs = 1000): number {
 
 const MAX_RETRY_QUEUE_SIZE = 5;
 
+/** 청크 당 최대 캔들 수 — 서버 body 파싱/메모리 부담 방지 */
+export const BULK_CHUNK_SIZE = 500;
+
 interface QueuedChunk {
   bodyStr: string;
   symbol: string;
@@ -222,20 +225,33 @@ export const DataSender = {
       );
     }
 
-    // Count this as a send attempt (after validation passes)
-    senderStats.bulkSendCount++;
+    // 청크 분할: BULK_CHUNK_SIZE 초과 시 순차 전송
+    const chunks: typeof mapped[] = [];
+    for (let i = 0; i < mapped.length; i += BULK_CHUNK_SIZE) {
+      chunks.push(mapped.slice(i, i + BULK_CHUNK_SIZE));
+    }
 
-    const payload = { candles: mapped };
-    const bodyStr = JSON.stringify(payload);
+    const sym = mapped[0].symbol;
     log.data(
-      `Sending ${mapped.length} candles (${(bodyStr.length / 1024).toFixed(1)}KB) to ${SERVER_URL}/api/candles/bulk`,
+      `Sending ${mapped.length} candles for ${sym} in ${chunks.length} chunk(s) to ${SERVER_URL}/api/candles/bulk`,
     );
 
-    const sent = await this._sendWithRetry(bodyStr, mapped[0].symbol, mapped.length, maxRetries);
+    for (let ci = 0; ci < chunks.length; ci++) {
+      const chunk = chunks[ci];
+      senderStats.bulkSendCount++;
 
-    if (!sent) {
-      // Enqueue for later retry (bounded)
-      this._enqueueForRetry(bodyStr, mapped[0].symbol, mapped.length);
+      const bodyStr = JSON.stringify({ candles: chunk });
+      if (chunks.length > 1) {
+        log.data(
+          `Chunk ${ci + 1}/${chunks.length}: ${chunk.length} candles (${(bodyStr.length / 1024).toFixed(1)}KB)`,
+        );
+      }
+
+      const sent = await this._sendWithRetry(bodyStr, sym, chunk.length, maxRetries);
+
+      if (!sent) {
+        this._enqueueForRetry(bodyStr, sym, chunk.length);
+      }
     }
   },
 
