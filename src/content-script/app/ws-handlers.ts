@@ -299,7 +299,73 @@ function notifyBestAsset(asset: AssetPayout): void {
 // ambiguity and ensures a single writer for candle data.
 // ============================================================
 
-const HISTORY_CHUNK_SIZE = 1000;
+const HISTORY_CHUNK_SIZE = 5000;
+const HISTORY_CHUNK_CONCURRENCY = 4;
+
+type ChunkRecord = {
+  chunk: Array<{
+    timestamp: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume?: number;
+  }>;
+  isLastChunk: boolean;
+};
+
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<number>,
+): Promise<number> {
+  if (items.length === 0) return 0;
+
+  let index = 0;
+  let addedTotal = 0;
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) {
+      const i = index++;
+      const added = await worker(items[i]);
+      addedTotal += added;
+    }
+  });
+
+  await Promise.all(workers);
+  return addedTotal;
+}
+
+async function sendHistoryChunkToBackground(
+  symbol: string,
+  chunk: Array<{
+    timestamp: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume?: number;
+  }>,
+  isFinal: boolean,
+): Promise<number> {
+  try {
+    const result = (await chrome.runtime.sendMessage({
+      type: 'CANDLE_HISTORY_CHUNK',
+      payload: {
+        symbol,
+        interval: 60,
+        candles: chunk,
+        source: 'history',
+        isFinal,
+      },
+    })) as { success?: boolean; added?: number } | null;
+
+    return result?.added ? result.added : 0;
+  } catch (e) {
+    console.warn(`[PO] CANDLE_HISTORY_CHUNK send failed:`, e);
+    return 0;
+  }
+}
 
 async function saveHistoryCandlesToDB(
   symbol: string,
@@ -320,40 +386,25 @@ async function saveHistoryCandlesToDB(
   let totalAdded = 0;
   const startTs = Date.now();
 
-  // Chunk processing — send each chunk as a message to Background
+  const chunks: ChunkRecord[] = [];
+
   for (let i = 0; i < validCandles.length; i += HISTORY_CHUNK_SIZE) {
     const chunk = validCandles.slice(i, i + HISTORY_CHUNK_SIZE);
     const isLastChunk = i + HISTORY_CHUNK_SIZE >= validCandles.length;
+    chunks.push({ chunk, isLastChunk });
+  }
 
-    try {
-      const result = (await chrome.runtime.sendMessage({
-        type: 'CANDLE_HISTORY_CHUNK',
-        payload: {
-          symbol,
-          interval: 60,
-          candles: chunk,
-          source: 'history',
-          isFinal: isLastChunk,
-        },
-      })) as { success?: boolean; added?: number } | null;
+  const worker = async (item: ChunkRecord): Promise<number> =>
+    sendHistoryChunkToBackground(symbol, item.chunk, false);
 
-      if (result?.added) {
-        totalAdded += result.added;
-      }
-    } catch (e) {
-      console.warn(`[PO] CANDLE_HISTORY_CHUNK send failed (chunk ${i}):`, e);
-    }
+  const nonFinalChunks = chunks.filter((c) => !c.isLastChunk);
+  const lastChunk = chunks.find((c) => c.isLastChunk);
 
-    // Yield to UI between chunks
-    if (!isLastChunk) {
-      await new Promise<void>((resolve) => {
-        if (typeof requestIdleCallback === 'function') {
-          requestIdleCallback(() => resolve());
-        } else {
-          setTimeout(resolve, 0);
-        }
-      });
-    }
+  const nonFinalAdded = await runWithConcurrency(nonFinalChunks, HISTORY_CHUNK_CONCURRENCY, worker);
+  totalAdded += nonFinalAdded;
+
+  if (lastChunk) {
+    totalAdded += await sendHistoryChunkToBackground(symbol, lastChunk.chunk, true);
   }
 
   console.log(

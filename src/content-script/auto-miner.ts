@@ -252,7 +252,6 @@ export const AutoMiner = {
 
     const availableAssets = payoutMonitorRef
       .getAvailableAssets()
-      .filter((asset) => asset.payout >= 92)
       .map((asset) => asset.name);
 
     log.info(
@@ -385,6 +384,7 @@ export const AutoMiner = {
 
     interceptor.send(
       `42["loadHistoryPeriod",{"asset":"${assetId}","index":${index},"time":${timeBase},"offset":${config.offsetSeconds},"period":${config.period}}]`,
+      'api-',
     );
 
     minerState.pendingRequest = true;
