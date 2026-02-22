@@ -229,7 +229,7 @@ describe('WebSocketInterceptor', () => {
       expect(historyCb.mock.calls[0][0]).toHaveLength(2);
     });
 
-    it('should dispatch single candle_data with OHLC to onHistoryReceived', () => {
+    it('should NOT dispatch single candle_data to onHistoryReceived (prevents mining pollution)', () => {
       const interceptor = getWebSocketInterceptor();
       const historyCb = vi.fn();
       interceptor.onHistoryReceived(historyCb);
@@ -256,8 +256,9 @@ describe('WebSocketInterceptor', () => {
         }),
       );
 
-      expect(historyCb).toHaveBeenCalledTimes(1);
-      expect(historyCb.mock.calls[0][0]).toHaveLength(1);
+      // 개별 candle_data는 historyCallbacks에 전달되지 않음
+      // AutoMiner의 pendingRequest를 소비하여 벌크 히스토리 응답이 무시되는 문제 방지
+      expect(historyCb).not.toHaveBeenCalled();
     });
 
     it('should dispatch all messages to onMessage callbacks', () => {
