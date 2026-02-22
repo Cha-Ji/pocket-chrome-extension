@@ -54,11 +54,14 @@ export const PO_SELECTOR_FALLBACKS: Record<string, string[]> = PO_DEMO_FALLBACKS
  */
 export function detectEnvironment(): PlatformEnvironment {
   // 1. URL check (most reliable)
-  const urlHasDemo = window.location.pathname.includes('demo');
-  const hasQuickHighLowPath = window.location.pathname.includes('/quick-high-low');
-  const hasCabinetPath = window.location.pathname.includes('/cabinet/');
+  // [#jsdom] hostname/pathname이 undefined일 수 있는 환경(jsdom, headless CI) 대비 가드
+  const hostname = window.location?.hostname ?? '';
+  const pathname = window.location?.pathname ?? '';
+  const urlHasDemo = pathname.includes('demo');
+  const hasQuickHighLowPath = pathname.includes('/quick-high-low');
+  const hasCabinetPath = pathname.includes('/cabinet/');
   const isPocketOptionHost = PO_DOMAINS_INTERNAL.some((domain: string) =>
-    window.location.hostname.includes(domain),
+    hostname.includes(domain),
   );
   const isTradingPage = hasQuickHighLowPath || hasCabinetPath;
 
