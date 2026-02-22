@@ -6,7 +6,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { BacktestEngine, getBacktestEngine } from './engine';
 import { RSIStrategies, RSIOverboughtOversold } from './strategies/rsi-strategy';
 import { generateTestCandles, generatePatternedData } from './data-generator';
-import { BacktestConfig } from './types';
+import { BacktestConfig, Candle } from './types';
+import { hasFixture, loadFixtureSlice, FIXTURES } from './__tests__/fixture-loader';
 
 describe('BacktestEngine', () => {
   let engine: BacktestEngine;
@@ -212,5 +213,204 @@ describe('RSI Strategies', () => {
         expect(param.step).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+// ============================================================
+// Gap Trade Handling (#169)
+// ============================================================
+
+describe('Gap Trade Handling (#169)', () => {
+  let engine: BacktestEngine;
+
+  beforeEach(() => {
+    engine = new BacktestEngine();
+    RSIStrategies.forEach((s) => engine.registerStrategy(s));
+  });
+
+  /**
+   * Create candles with an intentional gap in the middle.
+   * First 200 candles are contiguous (60s interval), then a 30-minute gap,
+   * then another 200 contiguous candles.
+   */
+  function createGappedCandles(): Candle[] {
+    const base = Date.now() - 1000 * 60 * 500;
+    const candles: Candle[] = [];
+    let price = 100;
+    for (let i = 0; i < 200; i++) {
+      const change = (Math.sin(i * 0.1) + Math.random() * 0.5 - 0.25) * 0.5;
+      price = Math.max(50, price + change);
+      candles.push({
+        timestamp: base + i * 60_000,
+        open: price,
+        high: price + 0.5,
+        low: price - 0.5,
+        close: price + change * 0.1,
+      });
+    }
+    // 30-minute gap (30 missing candles at 60s interval)
+    const gapMs = 30 * 60_000;
+    for (let i = 0; i < 200; i++) {
+      const change = (Math.sin(i * 0.15) + Math.random() * 0.5 - 0.25) * 0.5;
+      price = Math.max(50, price + change);
+      candles.push({
+        timestamp: base + 200 * 60_000 + gapMs + i * 60_000,
+        open: price,
+        high: price + 0.5,
+        low: price - 0.5,
+        close: price + change * 0.1,
+      });
+    }
+    return candles;
+  }
+
+  function makeConfig(candles: Candle[], overrides?: Partial<BacktestConfig>): BacktestConfig {
+    return {
+      symbol: 'TEST',
+      startTime: candles[0].timestamp,
+      endTime: candles[candles.length - 1].timestamp,
+      initialBalance: 10000,
+      betAmount: 100,
+      betType: 'fixed',
+      payout: 92,
+      expirySeconds: 60,
+      strategyId: 'rsi-ob-os',
+      strategyParams: { period: 14, oversold: 30, overbought: 70 },
+      ...overrides,
+    };
+  }
+
+  it('gapTradeHandling="loss" records gap trades as LOSS', () => {
+    const candles = createGappedCandles();
+    const result = engine.run(makeConfig(candles, { gapTradeHandling: 'loss' }), candles);
+    const gapTrades = result.trades.filter((t) => t.isGapTrade);
+
+    if (result.gapTradeStats && result.gapTradeStats.total > 0) {
+      expect(gapTrades.length).toBe(result.gapTradeStats.forcedLoss);
+      for (const t of gapTrades) {
+        expect(t.result).toBe('LOSS');
+        expect(t.isGapTrade).toBe(true);
+      }
+    }
+    // stats consistency
+    expect(result.gapTradeStats).toBeDefined();
+    expect(result.gapTradeStats!.skipped).toBe(0);
+  });
+
+  it('gapTradeHandling="skip" skips gap trades (backward compat)', () => {
+    const candles = createGappedCandles();
+    const result = engine.run(makeConfig(candles, { gapTradeHandling: 'skip' }), candles);
+    const gapTrades = result.trades.filter((t) => t.isGapTrade);
+
+    // No gap trades in the trade list when skipping
+    expect(gapTrades).toHaveLength(0);
+    expect(result.gapTradeStats).toBeDefined();
+    expect(result.gapTradeStats!.forcedLoss).toBe(0);
+  });
+
+  it('default gapTradeHandling is "loss"', () => {
+    const candles = createGappedCandles();
+    const resultDefault = engine.run(makeConfig(candles), candles);
+    const resultExplicit = engine.run(makeConfig(candles, { gapTradeHandling: 'loss' }), candles);
+
+    // Same number of gap forced losses
+    expect(resultDefault.gapTradeStats!.forcedLoss).toBe(
+      resultExplicit.gapTradeStats!.forcedLoss,
+    );
+  });
+
+  it('gapTradeStats counts are consistent', () => {
+    const candles = createGappedCandles();
+    const result = engine.run(makeConfig(candles, { gapTradeHandling: 'loss' }), candles);
+    const stats = result.gapTradeStats!;
+
+    expect(stats.total).toBe(stats.skipped + stats.forcedLoss);
+  });
+
+  it('only gap trades have isGapTrade=true', () => {
+    const candles = createGappedCandles();
+    const result = engine.run(makeConfig(candles, { gapTradeHandling: 'loss' }), candles);
+    for (const t of result.trades) {
+      if (t.isGapTrade) {
+        expect(t.result).toBe('LOSS');
+      }
+    }
+    // Non-gap trades should not have isGapTrade set
+    const nonGapTrades = result.trades.filter((t) => !t.isGapTrade);
+    for (const t of nonGapTrades) {
+      expect(t.isGapTrade).toBeUndefined();
+    }
+  });
+});
+
+// ============================================================
+// Real Data Backtest (#129)
+// ============================================================
+
+describe.skipIf(!hasFixture(FIXTURES.BTCUSDT_1M))('Real Data Backtest (#129)', () => {
+  let engine: BacktestEngine;
+
+  beforeEach(() => {
+    engine = new BacktestEngine();
+    RSIStrategies.forEach((s) => engine.registerStrategy(s));
+  });
+
+  it('runs backtest on BTCUSDT 1m real data', () => {
+    const candles = loadFixtureSlice(FIXTURES.BTCUSDT_1M, 2000);
+    const config: BacktestConfig = {
+      symbol: 'BTCUSDT',
+      startTime: candles[0].timestamp,
+      endTime: candles[candles.length - 1].timestamp,
+      initialBalance: 10000,
+      betAmount: 100,
+      betType: 'fixed',
+      payout: 92,
+      expirySeconds: 60,
+      strategyId: 'rsi-ob-os',
+      strategyParams: { period: 14, oversold: 30, overbought: 70 },
+    };
+
+    const result = engine.run(config, candles);
+
+    expect(result.totalTrades).toBeGreaterThan(0);
+    expect(result.winRate).toBeGreaterThanOrEqual(0);
+    expect(result.winRate).toBeLessThanOrEqual(100);
+    expect(result.finalBalance).toBeGreaterThan(0);
+  });
+
+  it('gapTradeHandling="loss" produces equal or more trades than "skip" on real data', () => {
+    const candles = loadFixtureSlice(FIXTURES.BTCUSDT_1M, 2000);
+    const baseConfig: BacktestConfig = {
+      symbol: 'BTCUSDT',
+      startTime: candles[0].timestamp,
+      endTime: candles[candles.length - 1].timestamp,
+      initialBalance: 10000,
+      betAmount: 100,
+      betType: 'fixed',
+      payout: 92,
+      expirySeconds: 60,
+      strategyId: 'rsi-ob-os',
+      strategyParams: { period: 14, oversold: 30, overbought: 70 },
+    };
+
+    const skipResult = engine.run(
+      { ...baseConfig, gapTradeHandling: 'skip' },
+      candles,
+    );
+    const lossResult = engine.run(
+      { ...baseConfig, gapTradeHandling: 'loss' },
+      candles,
+    );
+
+    // 'loss' mode includes gap trades that 'skip' mode omits
+    expect(lossResult.totalTrades).toBeGreaterThanOrEqual(skipResult.totalTrades);
+    expect(lossResult.gapTradeStats!.forcedLoss).toBeGreaterThanOrEqual(0);
+    expect(skipResult.gapTradeStats!.skipped).toBeGreaterThanOrEqual(0);
+
+    console.log(
+      `Skip: ${skipResult.totalTrades} trades, ${skipResult.winRate.toFixed(1)}% WR | ` +
+        `Loss: ${lossResult.totalTrades} trades, ${lossResult.winRate.toFixed(1)}% WR | ` +
+        `Gaps: ${lossResult.gapTradeStats!.total}`,
+    );
   });
 });

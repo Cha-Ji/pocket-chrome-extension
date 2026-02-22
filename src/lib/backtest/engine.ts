@@ -13,6 +13,7 @@ import {
   Strategy,
   Direction,
   TradeResult,
+  GapTradeHandling,
 } from './types';
 import { preprocessCandles, type PreprocessResult } from './candle-utils';
 import { IndicatorCache } from './indicator-cache';
@@ -90,6 +91,12 @@ export class BacktestEngine {
     let maxBalance = balance;
     let maxDrawdown = 0;
 
+    // Gap trade counters
+    const gapTradeHandling: GapTradeHandling = config.gapTradeHandling ?? 'loss';
+    let gapTotal = 0;
+    let gapSkipped = 0;
+    let gapForcedLoss = 0;
+
     // 지표 캐시 활성화 — 전체 filteredCandles에 대해 한 번만 계산
     const indicatorCache = new IndicatorCache(filteredCandles);
     indicatorCache.activate();
@@ -133,21 +140,59 @@ export class BacktestEngine {
           const expiryTime = entryTime + config.expirySeconds * 1000;
           const exitCandleIndex = filteredCandles.findIndex((c) => c.timestamp >= expiryTime);
 
-          if (exitCandleIndex === -1) continue; // No exit candle found
+          const isGapNoExit = exitCandleIndex === -1;
+          let isGapTooFar = false;
+          let exitCandle: Candle | undefined;
 
-          const exitCandle = filteredCandles[exitCandleIndex];
+          if (!isGapNoExit) {
+            exitCandle = filteredCandles[exitCandleIndex];
+            const exitTimeDiff = exitCandle.timestamp - expiryTime;
+            const maxExitSlippage = config.expirySeconds * 1000 * 2;
+            isGapTooFar = exitTimeDiff > maxExitSlippage;
+          }
 
-          // Skip trade if exit candle is too far from expected expiry (gap in data)
-          // Allow up to 3x the expected expiry window to account for minor gaps
-          const exitTimeDiff = exitCandle.timestamp - expiryTime;
-          const maxExitSlippage = config.expirySeconds * 1000 * 2;
-          if (exitTimeDiff > maxExitSlippage) continue;
+          const isGapTrade = isGapNoExit || isGapTooFar;
 
-          // Entry price uses the latency-adjusted candle's close + slippage
+          if (isGapTrade) {
+            gapTotal++;
+            if (gapTradeHandling === 'skip') {
+              gapSkipped++;
+              continue;
+            }
+            // 'loss': record as forced loss (matches live trading behavior)
+            gapForcedLoss++;
+            const profit = -betAmount;
+            balance += profit;
+
+            const trade: BacktestTrade = {
+              entryTime,
+              entryPrice: entryCandle.close + (config.slippage || 0) * (signal.direction === 'CALL' ? 1 : -1),
+              exitTime: expiryTime,
+              exitPrice: 0,
+              direction: signal.direction,
+              result: 'LOSS',
+              payout: config.payout,
+              profit,
+              strategySignal: signal.indicators,
+              isGapTrade: true,
+            };
+            trades.push(trade);
+
+            equityCurve.push({ timestamp: expiryTime, balance });
+            if (balance > maxBalance) maxBalance = balance;
+            const drawdown = maxBalance - balance;
+            if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+
+            // Skip ahead: if exit candle exists, jump to it; otherwise stay
+            if (exitCandleIndex !== -1) i = exitCandleIndex;
+            continue;
+          }
+
+          // Normal trade (non-gap)
           const entryPrice =
             entryCandle.close + (config.slippage || 0) * (signal.direction === 'CALL' ? 1 : -1);
 
-          const result = this.determineResult(signal.direction, entryPrice, exitCandle.close);
+          const result = this.determineResult(signal.direction, entryPrice, exitCandle!.close);
 
           // Calculate profit
           const profit = this.calculateProfit(result, betAmount, config.payout);
@@ -157,8 +202,8 @@ export class BacktestEngine {
           const trade: BacktestTrade = {
             entryTime,
             entryPrice,
-            exitTime: exitCandle.timestamp,
-            exitPrice: exitCandle.close,
+            exitTime: exitCandle!.timestamp,
+            exitPrice: exitCandle!.close,
             direction: signal.direction,
             result,
             payout: config.payout,
@@ -168,7 +213,7 @@ export class BacktestEngine {
           trades.push(trade);
 
           // Update equity curve
-          equityCurve.push({ timestamp: exitCandle.timestamp, balance });
+          equityCurve.push({ timestamp: exitCandle!.timestamp, balance });
 
           // Track drawdown
           if (balance > maxBalance) {
@@ -226,6 +271,11 @@ export class BacktestEngine {
         invalidRemoved: preprocessed.analysis.invalidRemoved,
         gapStrategy,
         warnings: preprocessed.warnings,
+      },
+      gapTradeStats: {
+        total: gapTotal,
+        skipped: gapSkipped,
+        forcedLoss: gapForcedLoss,
       },
       trades,
       equityCurve,
